@@ -1,7 +1,7 @@
 name: media_shelf
 description: 책·만화·이미지·영상 로컬 라이브러리 관리 앱 (Windows → Android → iOS/macOS)
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: ^3.13.0
@@ -33,6 +33,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true

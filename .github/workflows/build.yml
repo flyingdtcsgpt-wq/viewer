@@ -28,6 +28,9 @@ jobs:
 
       - run: flutter pub get
 
+      - name: App icon
+        run: dart run flutter_launcher_icons -f tool/icons_windows.yaml
+
       - name: Analyze (오류만 실패 처리)
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
@@ -83,14 +86,37 @@ jobs:
 
       - run: flutter pub get
 
+      - name: App icon
+        run: dart run flutter_launcher_icons -f tool/icons_android.yaml
+
+      # 저장소 Secrets 에 서명 키가 있으면 정식 키로 서명 (없으면 임시 debug 키)
+      - name: Release signing key
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > android/app/release.p12
+            printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=release.p12\n' "$PW" "$PW" "${ALIAS:-mediashelf}" > android/key.properties
+            echo "정식 키로 서명합니다"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 Secret 이 없어 임시(debug) 키로 서명합니다"
+          fi
+
+      # 기종별로 나눠 빌드 (하나에 다 넣으면 128MB)
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --split-per-abi
 
       - name: Collect
         run: |
           mkdir -p dist
           ver=$(grep -oP '^version:\s*\K[0-9.]+' pubspec.yaml)
-          cp build/app/outputs/flutter-apk/app-release.apk dist/MediaShelf-$ver-android.apk
+          ls -la build/app/outputs/flutter-apk/
+          # 요즘 폰(갤럭시 S/노트/A 대부분): arm64
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/MediaShelf-$ver-android.apk
+          # 아주 오래된 32비트 폰용
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/MediaShelf-$ver-android-old32bit.apk
 
       - uses: actions/upload-artifact@v4
         with:

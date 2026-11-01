@@ -5,19 +5,15 @@ from pathlib import Path
 path = Path("android/app/src/main/AndroidManifest.xml")
 xml = path.read_text(encoding="utf-8")
 
+# 꼭 필요한 것만 (권한이 많을수록 보안 앱이 의심한다)
 perms = [
-    "android.permission.INTERNET",                 # 책 정보 검색, AI
-    "android.permission.READ_EXTERNAL_STORAGE",    # Android 12 이하
-    "android.permission.WRITE_EXTERNAL_STORAGE",
-    "android.permission.READ_MEDIA_IMAGES",        # Android 13+
-    "android.permission.READ_MEDIA_VIDEO",
-    "android.permission.MANAGE_EXTERNAL_STORAGE",  # 폴더 전체 스캔 (Android 11+)
+    ("android.permission.INTERNET", ""),                                  # 책 정보 검색, AI
+    ("android.permission.READ_EXTERNAL_STORAGE", ' android:maxSdkVersion="29"'),  # 안드로이드 10 이하
+    ("android.permission.MANAGE_EXTERNAL_STORAGE", ""),                   # 폴더 등록 시에만 요청 (11+)
 ]
-lines = "".join(f'    <uses-permission android:name="{p}"/>\n' for p in perms if p not in xml)
+lines = "".join(f'    <uses-permission android:name="{p}"{extra}/>\n' for p, extra in perms if p not in xml)
 xml = re.sub(r"(<manifest[^>]*>\n)", r"\1" + lines, xml, count=1)
 xml = xml.replace('android:label="media_shelf"', 'android:label="MediaShelf"')
-if "requestLegacyExternalStorage" not in xml:
-    xml = xml.replace("<application", '<application\n        android:requestLegacyExternalStorage="true"', 1)
 path.write_text(xml, encoding="utf-8")
 print(xml[:1500])
 
@@ -81,3 +77,33 @@ class MainActivity : FlutterActivity() {{
 }}
 """, encoding="utf-8")
 print("patched", act)
+
+# ---- 정식 서명: android/key.properties 가 있으면 release 키로 서명 (CI 가 Secrets 로 만든다) ----
+gradle = Path("android/app/build.gradle.kts")
+assert gradle.exists(), "build.gradle.kts not found"
+g = gradle.read_text(encoding="utf-8")
+if "key.properties" not in g:
+    g = "import java.util.Properties\nimport java.io.FileInputStream\n\n" + g
+    g = g.replace("android {", """val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
+    }
+""", 1)
+    g = g.replace('signingConfig = signingConfigs.getByName("debug")',
+                  'signingConfig = if (keystorePropertiesFile.exists()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")')
+    assert 'getByName("release")' in g
+    gradle.write_text(g, encoding="utf-8")
+print("gradle signing patched")
