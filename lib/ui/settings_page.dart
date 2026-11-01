@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../app_state.dart';
 import '../models/media_item.dart';
 import '../services/settings.dart';
 
@@ -11,12 +12,14 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.watch<Settings>();
+    final admin = context.watch<AppState>().isAdmin; // 라이브러리/키 설정은 관리자만
     return Scaffold(
       appBar: AppBar(title: const Text('설정')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
           child: ListView(padding: const EdgeInsets.all(16), children: [
+            if (admin) ...[
             const _Header('라이브러리'),
             ListTile(
               title: const Text('라이브러리 폴더 (정리 대상)'),
@@ -89,6 +92,7 @@ class SettingsPage extends StatelessWidget {
               onSave: (v) => s.aiKey = v,
             ),
             _TextSetting(label: 'AI 모델', help: '예) claude-haiku-5-5 (저렴/빠름), claude-sonnet-5-5', value: s.aiModel, onSave: (v) => s.aiModel = v),
+            ],
             const _Header('화면'),
             SwitchListTile(title: const Text('다크 모드'), value: s.darkMode, onChanged: (v) => s.darkMode = v),
           ]),

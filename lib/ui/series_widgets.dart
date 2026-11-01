@@ -15,6 +15,7 @@ import 'viewers/open_item.dart';
 class SeriesTile extends StatelessWidget {
   final SeriesEntry entry;
   final bool selected;
+  final bool hidden;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final VoidCallback onEdit;
@@ -22,6 +23,7 @@ class SeriesTile extends StatelessWidget {
     super.key,
     required this.entry,
     required this.selected,
+    this.hidden = false,
     required this.onTap,
     required this.onLongPress,
     required this.onEdit,
@@ -97,6 +99,7 @@ class SeriesTile extends StatelessWidget {
                 bottom: 0,
                 child: LinearProgressIndicator(value: st.finished / st.allItems, minHeight: 4),
               ),
+            if (hidden) const Positioned(left: 6, bottom: 10, child: HiddenMark()),
             if (selected) const _SelectedMark(),
           ]),
         ),
@@ -143,6 +146,13 @@ class _SelectedMark extends StatelessWidget {
 
 /// 낱권 카드에서도 쓰는 선택 표시
 Widget selectedOverlay() => const _SelectedMark();
+
+/// 숨김 항목 표시 (숨김 목록이 열려 있을 때만 보임)
+class HiddenMark extends StatelessWidget {
+  const HiddenMark({super.key});
+  @override
+  Widget build(BuildContext context) => const _Pill(text: '숨김', color: Colors.black87, fg: Colors.white);
+}
 
 // =====================================================================
 //  묶음 안에 들어왔을 때 위쪽 머리글: 경로 + 권수/연재 상태 + 이어읽기
@@ -211,12 +221,13 @@ class SeriesHeader extends StatelessWidget {
                   icon: Icon(st.isVideo ? Icons.play_arrow : Icons.chrome_reader_mode),
                   label: Text('${next.progress > 0 ? '이어서' : '처음부터'} ${next.volumeLabel ?? next.title}'),
                 ),
-              OutlinedButton.icon(
-                onPressed: () => showSeriesEditor(context, s),
-                icon: const Icon(Icons.edit),
-                label: const Text('묶음 정보'),
-              ),
-              if (state.ai.enabled)
+              if (state.isAdmin)
+                OutlinedButton.icon(
+                  onPressed: () => showSeriesEditor(context, s),
+                  icon: const Icon(Icons.edit),
+                  label: const Text('묶음 정보'),
+                ),
+              if (state.ai.enabled && state.isAdmin)
                 OutlinedButton.icon(
                   onPressed: () => _aiFill(context, s),
                   icon: const Icon(Icons.auto_awesome),
@@ -298,6 +309,49 @@ class SelectionBar extends StatelessWidget {
             icon: const Icon(Icons.outbox),
             label: const Text('묶음에서 빼기'),
           ),
+        const SizedBox(width: 8),
+        TextButton.icon(
+          onPressed: () async {
+            if (!state.hasHiddenPassword) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('먼저 관리자 메뉴에서 숨김 비밀번호를 정하세요')),
+              );
+              return;
+            }
+            await state.hideSelected(true);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('숨겼습니다. 파일도 OS 에서 숨김 속성으로 바꿨습니다.'),
+              ));
+            }
+          },
+          icon: const Icon(Icons.visibility_off),
+          label: const Text('숨기기'),
+        ),
+        if (state.hiddenUnlocked)
+          TextButton.icon(
+            onPressed: () => state.hideSelected(false),
+            icon: const Icon(Icons.visibility),
+            label: const Text('숨김 해제'),
+          ),
+        TextButton.icon(
+          onPressed: () => showAccessForSelection(context),
+          icon: const Icon(Icons.lock_person),
+          label: const Text('사용자 접근'),
+        ),
+        TextButton.icon(
+          style: TextButton.styleFrom(foregroundColor: scheme.error),
+          onPressed: () async {
+            final mode = await confirmDelete(context, '선택한 ${state.selected.length}개');
+            if (mode == null) return;
+            final failed = await state.removeSelected(deleteFile: mode);
+            if (failed > 0 && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('파일 $failed개는 지우지 못했습니다 (사용 중이거나 권한 없음)')));
+            }
+          },
+          icon: const Icon(Icons.delete_outline),
+          label: const Text('삭제'),
+        ),
       ]),
     );
   }
@@ -311,17 +365,17 @@ Future<String?> askText(BuildContext context, String title, {String? hint, Strin
   final c = TextEditingController(text: initial);
   return showDialog<String>(
     context: context,
-    builder: (_) => AlertDialog(
+    builder: (ctx) => AlertDialog(
       title: Text(title),
       content: TextField(
         controller: c,
         autofocus: true,
         decoration: InputDecoration(hintText: hint),
-        onSubmitted: (v) => Navigator.pop(context, v.trim()),
+        onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
-        FilledButton(onPressed: () => Navigator.pop(context, c.text.trim()), child: const Text('확인')),
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('확인')),
       ],
     ),
   );
@@ -437,6 +491,7 @@ class _SeriesEditorState extends State<_SeriesEditor> {
   late SeriesStatus _status = widget.s.status;
   late int? _parent = widget.s.parentId;
   late String? _cover = widget.s.coverPath;
+  late bool _hidden = widget.s.hidden;
   bool _busy = false;
 
   @override
@@ -503,6 +558,16 @@ class _SeriesEditorState extends State<_SeriesEditor> {
                 ),
               ]),
             ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.visibility_off),
+              title: const Text('숨김'),
+              subtitle: Text(state.hasHiddenPassword
+                  ? '켜면 안의 모든 권이 숨김 목록으로 가고, 파일도 OS 숨김 속성이 됩니다'
+                  : '먼저 관리자 메뉴에서 숨김 비밀번호를 정하세요'),
+              value: _hidden,
+              onChanged: state.hasHiddenPassword || _hidden ? (v) => setState(() => _hidden = v) : null,
+            ),
             const SizedBox(height: 8),
             TextField(controller: _desc, maxLines: 3, decoration: deco('소개 / 메모')),
           ]),
@@ -510,16 +575,15 @@ class _SeriesEditorState extends State<_SeriesEditor> {
       ),
       actions: [
         TextButton(
-          style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
           onPressed: () async {
             final ok = await showDialog<bool>(
               context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('묶음 해제'),
-                content: const Text('묶음만 없어지고, 안에 있던 권과 하위 묶음은 한 단계 위로 나옵니다. 파일은 지워지지 않습니다.'),
+              builder: (ctx) => AlertDialog(
+                title: const Text('묶음 풀기'),
+                content: const Text('묶음만 없어지고, 안에 있던 권과 하위 묶음은 한 단계 위로 나옵니다. 파일은 그대로입니다.'),
                 actions: [
-                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
-                  FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('해제')),
+                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('풀기')),
                 ],
               ),
             );
@@ -528,7 +592,21 @@ class _SeriesEditorState extends State<_SeriesEditor> {
               if (context.mounted) Navigator.pop(context);
             }
           },
-          child: const Text('묶음 해제'),
+          child: const Text('묶음 풀기'),
+        ),
+        TextButton(
+          style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+          onPressed: () async {
+            final mode = await confirmDelete(context, '"${s.title}" 묶음', isSeries: true);
+            if (mode == null) return;
+            final failed = await state.removeMany(series: [s], deleteFile: mode);
+            if (!context.mounted) return;
+            Navigator.pop(context);
+            if (failed > 0) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('파일 $failed개는 지우지 못했습니다')));
+            }
+          },
+          child: const Text('삭제'),
         ),
         if (state.ai.enabled)
           TextButton(
@@ -563,6 +641,7 @@ class _SeriesEditorState extends State<_SeriesEditor> {
               ..coverPath = _cover;
             await state.saveSeries(s);
             if (_parent != s.parentId) await state.moveSeries(s, _parent);
+            if (_hidden != s.hidden) await state.setHidden(series: [s], hidden: _hidden);
             if (context.mounted) Navigator.pop(context);
           },
           child: const Text('저장'),
@@ -570,4 +649,89 @@ class _SeriesEditorState extends State<_SeriesEditor> {
       ],
     );
   }
+}
+
+
+/// 삭제 확인: null = 취소, false = 목록에서만, true = 원본 파일까지
+Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = false}) => showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.delete_forever),
+        title: Text('$what 삭제'),
+        content: Text(
+          '어떻게 지울까요?\n\n'
+          '• 목록에서만 제거: MediaShelf 에서만 빠지고, 하드디스크의 파일은 그대로 남습니다.\n'
+          '• 원본 파일까지 삭제: 실제 파일을 지웁니다. 되돌릴 수 없습니다.'
+          '${isSeries ? '\n\n묶음 안의 모든 하위 묶음과 권이 함께 지워집니다.' : ''}',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          OutlinedButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('목록에서만 제거')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () async {
+              // 한 번 더 확인
+              final sure = await showDialog<bool>(
+                context: ctx,
+                builder: (c2) => AlertDialog(
+                  title: const Text('정말 원본 파일을 지울까요?'),
+                  content: const Text('하드디스크에서 파일이 삭제됩니다. 되돌릴 수 없습니다.'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(c2), child: const Text('아니오')),
+                    FilledButton(
+                      style: FilledButton.styleFrom(backgroundColor: Theme.of(c2).colorScheme.error),
+                      onPressed: () => Navigator.pop(c2, true),
+                      child: const Text('파일 삭제'),
+                    ),
+                  ],
+                ),
+              );
+              if (sure == true && ctx.mounted) Navigator.pop(ctx, true);
+            },
+            child: const Text('원본 파일까지 삭제'),
+          ),
+        ],
+      ),
+    );
+
+/// 선택한 묶음/항목을 어떤 사용자가 볼 수 있는지 정하기
+Future<void> showAccessForSelection(BuildContext context) async {
+  final state = context.read<AppState>();
+  final targets = state.selectedTargets;
+  final others = state.users.where((u) => !u.isAdmin).toList();
+  if (others.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('일반 사용자가 없습니다. 관리자 메뉴에서 추가하세요.')));
+    return;
+  }
+  final allowed = <int, bool>{};
+  for (final u in others) {
+    final d = await state.deniedOf(u);
+    allowed[u.id!] = !targets.any(d.contains);
+  }
+  if (!context.mounted) return;
+  await showDialog(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setLocal) => AlertDialog(
+        title: Text('선택한 ${targets.length}개 — 사용자 접근'),
+        content: SizedBox(
+          width: 400,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('끄면 그 사용자에게 보이지 않습니다 (숨김과 별개). 관리자는 항상 볼 수 있습니다.'),
+            const SizedBox(height: 8),
+            for (final u in others)
+              SwitchListTile(
+                title: Text(u.name),
+                value: allowed[u.id]!,
+                onChanged: (v) async {
+                  await state.setAccess(u, targets, allowed: v);
+                  setLocal(() => allowed[u.id!] = v);
+                },
+              ),
+          ]),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기'))],
+      ),
+    ),
+  );
 }

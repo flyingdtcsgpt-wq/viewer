@@ -149,25 +149,15 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Future<void> _delete() async {
-    final del = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('삭제'),
-        content: const Text('라이브러리 목록에서만 뺄까요, 실제 파일도 지울까요?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('목록에서만')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('파일도 삭제'),
-          ),
-        ],
-      ),
-    );
-    if (del == null) return;
-    await state.remove(item, deleteFile: del);
-    if (mounted) Navigator.pop(context);
+    final mode = await confirmDelete(context, '"${item.title}"');
+    if (mode == null) return;
+    final failed = await state.removeMany(items: [item], deleteFile: mode);
+    if (!mounted) return;
+    if (failed > 0) {
+      _toast('파일을 지우지 못했습니다 (사용 중이거나 권한 없음). 목록에는 남겨두었습니다.');
+      return;
+    }
+    Navigator.pop(context);
   }
 
   @override
@@ -294,8 +284,27 @@ class _DetailPageState extends State<DetailPage> {
               state.save(item);
             },
           ),
-          IconButton(tooltip: '라이브러리 폴더로 정리', icon: const Icon(Icons.drive_file_move), onPressed: _organize),
-          IconButton(tooltip: '삭제', icon: const Icon(Icons.delete_outline), onPressed: _delete),
+          if (state.isAdmin) ...[
+            IconButton(
+              tooltip: item.hidden ? '숨김 해제' : '숨기기',
+              icon: Icon(item.hidden ? Icons.visibility : Icons.visibility_off),
+              onPressed: () async {
+                if (!item.hidden && !state.hasHiddenPassword) {
+                  _toast('먼저 관리자 메뉴에서 숨김 비밀번호를 정하세요');
+                  return;
+                }
+                await state.setHidden(items: [item], hidden: !item.hidden);
+                if (!mounted) return;
+                if (item.hidden && !state.hiddenUnlocked) {
+                  Navigator.pop(context); // 잠긴 상태면 바로 사라진다
+                } else {
+                  setState(() {});
+                }
+              },
+            ),
+            IconButton(tooltip: '라이브러리 폴더로 정리', icon: const Icon(Icons.drive_file_move), onPressed: _organize),
+            IconButton(tooltip: '삭제', icon: const Icon(Icons.delete_outline), onPressed: _delete),
+          ],
           IconButton(tooltip: '저장', icon: const Icon(Icons.save), onPressed: _save),
         ],
         bottom: _busy ? const PreferredSize(preferredSize: Size.fromHeight(4), child: LinearProgressIndicator()) : null,

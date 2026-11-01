@@ -20,6 +20,7 @@ class Series {
   String? coverPath; // 비어 있으면 첫 권 커버 사용
   int? total; // 전체 권(화) 수 — 알고 있을 때만
   SeriesStatus status;
+  bool hidden; // 숨김이면 하위 묶음/권 전부 숨김
   DateTime addedAt;
 
   Series({
@@ -31,6 +32,7 @@ class Series {
     this.coverPath,
     this.total,
     this.status = SeriesStatus.unknown,
+    this.hidden = false,
     DateTime? addedAt,
   }) : addedAt = addedAt ?? DateTime.now();
 
@@ -43,6 +45,7 @@ class Series {
         'cover_path': coverPath,
         'total': total,
         'status': status.name,
+        'hidden': hidden ? 1 : 0,
         'added_at': addedAt.millisecondsSinceEpoch,
       };
 
@@ -55,6 +58,7 @@ class Series {
         coverPath: m['cover_path'] as String?,
         total: m['total'] as int?,
         status: SeriesStatus.values.asNameMap()[m['status'] as String? ?? ''] ?? SeriesStatus.unknown,
+        hidden: (m['hidden'] as int?) == 1,
         addedAt: DateTime.fromMillisecondsSinceEpoch(m['added_at'] as int),
       );
 }

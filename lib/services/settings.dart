@@ -77,6 +77,19 @@ class Settings extends ChangeNotifier {
   bool get autoGroup => _p.getBool('autoGroup') ?? true;
   set autoGroup(bool v) => _set(() => _p.setBool('autoGroup', v));
 
+  /// 숨김 목록 비밀번호 (해시만 저장)
+  String get hiddenPwHash => _p.getString('hiddenPwHash') ?? '';
+  String get hiddenPwSalt => _p.getString('hiddenPwSalt') ?? '';
+  void setHiddenPw(String hash, String salt) {
+    _p.setString('hiddenPwHash', hash);
+    _p.setString('hiddenPwSalt', salt);
+    notifyListeners();
+  }
+
+  /// 마지막으로 로그인한 사용자 (로그인 화면에서 미리 선택)
+  int? get lastUserId => _p.getInt('lastUserId');
+  set lastUserId(int? v) => _set(() => v == null ? _p.remove('lastUserId') : _p.setInt('lastUserId', v));
+
   void _set(Future<bool> Function() f) {
     f();
     notifyListeners();

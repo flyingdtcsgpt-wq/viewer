@@ -11,6 +11,7 @@ class CoverTile extends StatelessWidget {
   final VoidCallback onInfo;
   final VoidCallback onLongPress;
   final bool selected;
+  final bool hidden;
   final bool showVolume; // 묶음 안에서는 "3권" 처럼 번호를 크게
   const CoverTile({
     super.key,
@@ -19,6 +20,7 @@ class CoverTile extends StatelessWidget {
     required this.onInfo,
     required this.onLongPress,
     this.selected = false,
+    this.hidden = false,
     this.showVolume = false,
   });
 
@@ -70,6 +72,7 @@ class CoverTile extends StatelessWidget {
                 top: item.favorite ? 30 : 6,
                 child: _Badge(item.volumeLabel!, scheme.tertiaryContainer),
               ),
+            if (hidden) const Positioned(left: 6, top: 30, child: HiddenMark()),
             if (selected) selectedOverlay(),
           ]),
         ),

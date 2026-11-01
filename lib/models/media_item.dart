@@ -50,6 +50,7 @@ class MediaItem {
   DateTime? lastOpened;
   int? seriesId; // 속한 묶음
   double? volume; // 권/화 번호 (10.5 같은 번외편도 가능)
+  bool hidden; // 관리자가 숨김 처리
 
   MediaItem({
     this.id,
@@ -75,6 +76,7 @@ class MediaItem {
     this.lastOpened,
     this.seriesId,
     this.volume,
+    this.hidden = false,
   })  : tags = tags ?? [],
         addedAt = addedAt ?? DateTime.now();
 
@@ -105,6 +107,7 @@ class MediaItem {
         'last_opened': lastOpened?.millisecondsSinceEpoch,
         'series_id': seriesId,
         'volume': volume,
+        'hidden': hidden ? 1 : 0,
       };
 
   factory MediaItem.fromMap(Map<String, Object?> m) => MediaItem(
@@ -135,6 +138,7 @@ class MediaItem {
         lastOpened: m['last_opened'] == null ? null : DateTime.fromMillisecondsSinceEpoch(m['last_opened'] as int),
         seriesId: m['series_id'] as int?,
         volume: (m['volume'] as num?)?.toDouble(),
+        hidden: (m['hidden'] as int?) == 1,
       );
 
   /// "3권", "10.5권", 영상은 "3화"

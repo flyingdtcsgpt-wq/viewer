@@ -7,6 +7,7 @@ import 'db/library_db.dart';
 import 'services/cover_service.dart';
 import 'services/settings.dart';
 import 'ui/home_page.dart';
+import 'ui/login_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,7 +47,8 @@ class MediaShelfApp extends StatelessWidget {
       theme: theme(Brightness.light),
       darkTheme: theme(Brightness.dark),
       themeMode: dark ? ThemeMode.dark : ThemeMode.light,
-      home: const HomePage(),
+      // 로그인 전에는 아무 목록도 보이지 않는다
+      home: context.select<AppState, bool>((s) => s.user != null) ? const HomePage() : const LoginPage(),
     );
   }
 }

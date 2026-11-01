@@ -29,6 +29,8 @@ Future<void> openItem(BuildContext context, MediaItem item, {List<MediaItem>? si
     await openWithSystem(item.path);
     return;
   }
+  await context.read<AppState>().beginView(item); // 열람 기록 시작
+  if (!context.mounted) return;
   await Navigator.push(context, MaterialPageRoute(builder: (_) => page));
 }
 
@@ -74,6 +76,7 @@ class NextVolumeButton extends StatelessWidget {
           openWithSystem(next.path);
           return;
         }
+        context.read<AppState>().beginView(next);
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => page));
       },
     );

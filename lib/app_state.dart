@@ -8,6 +8,7 @@ import 'models/entry.dart';
 import 'models/media_item.dart';
 import 'models/series.dart';
 import 'services/ai_service.dart';
+import 'services/auth.dart';
 import 'services/cover_service.dart';
 import 'services/metadata_service.dart';
 import 'services/organizer.dart';
@@ -33,6 +34,19 @@ class AppState extends ChangeNotifier {
 
   /// 다중 선택 ('s:묶음id' / 'i:항목id')
   final Set<String> selected = {};
+
+  // ---------------- 사용자 / 숨김 ----------------
+  AppUser? user;
+  List<AppUser> users = [];
+
+  /// 숨김 목록이 열려 있는지 (앱을 끄면 항상 false 로 시작)
+  bool hiddenUnlocked = false;
+
+  /// 현재 사용자에게 막힌 대상 ('s:id' / 'i:id')
+  Set<String> _denied = {};
+
+  /// 열려 있는 뷰어별 기록 줄 번호 (item id → history id)
+  final Map<int, int> _openHistory = {};
   MediaKind? kindFilter; // null = 전체
   bool favoritesOnly = false;
   String query = '';
@@ -43,6 +57,7 @@ class AppState extends ChangeNotifier {
   String scanStatus = '';
 
   Future<void> load() async {
+    users = await db.users();
     _items = await db.all();
     _series
       ..clear()
@@ -61,7 +76,191 @@ class AppState extends ChangeNotifier {
   // =====================================================================
 
   LibraryTree? _tree;
-  LibraryTree get tree => _tree ??= LibraryTree.build(_items, _series.values);
+  LibraryTree get tree => _tree ??= LibraryTree.build(
+        _items.where(canSeeItem).toList(),
+        _series.values.where(canSeeSeries),
+      );
+
+  /// 보이기 규칙을 무시한 전체 트리 (내부 정리용)
+  LibraryTree get rawTree => LibraryTree.build(_items, _series.values);
+
+  // =====================================================================
+  //  로그인
+  // =====================================================================
+
+  bool get needsSetup => users.isEmpty;
+  bool get isAdmin => user?.isAdmin ?? false;
+
+  /// 첫 실행: 관리자 계정 만들기
+  Future<void> createFirstAdmin(String name, String pw) async {
+    final u = AppUser(name: name.trim(), role: UserRole.admin)..setPassword(pw);
+    u.id = await db.insertUser(u);
+    await db.adoptLegacyProgress(u.id!);
+    users = await db.users();
+    await _enter(u);
+  }
+
+  Future<bool> login(AppUser u, String pw) async {
+    if (!u.check(pw)) return false;
+    await _enter(u);
+    return true;
+  }
+
+  Future<void> _enter(AppUser u) async {
+    user = u;
+    settings.lastUserId = u.id;
+    hiddenUnlocked = false;
+    currentSeriesId = null;
+    selected.clear();
+    _denied = u.isAdmin ? {} : await db.deniedFor(u.id!);
+    // 이 사용자의 읽은 위치로 바꿔 끼우기
+    final prog = await db.progressFor(u.id!);
+    for (final e in _items) {
+      final p = prog[e.id];
+      e
+        ..progress = p?.$1 ?? 0
+        ..position = p?.$2
+        ..lastOpened = p?.$3 == null ? null : DateTime.fromMillisecondsSinceEpoch(p!.$3!);
+    }
+    notifyListeners();
+  }
+
+  void logout() {
+    user = null;
+    hiddenUnlocked = false;
+    query = '';
+    selected.clear();
+    notifyListeners();
+  }
+
+  // ---------------- 사용자 관리 (관리자) ----------------
+
+  Future<void> addUser(String name, String pw, UserRole role) async {
+    final u = AppUser(name: name.trim(), role: role)..setPassword(pw);
+    await db.insertUser(u);
+    users = await db.users();
+    notifyListeners();
+  }
+
+  Future<void> updateUser(AppUser u, {String? newPassword}) async {
+    if (newPassword != null) u.setPassword(newPassword);
+    await db.updateUser(u);
+    users = await db.users();
+    notifyListeners();
+  }
+
+  Future<void> deleteUser(AppUser u) async {
+    await db.deleteUser(u.id!);
+    users = await db.users();
+    notifyListeners();
+  }
+
+  Future<Set<String>> deniedOf(AppUser u) => db.deniedFor(u.id!);
+
+  Future<void> setAccess(AppUser u, Iterable<String> targets, {required bool allowed}) async {
+    for (final t in targets) {
+      await db.setDenied(u.id!, t, !allowed);
+    }
+    if (u.id == user?.id && !u.isAdmin) _denied = await db.deniedFor(u.id!);
+    notifyListeners();
+  }
+
+  // =====================================================================
+  //  보이기 규칙: 접근 권한(사용자별) + 숨김(비밀번호)
+  // =====================================================================
+
+  /// 이 묶음 또는 상위 묶음 중 하나라도 조건을 만족하는가
+  bool _anyAncestor(int? seriesId, bool Function(Series) test) {
+    final seen = <int>{};
+    var cur = seriesId;
+    while (cur != null && seen.add(cur)) {
+      final s = _series[cur];
+      if (s == null) return false;
+      if (test(s)) return true;
+      cur = s.parentId;
+    }
+    return false;
+  }
+
+  bool isHiddenItem(MediaItem e) => e.hidden || _anyAncestor(e.seriesId, (s) => s.hidden);
+  bool isHiddenSeries(Series s) => _anyAncestor(s.id, (x) => x.hidden);
+
+  bool canAccessItem(MediaItem e) =>
+      _denied.isEmpty || (!_denied.contains('i:${e.id}') && !_anyAncestor(e.seriesId, (s) => _denied.contains('s:${s.id}')));
+  bool canAccessSeries(Series s) => _denied.isEmpty || !_anyAncestor(s.id, (x) => _denied.contains('s:${x.id}'));
+
+  bool canSeeItem(MediaItem e) => user != null && canAccessItem(e) && (hiddenUnlocked || !isHiddenItem(e));
+  bool canSeeSeries(Series s) => user != null && canAccessSeries(s) && (hiddenUnlocked || !isHiddenSeries(s));
+
+  bool get hasHiddenPassword => settings.hiddenPwHash.isNotEmpty;
+
+  /// 검색창에 숨김 비밀번호를 입력하고 Enter → 숨김 목록 열기
+  bool trySearchUnlock(String text) {
+    if (!hasHiddenPassword || text.isEmpty) return false;
+    if (!PasswordHash.verify(text, settings.hiddenPwSalt, settings.hiddenPwHash)) return false;
+    hiddenUnlocked = true;
+    query = '';
+    notifyListeners();
+    return true;
+  }
+
+  void lockHidden() {
+    hiddenUnlocked = false;
+    selected.clear();
+    if (currentSeries != null && !canSeeSeries(currentSeries!)) currentSeriesId = null;
+    notifyListeners();
+  }
+
+  void setHiddenPassword(String pw) {
+    final salt = PasswordHash.newSalt();
+    settings.setHiddenPw(PasswordHash.hash(pw, salt), salt);
+  }
+
+  /// 숨김 켜기/끄기 (관리자). 파일도 OS 에서 숨김 속성으로 바꾼다.
+  Future<void> setHidden({Iterable<MediaItem> items = const [], Iterable<Series> series = const [], required bool hidden}) async {
+    final affected = <MediaItem>{};
+    for (final e in items) {
+      e.hidden = hidden;
+      await db.update(e);
+      affected.add(e);
+    }
+    for (final s in series) {
+      s.hidden = hidden;
+      await db.updateSeries(s);
+      affected.addAll(_itemsUnder(s.id!));
+    }
+    await _syncOsHidden(affected);
+    if (hidden && !hiddenUnlocked) selected.clear();
+    notifyListeners();
+  }
+
+  /// 묶음 아래 모든 권 (하위 묶음 포함, 보이기 규칙 무시)
+  List<MediaItem> _itemsUnder(int seriesId) {
+    final ids = <int>{seriesId};
+    var grew = true;
+    while (grew) {
+      grew = false;
+      for (final s in _series.values) {
+        if (s.parentId != null && ids.contains(s.parentId) && ids.add(s.id!)) grew = true;
+      }
+    }
+    return _items.where((e) => ids.contains(e.seriesId)).toList();
+  }
+
+  /// 실제 파일의 숨김 속성 맞추기 (Windows: attrib, macOS: chflags)
+  Future<void> _syncOsHidden(Iterable<MediaItem> items) async {
+    for (final e in items) {
+      final h = isHiddenItem(e);
+      try {
+        if (Platform.isWindows) {
+          await Process.run('attrib.exe', [h ? '+h' : '-h', e.path]);
+        } else if (Platform.isMacOS) {
+          await Process.run('chflags', [h ? 'hidden' : 'nohidden', e.path]);
+        }
+        // Android / Linux 는 파일 숨김 속성이 없어 앱 안에서만 숨김
+      } catch (_) {}
+    }
+  }
 
   Series? seriesById(int? id) => id == null ? null : _series[id];
   Series? get currentSeries => seriesById(currentSeriesId);
@@ -240,6 +439,7 @@ class AppState extends ChangeNotifier {
       e.volume ??= parseName(e.path).volume;
       await db.update(e);
     }
+    await _syncOsHidden(items);
     notifyListeners();
   }
 
@@ -248,19 +448,21 @@ class AppState extends ChangeNotifier {
     if (parentId != null && isAncestor(s.id!, parentId)) return false;
     s.parentId = parentId;
     await db.updateSeries(s);
+    await _syncOsHidden(_itemsUnder(s.id!));
     notifyListeners();
     return true;
   }
 
   /// 묶음 해제: 안에 있던 권/하위 묶음은 한 단계 위로
   Future<void> deleteSeries(Series s) async {
-    for (final e in [...?tree.items[s.id]]) {
+    final raw = rawTree;
+    for (final e in [...?raw.items[s.id]]) {
       e
         ..seriesId = s.parentId
         ..series = seriesById(s.parentId)?.title;
       await db.update(e);
     }
-    for (final c in [...?tree.children[s.id]]) {
+    for (final c in [...?raw.children[s.id]]) {
       c.parentId = s.parentId;
       await db.updateSeries(c);
     }
@@ -295,9 +497,9 @@ class AppState extends ChangeNotifier {
       final id = int.parse(k.substring(2));
       if (k.startsWith('s:')) {
         final s = _series[id];
-        if (s != null) ss.add(s);
+        if (s != null && canSeeSeries(s)) ss.add(s);
       } else {
-        final i = _items.where((e) => e.id == id).firstOrNull;
+        final i = _items.where((e) => e.id == id && canSeeItem(e)).firstOrNull;
         if (i != null) ii.add(i);
       }
     }
@@ -340,6 +542,7 @@ class AppState extends ChangeNotifier {
   /// 2) "명탐정 코난" 과 "명탐정 코난 제로의 일상" 처럼 파생 시리즈 → 대표 묶음 아래로
   /// 반환: 묶인 항목 수
   Future<int> autoGroup() async {
+    var raw = rawTree;
     final candidates = _items.where((e) => e.seriesId == null && e.kind != MediaKind.image).toList();
     final groups = <String, List<(MediaItem, ParsedName)>>{};
     for (final e in candidates) {
@@ -355,8 +558,8 @@ class AppState extends ChangeNotifier {
       final n = normalizeTitle(title);
       return _series.values.where((s) {
         if (normalizeTitle(s.title) != n) return false;
-        final direct = tree.items[s.id] ?? const <MediaItem>[];
-        if (direct.isEmpty) return tree.children[s.id]?.isEmpty ?? true;
+        final direct = raw.items[s.id] ?? const <MediaItem>[];
+        if (direct.isEmpty) return raw.children[s.id]?.isEmpty ?? true;
         return direct.any((e) => (e.kind == MediaKind.video) == isVideo);
       }).firstOrNull;
     }
@@ -379,6 +582,7 @@ class AppState extends ChangeNotifier {
             ));
         s.author = first.author;
         await db.updateSeries(s);
+        raw = rawTree;
       }
       for (final (e, n) in g) {
         e
@@ -388,6 +592,7 @@ class AppState extends ChangeNotifier {
         await db.update(e);
         moved++;
       }
+      await _syncOsHidden(g.map((x) => x.$1));
     }
     _tree = null;
     await _nestSpinOffs();
@@ -403,9 +608,9 @@ class AppState extends ChangeNotifier {
       if (base.parentId != null) continue; // 이번 루프에서 이미 옮겨짐
       final spinOffs = roots.where((o) => o.id != base.id && o.parentId == null && isSpinOffOf(base.title, o.title)).toList();
       if (spinOffs.isEmpty) continue;
-      _tree = null;
+      final raw = rawTree;
       // base 가 이미 대표 묶음(하위 묶음만 가짐)이면 그 아래로, 아니면 대표 묶음을 새로 만든다
-      final baseIsUmbrella = (tree.items[base.id]?.isEmpty ?? true) && (tree.children[base.id]?.isNotEmpty ?? false);
+      final baseIsUmbrella = (raw.items[base.id]?.isEmpty ?? true) && (raw.children[base.id]?.isNotEmpty ?? false);
       Series umbrella = base;
       if (!baseIsUmbrella) {
         umbrella = await createSeries(base.title, status: SeriesStatus.unknown);
@@ -433,11 +638,12 @@ class AppState extends ChangeNotifier {
     await saveSeries(s);
   }
 
-  List<MediaItem> get allItems => _items;
+  /// 지금 사용자에게 보이는 항목 전부 (AI, 중복 확인 등에 사용 — 숨김/차단 제외)
+  List<MediaItem> get allItems => _items.where(canSeeItem).toList();
 
   List<MediaItem> get visible {
     final q = query.toLowerCase();
-    final list = _items.where((e) {
+    final list = _items.where(canSeeItem).where((e) {
       if (kindFilter != null && e.kind != kindFilter) return false;
       if (favoritesOnly && !e.favorite) return false;
       if (tagFilter != null && !e.tags.contains(tagFilter)) return false;
@@ -464,9 +670,12 @@ class AppState extends ChangeNotifier {
     return list;
   }
 
-  Set<String> get allTags => {for (final e in _items) ...e.tags};
+  Set<String> get allTags => {for (final e in allItems) ...e.tags};
 
-  int count(MediaKind? k) => k == null ? _items.length : _items.where((e) => e.kind == k).length;
+  int count(MediaKind? k) {
+    final all = allItems;
+    return k == null ? all.length : all.where((e) => e.kind == k).length;
+  }
 
   void setFilter({MediaKind? kind, bool clearKind = false, bool? favorites, String? tag, bool clearTag = false}) {
     if (clearKind) kindFilter = null;
@@ -595,7 +804,34 @@ class AppState extends ChangeNotifier {
       ..position = position
       ..progress = progress.clamp(0.0, 1.0)
       ..lastOpened = DateTime.now();
-    await db.update(item);
+    final u = user;
+    if (u == null || item.id == null) return;
+    await db.saveProgress(u.id!, item);
+    // 열람 기록: 뷰어를 열 때 한 줄 만들고, 볼 때마다 그 줄을 갱신
+    final hid = _openHistory[item.id!] ??= await db.startHistory(u.id!, item.id!);
+    await db.updateHistory(hid, item.progress, position);
+  }
+
+  /// 뷰어를 열 때 호출 → 새 기록 줄 시작
+  Future<void> beginView(MediaItem item) async {
+    final u = user;
+    if (u == null || item.id == null) return;
+    _openHistory[item.id!] = await db.startHistory(u.id!, item.id!);
+  }
+
+  Future<List<(HistoryRecord, MediaItem)>> historyList() async {
+    final u = user;
+    if (u == null) return [];
+    final byId = {for (final e in _items) e.id: e};
+    return [
+      for (final h in await db.history(u.id!))
+        if (byId[h.itemId] case final e? when canSeeItem(e)) (h, e),
+    ];
+  }
+
+  Future<void> clearHistory() async {
+    if (user != null) await db.clearHistory(user!.id!);
+    notifyListeners();
   }
 
   /// 뷰어를 닫을 때 목록 갱신
@@ -625,15 +861,64 @@ class AppState extends ChangeNotifier {
     await save(item);
   }
 
-  Future<void> remove(MediaItem item, {bool deleteFile = false}) async {
-    if (deleteFile) {
-      final f = File(item.path);
-      if (await f.exists()) await f.delete();
+  Future<void> remove(MediaItem item, {bool deleteFile = false}) => removeMany(items: [item], deleteFile: deleteFile);
+
+  /// 삭제: 항목들과 묶음들(안에 든 것 전부)을 라이브러리에서 뺀다.
+  /// [deleteFile] 이 true 면 실제 파일도 지운다. 반환: 지우지 못한 파일 수
+  Future<int> removeMany({Iterable<MediaItem> items = const [], Iterable<Series> series = const [], bool deleteFile = false}) async {
+    final targets = <MediaItem>{...items};
+    final seriesIds = <int>{};
+    for (final s in series) {
+      targets.addAll(_itemsUnder(s.id!));
+      seriesIds.add(s.id!);
+      // 하위 묶음까지
+      var grew = true;
+      while (grew) {
+        grew = false;
+        for (final c in _series.values) {
+          if (c.parentId != null && seriesIds.contains(c.parentId) && seriesIds.add(c.id!)) grew = true;
+        }
+      }
     }
-    await db.delete(item.id!);
-    _items.remove(item);
+    var failed = 0;
+    for (final e in targets) {
+      if (deleteFile) {
+        try {
+          final f = File(e.path);
+          if (Platform.isWindows) await Process.run('attrib.exe', ['-h', '-r', e.path]); // 숨김/읽기전용 풀고 삭제
+          if (await f.exists()) await f.delete();
+        } catch (_) {
+          failed++;
+          continue; // 파일을 못 지웠으면 목록에도 남겨둔다
+        }
+      }
+      await db.delete(e.id!);
+      _items.remove(e);
+    }
+    for (final id in seriesIds) {
+      await db.deleteSeries(id);
+      _series.remove(id);
+    }
+    if (currentSeriesId != null && !_series.containsKey(currentSeriesId)) currentSeriesId = null;
+    selected.clear();
     notifyListeners();
+    return failed;
   }
+
+  /// 선택한 것 삭제
+  Future<int> removeSelected({required bool deleteFile}) {
+    final (ss, ii) = _selection();
+    return removeMany(items: ii, series: ss, deleteFile: deleteFile);
+  }
+
+  /// 선택한 것 숨김/해제
+  Future<void> hideSelected(bool hidden) {
+    final (ss, ii) = _selection();
+    return setHidden(items: ii, series: ss, hidden: hidden);
+  }
+
+  /// 선택한 것의 'i:id' / 's:id' 목록 (접근 권한 설정용)
+  List<String> get selectedTargets => selected.toList();
 
   /// 원본이 사라진 항목 표시
   Future<void> checkMissing() async {
@@ -650,7 +935,7 @@ class AppState extends ChangeNotifier {
   /// 같은 이름+크기 파일 → 중복 후보
   List<List<MediaItem>> findDuplicates() {
     final map = <String, List<MediaItem>>{};
-    for (final e in _items) {
+    for (final e in allItems) {
       map.putIfAbsent('${e.fileName.toLowerCase()}|${e.size}', () => []).add(e);
     }
     return map.values.where((g) => g.length > 1).toList();
