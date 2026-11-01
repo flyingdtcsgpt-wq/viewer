@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:archive/archive_io.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -232,7 +230,6 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           constraints: const BoxConstraints(maxWidth: 900),
           child: ListView.builder(
             controller: _scroll,
-            cacheExtent: 3000,
             itemCount: _files.length,
             itemBuilder: (_, i) {
               final key = _pageKeys.putIfAbsent(i, () => GlobalKey());

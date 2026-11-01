@@ -13,7 +13,7 @@ class Organizer {
     return v.isEmpty ? fallback : (v.length > 120 ? v.substring(0, 120) : v);
   }
 
-  /// 예: pattern "{kind}/{author}/{title}" → "<root>/책/한강/소년이 온다.epub"
+  /// 예: pattern `{kind}/{author}/{title}` → `root/책/한강/소년이 온다.epub`
   static String targetPath(String root, String pattern, MediaItem item) {
     final rel = pattern
         .replaceAll('{kind}', kindLabel(item.kind))

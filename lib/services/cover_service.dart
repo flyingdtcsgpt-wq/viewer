@@ -50,7 +50,7 @@ class CoverService {
           return ok ? out : null;
         case MediaKind.book:
         case MediaKind.comic:
-          return switch (item.extension) {
+          return await switch (item.extension) {
             '.epub' => _epubCover(item.path),
             '.cbz' || '.zip' => _zipFirstImage(item.path),
             '.pdf' => _pdfFirstPage(item.path),
