@@ -94,7 +94,7 @@ class SettingsPage extends StatelessWidget {
             _TextSetting(label: 'AI 모델', help: '예) claude-haiku-5-5 (저렴/빠름), claude-sonnet-5-5', value: s.aiModel, onSave: (v) => s.aiModel = v),
             ],
             const _Header('화면'),
-            SwitchListTile(title: const Text('다크 모드'), value: s.darkMode, onChanged: (v) => s.darkMode = v),
+            SwitchListTile(title: const Text('밝은 화면'), subtitle: const Text('끄면 넷플릭스풍 어두운 화면'), value: s.lightMode, onChanged: (v) => s.lightMode = v),
           ]),
         ),
       ),

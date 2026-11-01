@@ -32,6 +32,9 @@ class AppState extends ChangeNotifier {
   /// 지금 들어와 있는 묶음 (null = 맨 위)
   int? currentSeriesId;
 
+  /// 첫 화면(넷플릭스풍 배너 + 가로 줄) 보기 중인지. 종류를 고르거나 검색하면 격자 보기로.
+  bool landing = true;
+
   /// 다중 선택 ('s:묶음id' / 'i:항목id')
   final Set<String> selected = {};
 
@@ -111,6 +114,7 @@ class AppState extends ChangeNotifier {
     settings.lastUserId = u.id;
     hiddenUnlocked = false;
     currentSeriesId = null;
+    landing = true;
     selected.clear();
     _denied = u.isAdmin ? {} : await db.deniedFor(u.id!);
     // 이 사용자의 읽은 위치로 바꿔 끼우기
@@ -292,6 +296,7 @@ class AppState extends ChangeNotifier {
 
   void enterSeries(int? id) {
     currentSeriesId = id;
+    if (id != null) landing = false;
     selected.clear();
     notifyListeners();
   }
@@ -299,7 +304,10 @@ class AppState extends ChangeNotifier {
   /// 한 단계 위로. 이미 맨 위면 false
   bool goUp() {
     if (currentSeriesId == null) return false;
-    enterSeries(currentSeries?.parentId);
+    final parent = currentSeries?.parentId;
+    // 맨 위로 나오면, 필터 없이 들어왔던 경우 첫 화면으로
+    if (parent == null && kindFilter == null && !flatMode) landing = true;
+    enterSeries(parent);
     return true;
   }
 
@@ -375,6 +383,41 @@ class AppState extends ChangeNotifier {
         all.sort((a, b) => rating(b).compareTo(rating(a)));
     }
     return all;
+  }
+
+  // ---------------- 첫 화면 줄들 ----------------
+
+  /// 이어서 보기: 읽다 만 것 (최근 연 순)
+  List<MediaItem> get continueWatching => allItems.where((e) => e.progress > 0.0 && e.progress < 0.98).toList()
+    ..sort((a, b) => (b.lastOpened?.millisecondsSinceEpoch ?? 0).compareTo(a.lastOpened?.millisecondsSinceEpoch ?? 0));
+
+  /// 맨 위 칸들(묶음 + 낱권) 중 [kind] 가 들어 있는 것, 최근 추가순
+  List<Entry> rootEntries({MediaKind? kind, int limit = 24}) {
+    final t = tree;
+    final out = <(DateTime, Entry)>[];
+    for (final s in t.children[null] ?? const <Series>[]) {
+      final st = t.stats(s.id!, kind);
+      if (st.allItems == 0) continue;
+      out.add((st.latestAdded, SeriesEntry(s, st)));
+    }
+    for (final e in t.items[null] ?? const <MediaItem>[]) {
+      if (kind != null && e.kind != kind) continue;
+      out.add((e.addedAt, ItemEntry(e)));
+    }
+    out.sort((a, b) => b.$1.compareTo(a.$1));
+    return out.take(limit).map((x) => x.$2).toList();
+  }
+
+  /// 첫 화면 큰 배너: 이어보던 것 → 가장 최근 묶음/항목
+  Entry? get featured {
+    final c = continueWatching.firstOrNull;
+    if (c != null) {
+      // 묶음에 속해 있으면 묶음을 대표로
+      final s = seriesById(c.seriesId);
+      if (s != null && canSeeSeries(s)) return SeriesEntry(s, statsOf(s));
+      return ItemEntry(c);
+    }
+    return rootEntries(limit: 1).firstOrNull;
   }
 
   static int _byVolume(MediaItem a, MediaItem b) {
@@ -677,7 +720,20 @@ class AppState extends ChangeNotifier {
     return k == null ? all.length : all.where((e) => e.kind == k).length;
   }
 
+  /// 첫 화면으로
+  void showLanding() {
+    landing = true;
+    currentSeriesId = null;
+    kindFilter = null;
+    favoritesOnly = false;
+    tagFilter = null;
+    query = '';
+    selected.clear();
+    notifyListeners();
+  }
+
   void setFilter({MediaKind? kind, bool clearKind = false, bool? favorites, String? tag, bool clearTag = false}) {
+    landing = false;
     if (clearKind) kindFilter = null;
     if (kind != null) kindFilter = kind;
     if (favorites != null) favoritesOnly = favorites;
@@ -688,6 +744,7 @@ class AppState extends ChangeNotifier {
 
   void setQuery(String q) {
     query = q;
+    if (q.isNotEmpty) landing = false;
     notifyListeners();
   }
 

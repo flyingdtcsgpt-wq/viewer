@@ -294,7 +294,7 @@ class _DetailPageState extends State<DetailPage> {
                   return;
                 }
                 await state.setHidden(items: [item], hidden: !item.hidden);
-                if (!mounted) return;
+                if (!context.mounted) return;
                 if (item.hidden && !state.hiddenUnlocked) {
                   Navigator.pop(context); // 잠긴 상태면 바로 사라진다
                 } else {

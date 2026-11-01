@@ -42,8 +42,9 @@ class Settings extends ChangeNotifier {
   double get coverSize => _p.getDouble('coverSize') ?? 170;
   set coverSize(double v) => _set(() => _p.setDouble('coverSize', v));
 
-  bool get darkMode => _p.getBool('darkMode') ?? false;
-  set darkMode(bool v) => _set(() => _p.setBool('darkMode', v));
+  /// 기본은 어두운(넷플릭스풍) 화면. 켜면 밝은 화면
+  bool get lightMode => _p.getBool('lightMode') ?? false;
+  set lightMode(bool v) => _set(() => _p.setBool('lightMode', v));
 
   // ---------- 텍스트 뷰어 ----------
   double get readerFontSize => _p.getDouble('readerFontSize') ?? 18;

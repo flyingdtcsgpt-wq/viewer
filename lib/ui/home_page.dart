@@ -12,11 +12,28 @@ import 'ai_chat_sheet.dart';
 import 'cover_tile.dart';
 import 'detail_page.dart';
 import 'history_page.dart';
+import 'landing_view.dart';
 import 'series_widgets.dart';
 import 'settings_page.dart';
 import 'viewers/open_item.dart';
 
 const _kinds = <MediaKind?>[null, MediaKind.book, MediaKind.comic, MediaKind.image, MediaKind.video];
+
+/// 넷플릭스풍 빨간 글자 로고
+class Logo extends StatelessWidget {
+  final double size;
+  const Logo({super.key, this.size = 24});
+  @override
+  Widget build(BuildContext context) => Text(
+        'MEDIASHELF',
+        style: TextStyle(
+          color: const Color(0xFFE50914),
+          fontSize: size,
+          fontWeight: FontWeight.w900,
+          letterSpacing: size * 0.06,
+        ),
+      );
+}
 const _kindIcons = [Icons.apps, Icons.menu_book, Icons.auto_stories, Icons.image, Icons.movie];
 String _kindName(MediaKind? k) => k == null ? '전체' : kindLabel(k);
 
@@ -53,6 +70,8 @@ class HomePage extends StatelessWidget {
       const Expanded(child: _Grid()),
     ]);
 
+    final showLanding = state.landing && !state.selecting && !state.flatMode;
+
     Widget page;
     if (wide) {
       page = Scaffold(
@@ -61,27 +80,33 @@ class HomePage extends StatelessWidget {
             const SizedBox(width: 260, child: Material(child: _Sidebar())),
             const VerticalDivider(width: 1),
             Expanded(
-              child: Scaffold(
-                appBar: AppBar(leading: back, automaticallyImplyLeading: false, title: Text(title, overflow: TextOverflow.ellipsis)),
-                body: body,
-              ),
+              child: showLanding
+                  ? const Scaffold(body: LandingView(topBar: _LandingTopBar(wide: true)))
+                  : Scaffold(
+                      appBar: AppBar(leading: back, automaticallyImplyLeading: false, title: Text(title, overflow: TextOverflow.ellipsis)),
+                      body: body,
+                    ),
             ),
           ]),
         ),
       );
     } else {
       page = Scaffold(
-        appBar: AppBar(
-          leading: back,
-          title: Text(state.currentSeriesId != null ? title : 'MediaShelf', overflow: TextOverflow.ellipsis),
-        ),
+        appBar: showLanding
+            ? null
+            : AppBar(
+                leading: back,
+                title: state.currentSeriesId != null ? Text(title, overflow: TextOverflow.ellipsis) : const Logo(size: 20),
+              ),
         drawer: const Drawer(child: SafeArea(child: _Sidebar(inDrawer: true))),
-        body: body,
+        body: showLanding ? const LandingView(topBar: _LandingTopBar(wide: false)) : body,
+        // 휴대폰 하단 탭: 홈 · 책 · 만화 · 그림 · 영상
         bottomNavigationBar: NavigationBar(
-          selectedIndex: _kinds.indexOf(state.kindFilter),
-          onDestinationSelected: (i) => i == 0 ? state.setFilter(clearKind: true) : state.setFilter(kind: _kinds[i]),
+          selectedIndex: showLanding || state.kindFilter == null ? 0 : _kinds.indexOf(state.kindFilter),
+          onDestinationSelected: (i) => i == 0 ? state.showLanding() : state.setFilter(kind: _kinds[i]),
           destinations: [
-            for (var i = 0; i < _kinds.length; i++)
+            const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '홈'),
+            for (var i = 1; i < _kinds.length; i++)
               NavigationDestination(icon: Icon(_kindIcons[i]), label: _kindName(_kinds[i])),
           ],
         ),
@@ -160,11 +185,7 @@ class _Sidebar extends StatelessWidget {
       // 앱 이름 + 사용자
       Padding(
         padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
-        child: Row(children: [
-          const Icon(Icons.local_library),
-          const SizedBox(width: 8),
-          Expanded(child: Text('MediaShelf', style: text.titleLarge)),
-        ]),
+        child: const Logo(size: 26),
       ),
       Card(
         margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
@@ -178,6 +199,7 @@ class _Sidebar extends StatelessWidget {
       ),
 
       section('보기'),
+      item(Icons.home, '홈', act(state.showLanding), selected: state.landing && !state.flatMode),
       for (var i = 0; i < _kinds.length; i++)
         item(
           _kindIcons[i],
@@ -186,7 +208,7 @@ class _Sidebar extends StatelessWidget {
             state.enterSeries(null);
             i == 0 ? state.setFilter(clearKind: true) : state.setFilter(kind: _kinds[i]);
           }),
-          selected: state.kindFilter == _kinds[i],
+          selected: !state.landing && state.kindFilter == _kinds[i] && state.currentSeriesId == null,
           trailing: '${state.count(_kinds[i])}',
         ),
       item(Icons.history, '내 열람 기록', act(() => push(const HistoryPage()))),
@@ -450,7 +472,7 @@ class _Grid extends StatelessWidget {
       itemBuilder: (context, i) {
         final e = entries[i];
         final sel = state.selected.contains(e.key);
-        return switch (e) {
+        return HoverZoom(child: switch (e) {
           SeriesEntry s => SeriesTile(
               key: ValueKey(e.key),
               entry: s,
@@ -471,8 +493,76 @@ class _Grid extends StatelessWidget {
               onLongPress: admin ? () => state.toggleSelect(e) : () => info(it.item),
               onInfo: () => info(it.item),
             ),
-        };
+        });
       },
+    );
+  }
+}
+
+/// 첫 화면 배너 위에 겹치는 줄: (휴대폰) 메뉴 + 로고, 검색
+class _LandingTopBar extends StatefulWidget {
+  final bool wide;
+  const _LandingTopBar({required this.wide});
+  @override
+  State<_LandingTopBar> createState() => _LandingTopBarState();
+}
+
+class _LandingTopBarState extends State<_LandingTopBar> {
+  final _c = TextEditingController();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.read<AppState>();
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(widget.wide ? 40 : 4, 8, widget.wide ? 40 : 8, 0),
+        child: Row(children: [
+          if (!widget.wide) ...[
+            IconButton(
+              color: Colors.white,
+              icon: const Icon(Icons.menu),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            ),
+            const Logo(size: 20),
+          ],
+          const Spacer(),
+          SizedBox(
+            width: widget.wide ? 280 : 170,
+            height: 40,
+            child: TextField(
+              controller: _c,
+              style: const TextStyle(color: Colors.white),
+              cursorColor: Colors.white,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: '검색',
+                hintStyle: const TextStyle(color: Colors.white70),
+                prefixIcon: const Icon(Icons.search, color: Colors.white),
+                filled: true,
+                fillColor: Colors.black54,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Colors.white38)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(4), borderSide: const BorderSide(color: Colors.white38)),
+              ),
+              // Enter 를 눌러야 검색 (숨김 비밀번호면 숨김 목록이 열림)
+              onSubmitted: (v) {
+                _c.clear();
+                if (state.trySearchUnlock(v)) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('숨김 목록을 표시합니다')));
+                } else if (v.trim().isNotEmpty) {
+                  state.setQuery(v.trim());
+                }
+              },
+            ),
+          ),
+        ]),
+      ),
     );
   }
 }
