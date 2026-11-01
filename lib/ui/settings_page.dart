@@ -93,6 +93,28 @@ class SettingsPage extends StatelessWidget {
             ),
             _TextSetting(label: 'AI 모델', help: '예) claude-haiku-5-5 (저렴/빠름), claude-sonnet-5-5', value: s.aiModel, onSave: (v) => s.aiModel = v),
             ],
+            const _Header('읽기'),
+            ListTile(
+              title: const Text('쪽 넘기는 방향'),
+              subtitle: Text(s.comicRtl ? '왼쪽→오른쪽으로 밀면 다음 쪽 (일본 만화식)' : '오른쪽→왼쪽으로 밀면 다음 쪽 (일반 책)'),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, icon: Icon(Icons.west), label: Text('오른쪽→왼쪽 (기본)')),
+                  ButtonSegment(value: true, icon: Icon(Icons.east), label: Text('왼쪽→오른쪽')),
+                ],
+                selected: {s.comicRtl},
+                onSelectionChanged: (v) => s.comicRtl = v.first,
+              ),
+            ),
+            SwitchListTile(
+              title: const Text('화면 좌우를 눌러 넘기기'),
+              subtitle: const Text('가운데를 누르면 메뉴가 나옵니다'),
+              value: s.tapToTurn,
+              onChanged: (v) => s.tapToTurn = v,
+            ),
             const _Header('화면'),
             SwitchListTile(title: const Text('밝은 화면'), subtitle: const Text('끄면 넷플릭스풍 어두운 화면'), value: s.lightMode, onChanged: (v) => s.lightMode = v),
           ]),

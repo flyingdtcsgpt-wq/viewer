@@ -255,15 +255,24 @@ class _TextReaderPageState extends State<TextReaderPage> {
       final hPad = ((c.maxWidth - s.readerMaxWidth) / 2).clamp(20.0, double.infinity);
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
+        // 화면 좌/우 누르기 → 쪽 넘김 (방향 설정을 따름)
         onTapUp: (d) {
           final x = d.localPosition.dx / c.maxWidth;
-          if (x < 0.25) {
-            _page(-1);
-          } else if (x > 0.75) {
-            _page(1);
+          final next = s.comicRtl ? -1 : 1; // 오른쪽을 누르면 다음 (일본식이면 반대)
+          if (s.tapToTurn && x < 0.25) {
+            _page(-next);
+          } else if (s.tapToTurn && x > 0.75) {
+            _page(next);
           } else {
             setState(() => _showUi = !_showUi);
           }
+        },
+        // 좌우로 밀기 → 쪽 넘김. 기본: 오른쪽→왼쪽으로 밀면 다음 쪽
+        onHorizontalDragEnd: (d) {
+          final v = d.primaryVelocity ?? 0;
+          if (v.abs() < 250) return;
+          final swipedLeft = v < 0;
+          _page(swipedLeft != s.comicRtl ? 1 : -1);
         },
         child: NotificationListener<ScrollNotification>(
           onNotification: (n) {
@@ -387,6 +396,19 @@ class _TextReaderPageState extends State<TextReaderPage> {
           _slider('줄 간격', s.readerLineHeight, 1.2, 2.6, (v) => s.readerLineHeight = v),
           _slider('문단 간격', s.readerParagraphGap, 0, 1.5, (v) => s.readerParagraphGap = v),
           _slider('본문 최대 폭', s.readerMaxWidth, 420, 1600, (v) => s.readerMaxWidth = v, digits: 0),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('일본 만화식 넘김'),
+            subtitle: Text(s.comicRtl ? '왼쪽→오른쪽으로 밀면 다음 쪽' : '오른쪽→왼쪽으로 밀면 다음 쪽 (기본)'),
+            value: s.comicRtl,
+            onChanged: (v) => s.comicRtl = v,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('화면 좌우 눌러 넘기기'),
+            value: s.tapToTurn,
+            onChanged: (v) => s.tapToTurn = v,
+          ),
           Text('인코딩: ${_doc?.encoding ?? '-'}', style: Theme.of(context).textTheme.bodySmall),
         ]),
       ),

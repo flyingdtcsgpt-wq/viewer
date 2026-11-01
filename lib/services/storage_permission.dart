@@ -1,15 +1,24 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/services.dart';
 
-/// 안드로이드에서 폴더 안의 책/만화/영상 파일을 읽으려면
-/// "모든 파일 관리" 권한(안드로이드 11 이상) 또는 저장소 권한(10 이하)이 필요하다.
-/// PC/아이폰은 바로 true.
+/// 안드로이드 "모든 파일 관리" 권한 (안드로이드 11+).
+/// 네이티브 쪽은 tool/patch_android.py 가 MainActivity 에 넣는다.
+const _ch = MethodChannel('mediashelf/storage');
+
+Future<bool> _granted() async {
+  try {
+    return await _ch.invokeMethod<bool>('hasAllFilesAccess') ?? false;
+  } catch (_) {
+    return true; // 채널이 없으면(다른 플랫폼) 막지 않는다
+  }
+}
+
+/// 폴더 안의 책/만화/영상 파일을 읽을 수 있는지 확인하고, 없으면 설정 화면으로 안내
 Future<bool> ensureStorageAccess(BuildContext context) async {
   if (!Platform.isAndroid) return true;
-
-  if (await Permission.manageExternalStorage.isGranted) return true;
+  if (await _granted()) return true;
   if (!context.mounted) return false;
 
   final go = await showDialog<bool>(
@@ -29,19 +38,15 @@ Future<bool> ensureStorageAccess(BuildContext context) async {
     ),
   );
   if (go != true) return false;
-
-  // 안드로이드 11+ : 시스템 설정 화면이 열리고, 돌아오면 결과가 온다
-  var status = await Permission.manageExternalStorage.request();
-  if (status.isGranted) return true;
-  // 안드로이드 10 이하 : 일반 저장소 권한
-  status = await Permission.storage.request();
-  if (status.isGranted) return true;
-
-  if (context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: const Text('권한이 없어 폴더를 읽을 수 없습니다'),
-      action: SnackBarAction(label: '앱 설정', onPressed: openAppSettings),
-    ));
+  try {
+    // 설정 화면을 열고, 사용자가 돌아오면 결과를 받는다
+    await _ch.invokeMethod('requestAllFilesAccess');
+  } catch (_) {}
+  final ok = await _granted();
+  if (!ok && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('권한이 없어 폴더를 읽을 수 없습니다. 설정 → 앱 → MediaShelf → 권한에서 켜 주세요.')),
+    );
   }
-  return false;
+  return ok;
 }

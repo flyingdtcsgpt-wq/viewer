@@ -63,8 +63,14 @@ class Settings extends ChangeNotifier {
   /// 0 한 쪽, 1 두 쪽(펼침), 2 세로 스크롤(웹툰)
   int get comicMode => _p.getInt('comicMode') ?? 0;
   set comicMode(int v) => _set(() => _p.setInt('comicMode', v));
-  bool get comicRtl => _p.getBool('comicRtl') ?? true; // 일본/한국 만화: 오른쪽→왼쪽
-  set comicRtl(bool v) => _set(() => _p.setBool('comicRtl', v));
+  /// 넘김 방향. false(기본) = 손가락을 오른쪽→왼쪽으로 밀면 다음 쪽 (일반 책),
+  /// true = 왼쪽→오른쪽으로 밀면 다음 쪽 (일본 만화식)
+  bool get comicRtl => _p.getBool('pageRtl') ?? false;
+  set comicRtl(bool v) => _set(() => _p.setBool('pageRtl', v));
+
+  /// 화면 왼쪽/오른쪽을 눌러 쪽 넘기기
+  bool get tapToTurn => _p.getBool('tapToTurn') ?? true;
+  set tapToTurn(bool v) => _set(() => _p.setBool('tapToTurn', v));
   bool get comicCoverAlone => _p.getBool('comicCoverAlone') ?? true;
   set comicCoverAlone(bool v) => _set(() => _p.setBool('comicCoverAlone', v));
 

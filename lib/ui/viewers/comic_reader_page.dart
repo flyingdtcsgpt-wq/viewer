@@ -168,7 +168,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   behavior: HitTestBehavior.translucent,
                   onTapUp: (d) {
                     final x = d.localPosition.dx / c.maxWidth;
-                    if (x < 0.3) {
+                    if (!s.tapToTurn) {
+                      setState(() => _showUi = !_showUi);
+                    } else if (x < 0.3) {
                       tapSide(true);
                     } else if (x > 0.7) {
                       tapSide(false);
@@ -309,9 +311,11 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   _retirePager();
                   if (v == 'rtl') s.comicRtl = !s.comicRtl;
                   if (v == 'cover') s.comicCoverAlone = !s.comicCoverAlone;
+                  if (v == 'tap') s.tapToTurn = !s.tapToTurn;
                 },
                 itemBuilder: (_) => [
-                  CheckedPopupMenuItem(value: 'rtl', checked: s.comicRtl, child: const Text('오른쪽→왼쪽 넘김 (일본식)')),
+                  CheckedPopupMenuItem(value: 'rtl', checked: s.comicRtl, child: const Text('일본 만화식 (왼쪽→오른쪽으로 밀어 다음 쪽)')),
+                  CheckedPopupMenuItem(value: 'tap', checked: s.tapToTurn, child: const Text('화면 좌우 눌러 넘기기')),
                   CheckedPopupMenuItem(value: 'cover', checked: s.comicCoverAlone, child: const Text('두 쪽 모드에서 표지 따로')),
                 ],
               ),
