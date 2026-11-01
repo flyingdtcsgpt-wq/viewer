@@ -8,7 +8,7 @@ xml = path.read_text(encoding="utf-8")
 # 꼭 필요한 것만 (권한이 많을수록 보안 앱이 의심한다)
 perms = [
     ("android.permission.INTERNET", ""),                                  # 책 정보 검색, AI
-    ("android.permission.READ_EXTERNAL_STORAGE", ' android:maxSdkVersion="29"'),  # 안드로이드 10 이하
+    ("android.permission.READ_EXTERNAL_STORAGE", ' android:maxSdkVersion="32"'),  # 안드로이드 12 이하 (open_filex 와 같은 값)
     ("android.permission.MANAGE_EXTERNAL_STORAGE", ""),                   # 폴더 등록 시에만 요청 (11+)
 ]
 lines = "".join(f'    <uses-permission android:name="{p}"{extra}/>\n' for p, extra in perms if p not in xml)
