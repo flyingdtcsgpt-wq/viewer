@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../models/media_item.dart';
+import 'open_item.dart';
 
 class PdfReaderPage extends StatefulWidget {
   final MediaItem item;
@@ -61,6 +62,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
             actions: [
               IconButton(tooltip: '확대', icon: const Icon(Icons.zoom_in), onPressed: () => _ctrl.zoomUp()),
               IconButton(tooltip: '축소', icon: const Icon(Icons.zoom_out), onPressed: () => _ctrl.zoomDown()),
+              NextVolumeButton(item: item),
             ],
           ),
           body: PdfViewer.file(

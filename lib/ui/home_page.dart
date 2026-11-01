@@ -1,13 +1,16 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../services/settings.dart';
 import 'ai_chat_sheet.dart';
 import 'cover_tile.dart';
 import 'detail_page.dart';
+import 'series_widgets.dart';
 import 'settings_page.dart';
 import 'viewers/open_item.dart';
 
@@ -30,8 +33,40 @@ class HomePage extends StatelessWidget {
 
     void select(int i) => i == 0 ? state.setFilter(clearKind: true) : state.setFilter(kind: _kinds[i]);
 
+    final inSeries = state.currentSeriesId != null && !state.flatMode;
+    final title = inSeries ? state.currentSeries!.title : (selected == 0 ? '전체' : kindLabel(_kinds[selected]!));
+    final back = state.currentSeriesId != null
+        ? IconButton(tooltip: '위로', icon: const Icon(Icons.arrow_back), onPressed: state.goUp)
+        : null;
+
+    // 안드로이드 뒤로가기 / Esc: 선택 해제 → 한 단계 위 묶음 → 앱 종료
+    Widget withBack(Widget child) => PopScope(
+          canPop: !state.selecting && state.currentSeriesId == null,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            if (state.selecting) {
+              state.clearSelection();
+            } else {
+              state.goUp();
+            }
+          },
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.escape): () {
+                if (state.selecting) {
+                  state.clearSelection();
+                } else {
+                  state.goUp();
+                }
+              },
+              const SingleActivator(LogicalKeyboardKey.backspace, alt: true): state.goUp,
+            },
+            child: Focus(autofocus: true, child: child),
+          ),
+        );
+
     final body = Column(children: [
-      _Toolbar(phone: phone),
+      state.selecting ? const SelectionBar() : _Toolbar(phone: phone),
       if (state.scanning || state.scanStatus.isNotEmpty)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -41,12 +76,17 @@ class HomePage extends StatelessWidget {
             Expanded(child: Text(state.scanStatus, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)),
           ]),
         ),
+      if (inSeries) const SeriesHeader(),
       const Expanded(child: _Grid()),
     ]);
 
     if (phone) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('MediaShelf'), actions: _actions(context)),
+      return withBack(Scaffold(
+        appBar: AppBar(
+          leading: back,
+          title: Text(state.currentSeriesId != null ? title : 'MediaShelf', overflow: TextOverflow.ellipsis),
+          actions: _actions(context),
+        ),
         drawer: const Drawer(child: SafeArea(child: _TagPanel())),
         body: body,
         bottomNavigationBar: NavigationBar(
@@ -58,11 +98,11 @@ class HomePage extends StatelessWidget {
           ],
         ),
         floatingActionButton: const _AddButton(),
-      );
+      ));
     }
 
     final extended = width >= 1100;
-    return Scaffold(
+    return withBack(Scaffold(
       body: SafeArea(
         child: Row(children: [
           NavigationRail(
@@ -91,14 +131,14 @@ class HomePage extends StatelessWidget {
           ],
           Expanded(
             child: Scaffold(
-              appBar: AppBar(title: Text(selected == 0 ? '전체' : kindLabel(_kinds[selected]!)), actions: _actions(context)),
+              appBar: AppBar(leading: back, title: Text(title, overflow: TextOverflow.ellipsis), actions: _actions(context)),
               body: body,
               floatingActionButton: const _AddButton(),
             ),
           ),
         ]),
       ),
-    );
+    ));
   }
 
   List<Widget> _actions(BuildContext context) {
@@ -190,34 +230,71 @@ class _Grid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = context.watch<AppState>().visible;
+    final state = context.watch<AppState>();
+    final entries = state.entries;
     final width = MediaQuery.sizeOf(context).width;
     // 휴대폰은 화면 폭 기준 2~3열 자동, 큰 화면은 슬라이더 값
     final coverSize = width < 600 ? (width - 24) / (width < 400 ? 2 : 3) : context.watch<Settings>().coverSize;
+    final inSeries = state.currentSeriesId != null && !state.flatMode;
 
-    if (items.isEmpty) {
+    if (entries.isEmpty) {
       return Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.library_books_outlined, size: 64),
           const SizedBox(height: 12),
-          const Text('항목이 없습니다. + 버튼으로 폴더나 파일을 추가하세요.'),
+          Text(inSeries ? '이 묶음은 비어 있습니다.' : '항목이 없습니다. + 버튼으로 폴더나 파일을 추가하세요.'),
         ]),
       );
     }
+    // 뷰어에서 앞뒤로 넘길 목록 (묶음 안이면 권 번호순)
+    final siblings = entries.whereType<ItemEntry>().map((e) => e.item).toList();
+
+    void tap(Entry e) {
+      final ctrl = HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
+      if (state.selecting || ctrl) {
+        state.toggleSelect(e);
+        return;
+      }
+      switch (e) {
+        case SeriesEntry s:
+          state.enterSeries(s.series.id);
+        case ItemEntry i:
+          openItem(context, i.item, siblings: siblings);
+      }
+    }
+
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: coverSize,
-        childAspectRatio: 0.62,
+        childAspectRatio: 0.6,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
-      itemCount: items.length,
-      itemBuilder: (context, i) => CoverTile(
-        item: items[i],
-        onTap: () => openItem(context, items[i], siblings: items),
-        onInfo: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(item: items[i]))),
-      ),
+      itemCount: entries.length,
+      itemBuilder: (context, i) {
+        final e = entries[i];
+        final sel = state.selected.contains(e.key);
+        return switch (e) {
+          SeriesEntry s => SeriesTile(
+              key: ValueKey(e.key),
+              entry: s,
+              selected: sel,
+              onTap: () => tap(e),
+              onLongPress: () => state.toggleSelect(e),
+              onEdit: () => showSeriesEditor(context, s.series),
+            ),
+          ItemEntry it => CoverTile(
+              key: ValueKey(e.key),
+              item: it.item,
+              selected: sel,
+              showVolume: inSeries,
+              onTap: () => tap(e),
+              onLongPress: () => state.toggleSelect(e),
+              onInfo: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(item: it.item))),
+            ),
+        };
+      },
     );
   }
 }
@@ -278,6 +355,26 @@ class _AddButton extends StatelessWidget {
             final files = await FilePicker.pickFiles(dialogTitle: '가져올 파일 선택');
             final paths = files.map((f) => f.path).whereType<String>().toList();
             if (paths.isNotEmpty) await state.importFiles(paths);
+          },
+        ),
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.auto_fix_high),
+          child: const Text('파일명으로 시리즈 자동 묶기'),
+          onPressed: () async {
+            final n = await state.autoGroup();
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(n == 0 ? '새로 묶을 항목이 없습니다' : '$n개 항목을 시리즈로 묶었습니다')),
+              );
+            }
+          },
+        ),
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.create_new_folder_outlined),
+          child: const Text('새 묶음 만들기'),
+          onPressed: () async {
+            final name = await askText(context, '새 묶음 이름', hint: '예) 명탐정 코난');
+            if (name != null && name.isNotEmpty) await state.createSeries(name, parentId: state.currentSeriesId);
           },
         ),
         MenuItemButton(

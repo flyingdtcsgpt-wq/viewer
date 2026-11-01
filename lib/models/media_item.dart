@@ -48,6 +48,8 @@ class MediaItem {
   double progress; // 0.0 ~ 1.0 읽은/본 비율
   String? position; // 뷰어별 위치 (텍스트 블록 번호, 페이지, 영상 ms)
   DateTime? lastOpened;
+  int? seriesId; // 속한 묶음
+  double? volume; // 권/화 번호 (10.5 같은 번외편도 가능)
 
   MediaItem({
     this.id,
@@ -71,6 +73,8 @@ class MediaItem {
     this.progress = 0,
     this.position,
     this.lastOpened,
+    this.seriesId,
+    this.volume,
   })  : tags = tags ?? [],
         addedAt = addedAt ?? DateTime.now();
 
@@ -99,6 +103,8 @@ class MediaItem {
         'progress': progress,
         'position': position,
         'last_opened': lastOpened?.millisecondsSinceEpoch,
+        'series_id': seriesId,
+        'volume': volume,
       };
 
   factory MediaItem.fromMap(Map<String, Object?> m) => MediaItem(
@@ -127,7 +133,17 @@ class MediaItem {
         progress: (m['progress'] as num?)?.toDouble() ?? 0,
         position: m['position'] as String?,
         lastOpened: m['last_opened'] == null ? null : DateTime.fromMillisecondsSinceEpoch(m['last_opened'] as int),
+        seriesId: m['series_id'] as int?,
+        volume: (m['volume'] as num?)?.toDouble(),
       );
+
+  /// "3권", "10.5권", 영상은 "3화"
+  String? get volumeLabel {
+    final v = volume;
+    if (v == null) return null;
+    final n = v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+    return kind == MediaKind.video ? '$n화' : '$n권';
+  }
 }
 
 /// 인터넷에서 가져온 책 정보 후보

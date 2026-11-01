@@ -8,6 +8,7 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
 import '../../services/text_document.dart';
+import 'open_item.dart';
 
 /// TXT / EPUB 뷰어
 ///
@@ -195,6 +196,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
                     actions: [
                       IconButton(tooltip: '본문 검색 (Ctrl+F)', icon: const Icon(Icons.search), onPressed: _openSearch),
                       IconButton(tooltip: '보기 설정', icon: const Icon(Icons.text_fields), onPressed: _openSettings),
+                      NextVolumeButton(item: item),
                       IconButton(
                         tooltip: '목차',
                         icon: const Icon(Icons.toc),

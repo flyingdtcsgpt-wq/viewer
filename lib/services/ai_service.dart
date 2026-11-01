@@ -54,6 +54,17 @@ class AiService {
     return _json(text);
   }
 
+  /// 시리즈 정보: total(전체 권/화 수), status(ongoing/completed/hiatus/unknown), author, description
+  Future<Map<String, dynamic>> seriesInfo(String title, {required bool isVideo}) async {
+    final text = await _ask(
+      '너는 만화·소설·애니메이션·영화 시리즈 정보를 아는 사서다. 반드시 JSON 객체만 출력한다. 확실하지 않으면 null.',
+      '"$title" (${isVideo ? '영상: 애니/드라마/영화' : '책: 만화/소설'}) 의 정보를 '
+          '{"total": 전체 ${isVideo ? '화(편)' : '권'} 수 또는 null, "status": "ongoing"|"completed"|"hiatus"|"unknown", '
+          '"author": "작가/감독" 또는 "", "description": "한두 문장 소개"} 로 답해. 한국 정발 기준.',
+    );
+    return _json(text);
+  }
+
   Future<List<String>> suggestTags(MediaItem item) async {
     final text = await _ask(
       '너는 개인 서재 정리 도우미다. 반드시 JSON 객체만 출력한다.',

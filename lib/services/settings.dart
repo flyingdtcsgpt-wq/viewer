@@ -73,6 +73,10 @@ class Settings extends ChangeNotifier {
   double get videoRate => _p.getDouble('videoRate') ?? 1.0;
   set videoRate(double v) => _set(() => _p.setDouble('videoRate', v));
 
+  /// 스캔/가져오기 후 파일명으로 시리즈 자동 묶기
+  bool get autoGroup => _p.getBool('autoGroup') ?? true;
+  set autoGroup(bool v) => _set(() => _p.setBool('autoGroup', v));
+
   void _set(Future<bool> Function() f) {
     f();
     notifyListeners();

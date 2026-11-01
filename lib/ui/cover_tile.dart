@@ -3,12 +3,24 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../models/media_item.dart';
+import 'series_widgets.dart';
 
 class CoverTile extends StatelessWidget {
   final MediaItem item;
   final VoidCallback onTap;
   final VoidCallback onInfo;
-  const CoverTile({super.key, required this.item, required this.onTap, required this.onInfo});
+  final VoidCallback onLongPress;
+  final bool selected;
+  final bool showVolume; // 묶음 안에서는 "3권" 처럼 번호를 크게
+  const CoverTile({
+    super.key,
+    required this.item,
+    required this.onTap,
+    required this.onInfo,
+    required this.onLongPress,
+    this.selected = false,
+    this.showVolume = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -16,7 +28,7 @@ class CoverTile extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
-      onLongPress: onInfo, // 휴대폰: 길게 누르면 정보
+      onLongPress: onLongPress, // 길게 누르면 선택 (묶기/옮기기)
       onSecondaryTap: onInfo, // PC: 오른쪽 클릭하면 정보
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Expanded(
@@ -52,10 +64,17 @@ class CoverTile extends StatelessWidget {
             ),
             if (item.missing)
               Positioned(left: 6, bottom: 6, child: _Badge('원본 없음', scheme.errorContainer)),
+            if (item.volumeLabel != null && (showVolume || item.seriesId != null))
+              Positioned(
+                right: 6,
+                top: item.favorite ? 30 : 6,
+                child: _Badge(item.volumeLabel!, scheme.tertiaryContainer),
+              ),
+            if (selected) selectedOverlay(),
           ]),
         ),
         const SizedBox(height: 6),
-        Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodyMedium),
+        Text(showVolume && item.volumeLabel != null ? '${item.volumeLabel}  ${item.title}' : item.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodyMedium),
         if (item.author != null)
           Text(item.author!, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
       ]),

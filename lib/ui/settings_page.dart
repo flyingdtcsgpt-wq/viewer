@@ -49,6 +49,12 @@ class SettingsPage extends StatelessWidget {
               value: s.organizePattern,
               onSave: (v) => s.organizePattern = v,
             ),
+            SwitchListTile(
+              title: const Text('시리즈 자동 묶기'),
+              subtitle: const Text('스캔/가져오기 후 "명탐정 코난 01권" 같은 파일명을 보고 묶음으로 정리'),
+              value: s.autoGroup,
+              onChanged: (v) => s.autoGroup = v,
+            ),
             const _Header('스캔 폴더'),
             for (final f in s.watchFolders)
               ListTile(

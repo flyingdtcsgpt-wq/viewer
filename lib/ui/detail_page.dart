@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../models/media_item.dart';
 import 'cover_tile.dart';
 import 'metadata_search_dialog.dart';
+import 'series_widgets.dart';
 import 'viewers/open_item.dart';
 
 /// 기본 앱으로 열기 (open_filex 는 모바일 전용이라 데스크톱은 OS 명령 사용)
@@ -37,7 +38,9 @@ class _DetailPageState extends State<DetailPage> {
   late final _author = TextEditingController(text: widget.item.author);
   late final _publisher = TextEditingController(text: widget.item.publisher);
   late final _isbn = TextEditingController(text: widget.item.isbn);
-  late final _series = TextEditingController(text: widget.item.series);
+  late final _volume = TextEditingController(text: _volText(widget.item.volume));
+
+  static String _volText(double? v) => v == null ? '' : (v == v.roundToDouble() ? v.toInt().toString() : v.toString());
   late final _year = TextEditingController(text: widget.item.year?.toString());
   late final _desc = TextEditingController(text: widget.item.description);
   late final _tags = TextEditingController(text: widget.item.tags.join(', '));
@@ -51,7 +54,7 @@ class _DetailPageState extends State<DetailPage> {
     _author.text = item.author ?? '';
     _publisher.text = item.publisher ?? '';
     _isbn.text = item.isbn ?? '';
-    _series.text = item.series ?? '';
+    _volume.text = _volText(item.volume);
     _year.text = item.year?.toString() ?? '';
     _desc.text = item.description ?? '';
     _tags.text = item.tags.join(', ');
@@ -65,7 +68,7 @@ class _DetailPageState extends State<DetailPage> {
       ..author = _v(_author)
       ..publisher = _v(_publisher)
       ..isbn = _v(_isbn)
-      ..series = _v(_series)
+      ..volume = double.tryParse(_volume.text.trim())
       ..year = int.tryParse(_year.text)
       ..description = _v(_desc)
       ..tags = _tags.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
@@ -103,7 +106,7 @@ class _DetailPageState extends State<DetailPage> {
         setState(() {
           if ((r['title'] ?? '').toString().isNotEmpty) _title.text = r['title'];
           if ((r['author'] ?? '').toString().isNotEmpty) _author.text = r['author'];
-          if ((r['series'] ?? '').toString().isNotEmpty) _series.text = r['series'];
+          if (r['volume'] is num) _volume.text = _volText((r['volume'] as num).toDouble());
         });
         _toast('AI가 파일명을 분석했습니다. 확인 후 저장하세요.');
       });
@@ -241,7 +244,36 @@ class _DetailPageState extends State<DetailPage> {
         field(_publisher, '출판사'),
         field(_isbn, 'ISBN', type: TextInputType.number),
       ],
-      field(_series, '시리즈'),
+      Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        child: ListTile(
+          leading: const Icon(Icons.folder),
+          title: Text(item.seriesId == null ? '묶음 없음' : context.watch<AppState>().seriesPath(item.seriesId)),
+          subtitle: const Text('시리즈 / 묶음'),
+          trailing: Wrap(children: [
+            if (item.seriesId != null)
+              IconButton(
+                tooltip: '이 묶음 열기',
+                icon: const Icon(Icons.open_in_new),
+                onPressed: () {
+                  state.enterSeries(item.seriesId);
+                  Navigator.popUntil(context, (r) => r.isFirst);
+                },
+              ),
+            IconButton(
+              tooltip: '묶음 바꾸기',
+              icon: const Icon(Icons.drive_file_move),
+              onPressed: () async {
+                final c = await pickSeries(context, title: '어느 묶음에 넣을까요?');
+                if (c == null) return;
+                await state.moveItems([item], c.id);
+                setState(() => _volume.text = _volText(item.volume));
+              },
+            ),
+          ]),
+        ),
+      ),
+      field(_volume, item.kind == MediaKind.video ? '몇 화 / 몇 편' : '몇 권', type: const TextInputType.numberWithOptions(decimal: true)),
       field(_year, '연도', type: TextInputType.number),
       field(_tags, '태그 (쉼표로 구분)'),
       field(_desc, '설명 / 메모', lines: 6),

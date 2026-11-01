@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
+import 'open_item.dart';
 
 /// 만화(CBZ/ZIP) 뷰어
 /// - 한 쪽 / 두 쪽 펼침 / 세로 스크롤(웹툰)
@@ -301,6 +302,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   s.comicMode = v.first;
                 },
               ),
+              NextVolumeButton(item: item),
               PopupMenuButton<String>(
                 iconColor: Colors.white,
                 onSelected: (v) {
