@@ -44,12 +44,12 @@ class LandingView extends StatelessWidget {
             ),
           ]),
         ),
-        if (topBar != null) topBar!,
+        ?topBar,
       ]);
     }
 
     return CustomScrollView(slivers: [
-      SliverToBoxAdapter(child: Stack(children: [_Hero(entry: featured), if (topBar != null) topBar!])),
+      SliverToBoxAdapter(child: Stack(children: [_Hero(entry: featured), ?topBar])),
       SliverList(delegate: SliverChildListDelegate(rows)),
       const SliverToBoxAdapter(child: SizedBox(height: 48)),
     ]);
