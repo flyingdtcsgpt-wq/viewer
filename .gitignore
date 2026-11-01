@@ -1,0 +1,15 @@
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+*.iml
+.idea/
+dist/
+# 플랫폼 폴더는 CI 에서 flutter create 로 생성
+/windows/
+/android/
+/ios/
+/macos/
+/linux/
+/web/
