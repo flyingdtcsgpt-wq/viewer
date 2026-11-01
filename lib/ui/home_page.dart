@@ -7,6 +7,7 @@ import '../app_state.dart';
 import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../services/settings.dart';
+import '../services/storage_permission.dart';
 import 'admin_page.dart';
 import 'ai_chat_sheet.dart';
 import 'cover_tile.dart';
@@ -150,6 +151,8 @@ class _Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 서랍이 닫혀도 살아 있는 화면 context (대화상자/알림용)
+    final rootContext = Navigator.of(context).context;
     final state = context.watch<AppState>();
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
@@ -216,6 +219,7 @@ class _Sidebar extends StatelessWidget {
       if (admin) ...[
         section('라이브러리 관리'),
         item(Icons.create_new_folder, '폴더 등록', act(() async {
+          if (!await ensureStorageAccess(rootContext)) return;
           final dir = await FilePicker.getDirectoryPath(dialogTitle: '스캔할 폴더 선택');
           if (dir != null) await state.addWatchFolder(dir);
         })),
@@ -224,7 +228,9 @@ class _Sidebar extends StatelessWidget {
           final paths = files.map((f) => f.path).whereType<String>().toList();
           if (paths.isNotEmpty) await state.importFiles(paths);
         })),
-        item(Icons.refresh, '다시 스캔', state.scanning ? null : act(state.rescanAll)),
+        item(Icons.refresh, '다시 스캔', state.scanning ? null : act(() async {
+          if (await ensureStorageAccess(rootContext)) await state.rescanAll();
+        })),
         item(Icons.auto_fix_high, '시리즈 자동 묶기', act(() async {
           final n = await state.autoGroup();
           if (context.mounted) {

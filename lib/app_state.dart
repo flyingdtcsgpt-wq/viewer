@@ -762,25 +762,48 @@ class AppState extends ChangeNotifier {
 
   Future<void> rescanAll() => scanFolders(settings.watchFolders);
 
+  /// 폴더를 하위까지 훑어 지원하는 파일을 등록한다.
+  /// 결과를 숫자로 알려준다 (권한 문제로 아무것도 못 읽은 경우를 알아보기 위해).
   Future<void> scanFolders(List<String> dirs) async {
     if (scanning) return;
     scanning = true;
-    var added = 0;
+    var found = 0, added = 0, failed = 0, dirErrors = 0, missingDirs = 0, entries = 0;
     try {
       for (final dir in dirs) {
         final d = Directory(dir);
-        if (!await d.exists()) continue;
-        await for (final ent in d.list(recursive: true, followLinks: false).handleError((_) {})) {
+        if (!await d.exists()) {
+          missingDirs++;
+          continue;
+        }
+        await for (final ent in d.list(recursive: true, followLinks: false).handleError((_) => dirErrors++)) {
+          entries++;
           if (ent is! File) continue;
           if (kindForPath(ent.path) == null) continue;
-          scanStatus = '스캔 중: ${p.basename(ent.path)}';
+          found++;
+          scanStatus = '스캔 중 ($found): ${p.basename(ent.path)}';
           notifyListeners();
-          if (await _importFile(ent.path, StorageMode.reference)) added++;
+          try {
+            if (await _importFile(ent.path, StorageMode.reference)) added++;
+          } catch (_) {
+            failed++; // 한 파일이 이상해도 나머지는 계속
+          }
         }
       }
       await checkMissing();
       final grouped = added > 0 && settings.autoGroup ? await autoGroup() : 0;
-      scanStatus = '완료: 새 항목 $added개${grouped > 0 ? ' · $grouped개 시리즈로 묶음' : ''}';
+      final parts = [
+        '찾은 파일 $found개',
+        '새로 등록 $added개',
+        if (grouped > 0) '$grouped개 시리즈로 묶음',
+        if (failed > 0) '실패 $failed개',
+        if (missingDirs > 0) '없는 폴더 $missingDirs개',
+      ];
+      scanStatus = '완료: ${parts.join(' · ')}';
+      if (found == 0 && (entries == 0 || dirErrors > 0) && Platform.isAndroid) {
+        scanStatus += '  — 폴더 안을 읽지 못했습니다. 저장소 권한("모든 파일 관리 허용")을 확인하세요.';
+      }
+    } catch (e) {
+      scanStatus = '스캔 중 오류: $e';
     } finally {
       scanning = false;
       notifyListeners();
@@ -797,7 +820,9 @@ class AppState extends ChangeNotifier {
         if (kindForPath(path) == null) continue;
         scanStatus = '가져오는 중: ${p.basename(path)}';
         notifyListeners();
-        if (await _importFile(path, settings.defaultStorage)) added++;
+        try {
+          if (await _importFile(path, settings.defaultStorage)) added++;
+        } catch (_) {}
       }
       final grouped = added > 0 && settings.autoGroup ? await autoGroup() : 0;
       scanStatus = '완료: 새 항목 $added개${grouped > 0 ? ' · $grouped개 시리즈로 묶음' : ''}';
