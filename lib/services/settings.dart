@@ -117,6 +117,19 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------- 소리 내어 읽기 ----------
+  String get ttsVoice => _p.getString('ttsVoice') ?? '';
+  set ttsVoice(String v) => _set(() => _p.setString('ttsVoice', v));
+  String get ttsDialogueVoice => _p.getString('ttsDialogueVoice') ?? '';
+  set ttsDialogueVoice(String v) => _set(() => _p.setString('ttsDialogueVoice', v));
+  String get ttsThoughtVoice => _p.getString('ttsThoughtVoice') ?? '';
+  set ttsThoughtVoice(String v) => _set(() => _p.setString('ttsThoughtVoice', v));
+  int get ttsRate => _p.getInt('ttsRate') ?? 0;
+  set ttsRate(int v) => _set(() => _p.setInt('ttsRate', v));
+  /// 큰따옴표 안 = 대사, 작은따옴표 안 = 속마음 으로 나눠 다른 음성
+  bool get ttsSplit => _p.getBool('ttsSplit') ?? false;
+  set ttsSplit(bool v) => _set(() => _p.setBool('ttsSplit', v));
+
   // ---------- 공유 서버 ----------
   int get sharePort => _p.getInt('sharePort') ?? 8079;
   set sharePort(int v) => _set(() => _p.setInt('sharePort', v));

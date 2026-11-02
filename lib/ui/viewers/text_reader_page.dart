@@ -9,6 +9,7 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
 import '../../services/text_document.dart';
+import '../../services/tts_service.dart';
 import '../cover_tile.dart';
 import 'open_item.dart';
 import 'viewer_chrome.dart';
@@ -68,6 +69,13 @@ class _TextReaderPageState extends State<TextReaderPage> {
   String _selected = '';
   List<(int, String)> _hits = [];
 
+  // 소리 내어 읽기
+  final _tts = TtsService();
+  bool _ttsPanel = false;
+  bool _speaking = false;
+  int? _ttsBlock;
+  List<String> _voices = [];
+
   late final AppState _app = context.read<AppState>();
 
   MediaItem get item => widget.item;
@@ -106,6 +114,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
       _app.saveProgress(item, '$_current', _progress).then((_) => _app.refresh());
     }
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _speaking = false;
+    _tts.stop();
     _ctrl.dispose();
     _focus.dispose();
     _searchCtrl.dispose();
@@ -206,6 +216,155 @@ class _TextReaderPageState extends State<TextReaderPage> {
     });
   }
 
+  // ---------------- 소리 내어 읽기 ----------------
+
+  /// 문단을 (종류, 글) 로 나눈다: 0 일반, 1 대사("…"), 2 속마음('…')
+  List<(int, String)> _segments(String text, bool split) {
+    if (!split) return [(0, text)];
+    final out = <(int, String)>[];
+    final re = RegExp(r'([“"「『][^”"」』]+[”"」』])|([‘'][^’']+[’'])');
+    var pos = 0;
+    for (final m in re.allMatches(text)) {
+      if (m.start > pos) out.add((0, text.substring(pos, m.start)));
+      out.add((m.group(1) != null ? 1 : 2, m.group(0)!));
+      pos = m.end;
+    }
+    if (pos < text.length) out.add((0, text.substring(pos)));
+    return out.where((e) => e.$2.trim().isNotEmpty).toList();
+  }
+
+  Future<void> _ttsPlay({int? from}) async {
+    if (_doc == null) return;
+    final s = context.read<Settings>();
+    setState(() {
+      _speaking = true;
+      _ttsBlock = from ?? _ttsBlock ?? _current;
+    });
+    while (_speaking && mounted && _ttsBlock! < _count) {
+      final i = _ttsBlock!;
+      final b = _doc!.blocks[i];
+      _showBlock(i);
+      if (!b.isImage && (b.text ?? '').trim().isNotEmpty) {
+        for (final (kind, seg) in _segments(b.text!, s.ttsSplit)) {
+          final voice = switch (kind) {
+            1 when s.ttsDialogueVoice.isNotEmpty => s.ttsDialogueVoice,
+            2 when s.ttsThoughtVoice.isNotEmpty => s.ttsThoughtVoice,
+            _ => s.ttsVoice,
+          };
+          final rate = s.ttsRate + (kind == 2 ? -2 : 0); // 속마음은 조금 느리게
+          final done = await _tts.speak(seg, voice: voice, rate: rate);
+          if (!done || !_speaking || !mounted) return;
+        }
+      }
+      if (!_speaking || !mounted) return;
+      setState(() => _ttsBlock = i + 1);
+    }
+    if (mounted) setState(() => _speaking = false);
+  }
+
+  Future<void> _ttsStop({bool reset = false}) async {
+    setState(() {
+      _speaking = false;
+      if (reset) _ttsBlock = null;
+    });
+    await _tts.stop();
+  }
+
+  void _ttsSkip(int d) {
+    final next = ((_ttsBlock ?? _current) + d).clamp(0, _count - 1);
+    final wasSpeaking = _speaking;
+    _tts.stop();
+    setState(() => _ttsBlock = next);
+    if (wasSpeaking) {
+      Future.delayed(const Duration(milliseconds: 150), () => _ttsPlay(from: next));
+    } else {
+      _showBlock(next);
+    }
+  }
+
+  /// 읽는 문단이 화면에 보이게
+  void _showBlock(int i) {
+    final ctx = _alive[i];
+    if (ctx != null && ctx.mounted) {
+      Scrollable.ensureVisible(ctx, alignment: 0.25, duration: const Duration(milliseconds: 250));
+    } else {
+      _jumpTo(i);
+    }
+    _current = i;
+    _scheduleSave();
+  }
+
+  Widget _ttsBar(Settings s) {
+    if (!TtsService.supported) {
+      return const Padding(padding: EdgeInsets.all(12), child: Text('이 기기에서는 아직 읽어주기를 쓸 수 없습니다', style: TextStyle(color: Colors.white)));
+    }
+    if (_voices.isEmpty) {
+      TtsService.voices().then((v) {
+        if (mounted && v.isNotEmpty) setState(() => _voices = v);
+      });
+    }
+    DropdownButton<String> voicePick(String value, ValueChanged<String> onChanged, String hint) => DropdownButton<String>(
+          dropdownColor: toolBg,
+          value: _voices.contains(value) ? value : null,
+          hint: Text(hint, style: const TextStyle(color: Colors.white70)),
+          style: const TextStyle(color: Colors.white),
+          items: [for (final v in _voices) DropdownMenuItem(value: v, child: Text(v))],
+          onChanged: (v) => onChanged(v ?? ''),
+        );
+    const speeds = [-4, -2, 0, 2, 4, 6];
+    return Material(
+      color: const Color(0xF0222222),
+      elevation: 8,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            ToolGroup([
+              ToolBtn(icon: Icons.skip_previous, tooltip: '이전 문단', onTap: () => _ttsSkip(-1)),
+              ToolBtn(
+                icon: _speaking ? Icons.pause : Icons.play_arrow,
+                tooltip: _speaking ? '멈춤' : '읽기 시작',
+                active: _speaking,
+                onTap: () => _speaking ? _ttsStop() : _ttsPlay(),
+              ),
+              ToolBtn(icon: Icons.stop, tooltip: '정지', onTap: () => _ttsStop(reset: true)),
+              ToolBtn(icon: Icons.skip_next, tooltip: '다음 문단', onTap: () => _ttsSkip(1)),
+            ]),
+            PopupMenuButton<int>(
+              tooltip: '속도',
+              color: toolBg,
+              onSelected: (v) => s.ttsRate = v,
+              itemBuilder: (_) => [
+                for (final r in speeds)
+                  PopupMenuItem(value: r, child: Text('${(1 + r * 0.1).toStringAsFixed(1)}x', style: const TextStyle(color: Colors.white))),
+              ],
+              child: ToolGroup([ToolBtn(label: '${(1 + s.ttsRate * 0.1).toStringAsFixed(1)}x', tooltip: '속도')]),
+            ),
+            const SizedBox(width: 6),
+            voicePick(s.ttsVoice, (v) => s.ttsVoice = v, '기본 음성'),
+            IconButton(onPressed: () => setState(() => _ttsPanel = false), icon: const Icon(Icons.close, color: Colors.white54)),
+          ]),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Checkbox(value: s.ttsSplit, onChanged: (v) => s.ttsSplit = v ?? false),
+            const Text('큰따옴표=대사, 작은따옴표=속마음 다른 음성으로', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          ]),
+          if (s.ttsSplit)
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              const Text('대사  ', style: TextStyle(color: Colors.white70)),
+              voicePick(s.ttsDialogueVoice, (v) => s.ttsDialogueVoice = v, '기본과 같음'),
+              const SizedBox(width: 12),
+              const Text('속마음  ', style: TextStyle(color: Colors.white70)),
+              voicePick(s.ttsThoughtVoice, (v) => s.ttsThoughtVoice = v, '기본과 같음'),
+            ]),
+          if (_voices.isEmpty)
+            const Text('음성 목록을 읽는 중… (Windows 설정 → 시간 및 언어 → 음성 에서 한국어 음성을 추가할 수 있습니다)',
+                style: TextStyle(color: Colors.white38, fontSize: 11)),
+        ]),
+      ),
+    );
+  }
+
   String? get _fontFamily => switch (context.read<Settings>().readerFont) {
         1 => Platform.isWindows ? 'Batang' : 'serif',
         2 => Platform.isWindows ? 'Malgun Gothic' : 'sans-serif',
@@ -234,7 +393,12 @@ class _TextReaderPageState extends State<TextReaderPage> {
     final page = Container(
       color: theme.bg,
       child: Column(children: [
-        Expanded(child: body),
+        Expanded(
+          child: Stack(children: [
+            Positioned.fill(child: body),
+            if (_ttsPanel) Positioned(top: 8, left: 0, right: 0, child: Center(child: _ttsBar(s))),
+          ]),
+        ),
         if (_chrome && s.viewerSlider && (_doc?.toc.isNotEmpty ?? false)) _chapterStrip(),
       ]),
     );
@@ -353,6 +517,9 @@ class _TextReaderPageState extends State<TextReaderPage> {
               ),
             ]),
             ToolGroup([
+              ToolBtn(label: 'TTS', tooltip: '소리 내어 읽기', active: _ttsPanel || _speaking, onTap: () => setState(() => _ttsPanel = !_ttsPanel)),
+            ]),
+            ToolGroup([
               ToolBtn(icon: Icons.manage_search, tooltip: '책에서 찾기 (Ctrl+F)', onTap: () => setState(() {
                     _left = true;
                     _leftTab = 2;
@@ -401,7 +568,13 @@ class _TextReaderPageState extends State<TextReaderPage> {
           key: ValueKey(i),
           index: i,
           registry: _alive,
-          child: _renderBlock(blocks[i], base, s, theme, screenH, hls),
+          child: i == _ttsBlock && (_speaking || _ttsPanel)
+              ? DecoratedBox(
+                  // 지금 읽는 문단
+                  decoration: BoxDecoration(color: toolActive.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(4)),
+                  child: _renderBlock(blocks[i], base, s, theme, screenH, hls),
+                )
+              : _renderBlock(blocks[i], base, s, theme, screenH, hls),
         );
 
     return LayoutBuilder(builder: (context, c) {
