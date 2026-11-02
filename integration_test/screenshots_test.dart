@@ -337,6 +337,31 @@ void main() {
       }
     });
 
+    // 숨김으로 추가: 항목도, 새로 생긴 묶음 제목도 보이면 안 된다
+    await step('hidden import', () async {
+      state.setHiddenPassword('9999');
+      final secret = Directory(p.join(tmp.path, '비밀 폴더'))..createSync();
+      for (var v = 1; v <= 3; v++) {
+        _cbz(p.join(secret.path, '비밀 만화 0$v권.cbz'), 'Secret $v', 2);
+      }
+      await tester.runAsync(() async {
+        final c = await state.previewFolder(secret.path);
+        await state.importCandidates(c, ImportOptions(baseDir: secret.path, hidden: true, watch: false));
+      });
+      state.setFilter(clearKind: true);
+      state.enterSeries(null);
+      final leakItems = state.allItems.where((e) => e.path.contains('비밀')).length;
+      final leakSeries = state.entries.whereType<SeriesEntry>().where((e) => e.series.title.contains('비밀')).length;
+      debugPrint('CHECK hidden leakItems=$leakItems leakSeries=$leakSeries');
+      expect(leakItems + leakSeries, 0);
+      // 비밀번호를 검색창에 넣으면 드러나야 한다
+      state.trySearchUnlock('9999');
+      final shownItems = state.allItems.where((e) => e.path.contains('비밀')).length;
+      debugPrint('CHECK hidden unlocked=$shownItems');
+      expect(shownItems, 3);
+      state.lockHidden();
+    });
+
     // 가족 계정: 그림 · 영상을 막으면 탭/사이드바/홈에서 사라져야 한다
     await step('restricted', () async {
       final fam = state.users.firstWhere((u) => !u.isAdmin);
