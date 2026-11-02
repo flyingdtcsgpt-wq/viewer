@@ -174,21 +174,39 @@ class NaturalTts {
     return _styles[id] = await _Style.load(_voicePath(d, id));
   }
 
-  Future<void> unload() async {
-    final e = _engine;
-    _engine = null;
-    for (final s in _styles.values) {
-      await s.dispose();
-    }
-    _styles.clear();
-    await e?.close();
+  /// 모델을 메모리에서 내린다. 진행 중인 합성이 끝난 뒤에 (합성 줄에 같이 세움)
+  Future<void> unload() {
+    final c = Completer<void>();
+    _queue = _queue.then((_) async {
+      try {
+        await _loading;
+      } catch (_) {}
+      final e = _engine;
+      _engine = null;
+      for (final s in _styles.values) {
+        try {
+          await s.dispose();
+        } catch (_) {}
+      }
+      _styles.clear();
+      try {
+        await e?.close();
+      } catch (_) {}
+      c.complete();
+    });
+    return c.future;
   }
 
   /// 글을 음성 파일(WAV)로 만든다. [speed] 1.0 = 보통
-  Future<String> synthesize(String text, String voice, {double speed = 1.05, int steps = 8}) {
+  /// [wanted] 가 false 를 돌려주면 (차례가 왔을 때 이미 필요 없어졌으면) 건너뛴다
+  Future<String> synthesize(String text, String voice, {double speed = 1.05, int steps = 8, bool Function()? wanted}) {
     final id = voice.startsWith(prefix) ? voice.substring(prefix.length) : voice;
     final c = Completer<String>();
     _queue = _queue.then((_) async {
+      if (wanted != null && !wanted()) {
+        c.completeError(StateError('cancelled'));
+        return;
+      }
       try {
         final engine = await _load();
         final style = await _style(id);
@@ -392,10 +410,19 @@ class _Engine {
   static Future<_Engine> load(String onnxDir) async {
     final cfg = jsonDecode(await File(p.join(onnxDir, 'tts.json')).readAsString()) as Map<String, dynamic>;
     final ort = OnnxRuntime();
-    final s = await Future.wait([
-      for (final n in ['duration_predictor', 'text_encoder', 'vector_estimator', 'vocoder'])
-        ort.createSession(p.join(onnxDir, '$n.onnx')),
-    ]);
+    final s = <OrtSession>[];
+    try {
+      for (final n in ['duration_predictor', 'text_encoder', 'vector_estimator', 'vocoder']) {
+        s.add(await ort.createSession(p.join(onnxDir, '$n.onnx')));
+      }
+    } catch (_) {
+      for (final x in s) {
+        try {
+          await x.close();
+        } catch (_) {}
+      }
+      rethrow;
+    }
     final idx = await _Indexer.load(p.join(onnxDir, 'unicode_indexer.json'));
     return _Engine(s[0], s[1], s[2], s[3], idx, cfg);
   }

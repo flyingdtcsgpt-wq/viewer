@@ -346,6 +346,7 @@ class AppState extends ChangeNotifier {
 
   /// 초기화 파일로 관리자 비밀번호(와 숨김 비밀번호)를 새로 정한다
   Future<void> resetPasswords(AppUser admin, String newPassword, {required bool clearHidden}) async {
+    share.forgetLogins();
     admin.setPassword(newPassword);
     await db.updateUser(admin);
     if (clearHidden) settings.setHiddenPw('', '');
@@ -376,12 +377,14 @@ class AppState extends ChangeNotifier {
 
   Future<void> updateUser(AppUser u, {String? newPassword}) async {
     if (newPassword != null) u.setPassword(newPassword);
+    share.forgetLogins(); // 공유 서버에 예전 비밀번호로 로그인된 것 지우기
     await db.updateUser(u);
     users = await db.users();
     notifyListeners();
   }
 
   Future<void> deleteUser(AppUser u) async {
+    share.forgetLogins();
     await db.deleteUser(u.id!);
     users = await db.users();
     notifyListeners();

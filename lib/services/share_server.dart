@@ -39,6 +39,7 @@ class ShareServer {
 
   Future<void> start(int port) async {
     await stop();
+    forgetLogins();
     _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
     _log('서버 시작: 포트 $port');
     _server!.listen(_handle, onError: (e) => _log('오류: $e'));
@@ -65,18 +66,43 @@ class ShareServer {
 
   // ---------------- 보이는 것 (숨김 제외 + 접속한 사용자의 접근 규칙) ----------------
   bool _ok(MediaItem e, AccessView v) => !app.isHiddenItem(e) && !e.missing && v.item(e);
-  bool _sOk(Series s, AccessView v) => !app.isHiddenSeries(s) && v.series(s);
+  bool _sOk(Series s, AccessView v) => !app.isHiddenSeries(s) && v.series(s) && _count(s, v) > 0;
   List<MediaItem> _items(AccessView v) => app.rawItems.where((e) => _ok(e, v)).toList();
   List<Series> _children(int? id, AccessView v) =>
-      (app.rawTree.children[id] ?? const <Series>[]).where((s) => _sOk(s, v) && _count(s, v) > 0).toList()
-        ..sort((a, b) => a.title.compareTo(b.title));
+      (app.rawTree.children[id] ?? const <Series>[]).where((s) => _sOk(s, v)).toList()..sort((a, b) => a.title.compareTo(b.title));
   List<MediaItem> _itemsIn(int? id, AccessView v) => (app.rawTree.items[id] ?? const <MediaItem>[]).where((e) => _ok(e, v)).toList()
     ..sort((a, b) => (a.volume ?? 0).compareTo(b.volume ?? 0) != 0 ? (a.volume ?? 0).compareTo(b.volume ?? 0) : a.title.compareTo(b.title));
-  /// 묶음 안에서 이 사람이 볼 수 있는 권 수 (숨김·막힌 권은 세지 않음)
-  int _count(Series s, AccessView v) => app.itemsUnderSeries(s.id!).where((e) => _ok(e, v)).length;
+
+  /// 묶음마다 이 사람이 볼 수 있는 권 수 (요청마다 한 번만 계산)
+  final Expando<Map<int, int>> _counts = Expando();
+  int _count(Series s, AccessView v) {
+    final m = _counts[v] ??= () {
+      final out = <int, int>{};
+      for (final e in app.rawItems) {
+        if (!_ok(e, v)) continue;
+        var cur = e.seriesId;
+        final seen = <int>{};
+        while (cur != null && seen.add(cur)) {
+          out[cur] = (out[cur] ?? 0) + 1;
+          cur = app.seriesById(cur)?.parentId;
+        }
+      }
+      return out;
+    }();
+    return m[s.id] ?? 0;
+  }
+
   Series? _series(int? id, AccessView v) {
     final s = app.seriesById(id);
     return s != null && _sOk(s, v) ? s : null;
+  }
+
+  /// 확인된 로그인 (비밀번호 해시는 느려서 요청마다 다시 계산하지 않는다)
+  final Map<String, int> _verified = {};
+  final Set<String> _rejected = {};
+  void forgetLogins() {
+    _verified.clear();
+    _rejected.clear();
   }
 
   /// 누가 접속했는지 → 그 사람의 접근 규칙. 들어올 수 없으면 null
@@ -93,14 +119,28 @@ class ShareServer {
         }
       } catch (_) {}
     }
+    // 공용 접속에 적용할 계정이 지워졌거나 관리자가 됐으면 막는다 (모두 열리지 않게)
     final asUser = app.users.where((u) => u.id == asUserId).firstOrNull;
+    final asBroken = asUserId != null && (asUser == null || asUser.isAdmin);
     if (name != null) {
-      // 앱 계정으로 로그인하면 그 계정의 규칙 (비밀번호 없는 계정은 공용 접속이 허용될 때만)
-      final u = app.users.where((u) => u.name == name).firstOrNull;
-      if (u != null && u.hasPassword && u.check(pw ?? '')) return app.accessFor(u);
-      if (user.isNotEmpty && name == user && pw == password) return app.accessFor(asUser);
+      if (user.isNotEmpty && name == user && pw == password) return asBroken ? null : app.accessFor(asUser);
+      // 앱 계정으로 로그인하면 그 계정의 규칙
+      final known = _verified[h];
+      if (known != null) {
+        final u = app.users.where((u) => u.id == known).firstOrNull;
+        if (u != null) return app.accessFor(u);
+      }
+      if (!_rejected.contains(h)) {
+        final u = app.users.where((u) => u.name == name).firstOrNull;
+        if (u != null && u.hasPassword && u.check(pw ?? '')) {
+          _verified[h] = u.id!;
+          return app.accessFor(u);
+        }
+        if (_rejected.length > 200) _rejected.clear();
+        _rejected.add(h);
+      }
     }
-    if (user.isEmpty) return app.accessFor(asUser);
+    if (user.isEmpty) return asBroken ? null : app.accessFor(asUser);
     return null;
   }
 

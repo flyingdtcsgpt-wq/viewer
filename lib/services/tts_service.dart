@@ -12,6 +12,11 @@ import 'natural_tts.dart';
 class TtsService {
   Process? _proc;
   bool _stopped = false;
+  int _gen = 0; // 멈추거나 새로 읽을 때마다 바뀜 (이전 읽기는 소리를 내지 않음)
+  int _epoch = 0; // 사용자가 멈출 때만 바뀜 (그 전에 부탁한 미리 만들기는 건너뜀)
+
+  /// 마지막 speak 가 false 를 돌려준 이유가 "실패"인지 (멈춤이면 false)
+  bool failed = false;
   Player? _player; // 자연 음성 재생용
   Completer<bool>? _playing;
   final Map<String, Future<String>> _ready = {}; // 미리 만들어 둔 자연 음성
@@ -35,47 +40,85 @@ class TtsService {
     if (voice == null || !NaturalTts.isNatural(voice) || text.trim().isEmpty) return;
     final k = _key(text.trim(), voice, rate);
     if (_ready.containsKey(k)) return;
-    if (_ready.length > 6) _ready.remove(_ready.keys.first);
-    final f = NaturalTts.instance.synthesize(text.trim(), voice, speed: _speed(rate));
+    if (_ready.length > 6) _discard(_ready.remove(_ready.keys.first));
+    final epoch = _epoch;
+    final f = NaturalTts.instance.synthesize(text.trim(), voice, speed: _speed(rate), wanted: () => epoch == _epoch);
     f.ignore(); // 실패는 실제로 읽을 때 처리
     _ready[k] = f;
   }
 
-  Future<bool> _speakNatural(String t, String voice, int rate) async {
+  /// 안 쓰게 된 미리 만든 음성 파일 지우기
+  static void _discard(Future<String>? f) => f?.then(_deleteLater, onError: (_) {});
+
+  Future<bool> _speakNatural(String t, String voice, int rate, int gen) async {
     final k = _key(t, voice, rate);
     final String wav;
     try {
       wav = await (_ready.remove(k) ?? NaturalTts.instance.synthesize(t, voice, speed: _speed(rate)));
     } catch (_) {
+      failed = gen == _gen;
       return false;
     }
-    if (_stopped) {
+    // 만드는 사이에 멈추거나 다른 글을 읽기 시작했으면 버린다
+    if (gen != _gen) {
       _deleteLater(wav);
       return false;
     }
     final player = _player ??= Player();
     final done = _playing = Completer<bool>();
-    final sub = player.stream.completed.listen((c) {
-      if (c && !done.isCompleted) done.complete(true);
-    });
+    var started = false; // 이전 파일의 늦은 "끝남" 알림을 무시하려고
+    final subs = [
+      player.stream.playing.listen((p) {
+        if (p) started = true;
+      }),
+      player.stream.completed.listen((c) {
+        if (c && started && !done.isCompleted) done.complete(true);
+      }),
+      player.stream.error.listen((e) {
+        if (!done.isCompleted) {
+          failed = true;
+          done.complete(false);
+        }
+      }),
+    ];
     try {
+      // 재생이 끝났다는 알림이 오지 않아도 영원히 멈추지 않게: 소리 길이 + 여유
+      final seconds = ((await File(wav).length()) - 44) / 2 / 44100;
       await player.open(Media(Uri.file(wav).toString()));
-      return await done.future;
+      return await done.future.timeout(Duration(milliseconds: (seconds * 1000).round() + 5000), onTimeout: () {
+        if (!started) failed = true;
+        return started;
+      });
+    } catch (_) {
+      failed = true;
+      return false;
     } finally {
-      await sub.cancel();
-      _playing = null;
+      for (final x in subs) {
+        await x.cancel();
+      }
+      if (identical(_playing, done)) _playing = null;
+      if (gen == _gen) await player.stop(); // 파일을 놓아야 지울 수 있다
       _deleteLater(wav);
     }
   }
 
   static void _deleteLater(String path) => Future.delayed(const Duration(seconds: 2), () async {
-        try {
-          await File(path).delete();
-        } catch (_) {}
+        for (var i = 0; i < 5; i++) {
+          try {
+            await File(path).delete();
+            return;
+          } catch (_) {
+            await Future<void>.delayed(const Duration(seconds: 3));
+          }
+        }
       });
 
   Future<void> dispose() async {
     await stop();
+    for (final f in _ready.values) {
+      _discard(f);
+    }
+    _ready.clear();
     await _player?.dispose();
     _player = null;
   }
@@ -102,11 +145,13 @@ class TtsService {
   /// 한 덩어리 읽기. 다 읽으면 true, 중간에 멈추면 false
   /// [rate]: -10(느림) ~ 10(빠름), 0 이 보통
   Future<bool> speak(String text, {String? voice, int rate = 0}) async {
-    await stop();
+    await _halt();
     _stopped = false;
+    failed = false;
+    final gen = _gen;
     final t = text.trim();
     if (t.isEmpty) return true;
-    if (voice != null && NaturalTts.isNatural(voice)) return _speakNatural(t, voice, rate);
+    if (voice != null && NaturalTts.isNatural(voice)) return _speakNatural(t, voice, rate, gen);
     try {
       if (Platform.isWindows) {
         // 글은 표준입력으로 넘긴다 (따옴표·특수문자 걱정 없음)
@@ -133,6 +178,7 @@ class TtsService {
       }
       final code = await _proc!.exitCode;
       _proc = null;
+      if (!_stopped && code != 0) failed = true;
       return !_stopped && code == 0;
     } catch (_) {
       _proc = null;
@@ -140,8 +186,20 @@ class TtsService {
     }
   }
 
+  /// 읽기를 멈춘다. 미리 만들던 음성도 버린다
   Future<void> stop() async {
+    _epoch++;
+    for (final f in _ready.values) {
+      _discard(f);
+    }
+    _ready.clear();
+    await _halt();
+  }
+
+  /// 지금 소리만 멈춤 (다음 글을 읽기 직전에 부름, 미리 만든 음성은 유지)
+  Future<void> _halt() async {
     _stopped = true;
+    _gen++;
     final pl = _playing;
     if (pl != null && !pl.isCompleted) pl.complete(false);
     await _player?.stop();

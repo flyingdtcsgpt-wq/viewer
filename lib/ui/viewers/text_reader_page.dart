@@ -236,61 +236,66 @@ class _TextReaderPageState extends State<TextReaderPage> {
     return out.where((e) => e.$2.trim().isNotEmpty).toList();
   }
 
+  int _ttsRun = 0; // 새로 읽기 시작하거나 멈추면 바뀜 (이전 읽기 루프는 그만둔다)
+
+  /// 한 문단의 읽기 계획: (글, 음성, 속도)
+  List<(String, String, int)> _plan(String text, Settings s) {
+    final segs = _segments(text, s.ttsSplit);
+    final cast = s.ttsSplit ? s.speakerVoices(item.id!) : const <String, String>{};
+    String voiceOf(int k) {
+      switch (segs[k].$1) {
+        case 1:
+          // 대사: 화자를 알아냈고 그 인물 목소리를 정해 두었으면 그 목소리
+          final who = cast.isEmpty ? null : Speakers.speakerAt(segs, k);
+          final v = who == null ? null : cast[who];
+          if (v != null) return v;
+          return s.ttsDialogueVoice.isNotEmpty ? s.ttsDialogueVoice : s.ttsVoice;
+        case 2:
+          return s.ttsThoughtVoice.isNotEmpty ? s.ttsThoughtVoice : s.ttsVoice;
+        default:
+          return s.ttsVoice;
+      }
+    }
+
+    return [
+      for (var k = 0; k < segs.length; k++) (segs[k].$2, voiceOf(k), s.ttsRate + (segs[k].$1 == 2 ? -2 : 0)), // 속마음은 조금 느리게
+    ];
+  }
+
   Future<void> _ttsPlay({int? from}) async {
     if (_doc == null) return;
+    final run = ++_ttsRun;
     final s = context.read<Settings>();
     setState(() {
       _speaking = true;
       _ttsBlock = from ?? _ttsBlock ?? _current;
     });
-    while (_speaking && mounted && _ttsBlock! < _count) {
+    bool alive() => mounted && _speaking && run == _ttsRun;
+    while (alive() && _ttsBlock! < _count) {
       final i = _ttsBlock!;
       final b = _doc!.blocks[i];
       _showBlock(i);
       if (!b.isImage && (b.text ?? '').trim().isNotEmpty) {
-        final segs = _segments(b.text!, s.ttsSplit);
-        final cast = s.ttsSplit ? s.speakerVoices(item.id!) : const <String, String>{};
-        final plan = [
-          for (var k = 0; k < segs.length; k++)
-            (
-              segs[k].$2,
-              switch (segs[k].$1) {
-                // 대사: 화자를 알아냈고 그 인물 목소리를 정해 두었으면 그 목소리
-                1 when cast.isNotEmpty && cast[Speakers.speakerAt(segs, k)] != null => cast[Speakers.speakerAt(segs, k)]!,
-                1 when s.ttsDialogueVoice.isNotEmpty => s.ttsDialogueVoice,
-                2 when s.ttsThoughtVoice.isNotEmpty => s.ttsThoughtVoice,
-                _ => s.ttsVoice,
-              },
-              s.ttsRate + (segs[k].$1 == 2 ? -2 : 0), // 속마음은 조금 느리게
-            ),
-        ];
+        final plan = _plan(b.text!, s);
         // 다음 문단 첫 덩어리도 미리 만들어 두면 문단 사이가 덜 끊긴다
         final nextBlock = i + 1 < _count ? _doc!.blocks[i + 1] : null;
-        final nextText = nextBlock == null || nextBlock.isImage ? null : _segments(nextBlock.text ?? '', s.ttsSplit).firstOrNull;
+        final nextFirst = nextBlock == null || nextBlock.isImage ? null : _plan(nextBlock.text ?? '', s).firstOrNull;
         for (var k = 0; k < plan.length; k++) {
           final (seg, voice, rate) = plan[k];
-          if (k + 1 < plan.length) {
-            final (ns, nv, nr) = plan[k + 1];
-            _tts.prefetch(ns, voice: nv, rate: nr);
-          } else if (nextText != null) {
-            final nv = switch (nextText.$1) {
-              1 when s.ttsDialogueVoice.isNotEmpty => s.ttsDialogueVoice,
-              2 when s.ttsThoughtVoice.isNotEmpty => s.ttsThoughtVoice,
-              _ => s.ttsVoice,
-            };
-            _tts.prefetch(nextText.$2, voice: nv, rate: s.ttsRate + (nextText.$1 == 2 ? -2 : 0));
-          }
+          final ahead = k + 1 < plan.length ? plan[k + 1] : nextFirst;
+          if (ahead != null) _tts.prefetch(ahead.$1, voice: ahead.$2, rate: ahead.$3);
           final done = await _tts.speak(seg, voice: voice, rate: rate);
-          if (!done || !_speaking || !mounted) {
-            if (mounted && _speaking && !done) _ttsFailed();
+          if (!alive()) return;
+          if (!done) {
+            if (_tts.failed) _ttsFailed();
             return;
           }
         }
       }
-      if (!_speaking || !mounted) return;
+      if (!alive()) return;
       setState(() => _ttsBlock = i + 1);
     }
-    if (mounted) setState(() => _speaking = false);
+    if (mounted && run == _ttsRun) setState(() => _speaking = false);
   }
 
   /// 책에서 말하는 인물을 찾아 인물마다 목소리 정하기
@@ -375,6 +380,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   }
 
   Future<void> _ttsStop({bool reset = false}) async {
+    _ttsRun++;
     setState(() {
       _speaking = false;
       if (reset) _ttsBlock = null;
@@ -385,10 +391,13 @@ class _TextReaderPageState extends State<TextReaderPage> {
   void _ttsSkip(int d) {
     final next = ((_ttsBlock ?? _current) + d).clamp(0, _count - 1);
     final wasSpeaking = _speaking;
+    _ttsRun++; // 지금 읽기 루프는 그만두게
     _tts.stop();
     setState(() => _ttsBlock = next);
     if (wasSpeaking) {
-      Future.delayed(const Duration(milliseconds: 150), () => _ttsPlay(from: next));
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (mounted) _ttsPlay(from: next);
+      });
     } else {
       _showBlock(next);
     }

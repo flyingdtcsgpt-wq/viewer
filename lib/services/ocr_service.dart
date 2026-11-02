@@ -23,7 +23,7 @@ class OcrService {
   static const _ps = r'''
 param([string]$lang, [string]$list)
 $ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
   $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
@@ -48,6 +48,7 @@ Write-Output ('##LANG ' + $engine.RecognizerLanguage.LanguageTag)
 foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
   if (-not $path) { continue }
   Write-Output ('##PAGE ' + $path)
+  $stream = $null
   try {
     $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
     $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
@@ -55,16 +56,17 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
     $bmp = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
     $r = Await ($engine.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])
     foreach ($l in $r.Lines) { Write-Output $l.Text }
-    $stream.Dispose()
   } catch {
     Write-Output ('##ERROR ' + $_.Exception.Message)
+  } finally {
+    if ($stream -ne $null) { $stream.Dispose() }
   }
 }
 ''';
 
   static Future<File> _scriptFile() async {
     if (_script != null && await _script!.exists()) return _script!;
-    final f = File(p.join(Directory.systemTemp.path, 'arari_ocr_v1.ps1'));
+    final f = File(p.join(Directory.systemTemp.path, 'arari_ocr_v2.ps1'));
     // Windows PowerShell 5.1 은 BOM 이 있어야 UTF-8 로 읽는다
     await f.writeAsBytes([0xEF, 0xBB, 0xBF, ...utf8.encode(_ps)]);
     return _script = f;
@@ -109,12 +111,18 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
       final list = File(p.join(tmp.path, 'list.txt'));
       await list.writeAsString(prepared.keys.join('\r\n'), encoding: utf8);
       final s = await _scriptFile();
-      final r = await Process.run(
+      final proc = await Process.start(
         'powershell',
         ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', s.path, '-lang', lang, '-list', list.path],
-        stdoutEncoding: utf8,
-        stderrEncoding: utf8,
       );
+      final outF = proc.stdout.transform(utf8.decoder).join();
+      final errF = proc.stderr.transform(utf8.decoder).join();
+      // 쪽당 넉넉히 20초, 그래도 안 끝나면 끊는다
+      final code = await proc.exitCode.timeout(Duration(seconds: 30 + prepared.length * 20), onTimeout: () {
+        proc.kill();
+        return -1;
+      });
+      final r = (exitCode: code, stdout: await outF, stderr: await errF);
       final out = r.stdout as String;
       if (out.contains('##NOENGINE')) {
         throw const OcrUnavailable('Windows 글자 인식기가 없습니다. 설정 → 시간 및 언어 → 언어에서 한국어를 추가하세요.');
@@ -172,9 +180,12 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
     var x = im;
     if (x.width > _maxSide) x = img.copyResize(x, width: _maxSide);
     if (x.height <= _maxSide) return [img.encodePng(x, level: 1)];
+    // 조각 경계에 걸린 줄을 놓치지 않게 조금씩 겹쳐 자른다
+    const overlap = 80;
     return [
-      for (var y = 0; y < x.height; y += _maxSide)
-        img.encodePng(img.copyCrop(x, x: 0, y: y, width: x.width, height: (x.height - y).clamp(1, _maxSide)), level: 1),
+      for (var y = 0; y < x.height; y += _maxSide - overlap)
+        if (y == 0 || y + overlap < x.height)
+          img.encodePng(img.copyCrop(x, x: 0, y: y, width: x.width, height: (x.height - y).clamp(1, _maxSide)), level: 1),
     ];
   }
 

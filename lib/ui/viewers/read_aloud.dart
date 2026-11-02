@@ -113,7 +113,7 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
           final ok = await _tts.speak(parts[k], voice: s.ttsVoice, rate: s.ttsRate);
           if (!mounted || run != _run) return;
           if (!ok) {
-            _fail('음성을 재생하지 못했습니다. 다른 음성을 골라 보세요.');
+            if (_tts.failed) _fail('음성을 재생하지 못했습니다. 다른 음성을 골라 보세요.');
             return;
           }
         }
@@ -173,7 +173,9 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
                   final n = widget.currentPage() + 1;
                   if (n < widget.pageCount) {
                     widget.goTo(n);
-                    Future.delayed(const Duration(milliseconds: 300), _play);
+                    Future.delayed(const Duration(milliseconds: 300), () {
+                      if (mounted) _play();
+                    });
                   }
                 },
               ),

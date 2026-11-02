@@ -774,7 +774,7 @@ class _VoiceState extends State<_Voice> {
           ),
           if (installed == true && admin)
             TextButton.icon(
-              onPressed: _busy
+              onPressed: _busy || _playing
                   ? null
                   : () async {
                       await NaturalTts.instance.remove();
