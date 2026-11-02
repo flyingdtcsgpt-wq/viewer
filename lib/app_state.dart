@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show FileImage;
 import 'package:path/path.dart' as p;
 
 import 'db/library_db.dart';
@@ -1228,6 +1229,17 @@ class AppState extends ChangeNotifier {
   Future<void> hideSelected(bool hidden) {
     final (ss, ii) = _selection();
     return setHidden(items: ii, series: ss, hidden: hidden);
+  }
+
+  /// 파일 도구로 압축 파일을 고친 뒤: 표지·쪽수·크기 다시 읽기
+  Future<void> refreshFile(MediaItem e) async {
+    if (e.coverPath != null) await FileImage(File(e.coverPath!)).evict();
+    e.coverPath = await covers.generate(e);
+    if (e.coverPath != null) await FileImage(File(e.coverPath!)).evict();
+    e.pages = await covers.pageCount(e);
+    e.size = (await File(e.path).stat()).size;
+    await db.update(e);
+    notifyListeners();
   }
 
   /// 선택한 항목들 (묶음을 고르면 그 안의 모든 권) — 일괄 편집용
