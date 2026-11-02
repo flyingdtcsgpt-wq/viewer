@@ -418,18 +418,28 @@ class AppState extends ChangeNotifier {
   bool isHiddenItem(MediaItem e) => e.hidden || _anyAncestor(e.seriesId, (s) => s.hidden);
   bool isHiddenSeries(Series s) => _anyAncestor(s.id, (x) => x.hidden);
 
-  bool canAccessItem(MediaItem e) =>
-      _denied.isEmpty ||
-      (!_denied.contains('i:${e.id}') && !_deniedByScope(e) && !_anyAncestor(e.seriesId, (s) => _denied.contains('s:${s.id}')));
+  bool canAccessItem(MediaItem e) => _accessItem(e, _denied);
   bool canAccessSeries(Series s) =>
       _denied.isEmpty ||
       (!_anyAncestor(s.id, (x) => _denied.contains('s:${x.id}')) &&
           (!_scopedDenial || (_seriesWithAccess ??= _computeSeriesAccess()).contains(s.id)));
 
+  bool _accessItem(MediaItem e, Set<String> denied) =>
+      denied.isEmpty ||
+      (!denied.contains('i:${e.id}') && !_deniedByScope(e, denied) && !_anyAncestor(e.seriesId, (s) => denied.contains('s:${s.id}')));
+
+  /// 다른 사용자의 접근 규칙으로 보기 (공유 서버용)
+  Future<AccessView> accessFor(AppUser? u) async =>
+      AccessView._(this, u == null || u.isAdmin ? const {} : await db.deniedFor(u.id!));
+
+  /// 묶음 아래 모든 권 (보이기 규칙 무시)
+  List<MediaItem> itemsUnderSeries(int seriesId) => _itemsUnder(seriesId);
+
   /// 라이브러리 폴더(f:경로) · 종류(k:comic 등) 단위로 막혔는가
-  bool get _scopedDenial => _denied.any((d) => d.startsWith('f:') || d.startsWith('k:'));
-  bool _deniedByScope(MediaItem e) {
-    for (final d in _denied) {
+  bool get _scopedDenial => _isScoped(_denied);
+  static bool _isScoped(Set<String> d) => d.any((x) => x.startsWith('f:') || x.startsWith('k:'));
+  bool _deniedByScope(MediaItem e, [Set<String>? denied]) {
+    for (final d in denied ?? _denied) {
       if (d == 'k:${e.kind.name}') return true;
       if (d.startsWith('f:')) {
         final f = d.substring(2);
@@ -441,10 +451,10 @@ class AppState extends ChangeNotifier {
 
   /// 폴더·종류로 막힌 게 있으면, 볼 수 있는 권이 하나도 없는 묶음도 감춘다
   Set<int>? _seriesWithAccess;
-  Set<int> _computeSeriesAccess() {
+  Set<int> _computeSeriesAccess([Set<String>? denied]) {
     final ok = <int>{};
     for (final e in _items) {
-      if (!canAccessItem(e)) continue;
+      if (!_accessItem(e, denied ?? _denied)) continue;
       var cur = e.seriesId;
       while (cur != null && ok.add(cur)) {
         cur = _series[cur]?.parentId;
@@ -1693,4 +1703,24 @@ class ImportOptions {
     this.baseDir,
     this.bundleName,
   });
+}
+
+/// 한 사용자의 접근 규칙 (공유 서버에서 접속한 사람마다)
+class AccessView {
+  final AppState _app;
+  final Set<String> denied;
+  Set<int>? _seriesOk;
+  AccessView._(this._app, this.denied);
+
+  /// 제한 없음 (숨김만 빼고 전부)
+  bool get unrestricted => denied.isEmpty;
+
+  bool item(MediaItem e) => _app._accessItem(e, denied);
+
+  bool series(Series s) {
+    if (denied.isEmpty) return true;
+    if (_app._anyAncestor(s.id, (x) => denied.contains('s:${x.id}'))) return false;
+    if (!AppState._isScoped(denied)) return true;
+    return (_seriesOk ??= _app._computeSeriesAccess(denied)).contains(s.id);
+  }
 }

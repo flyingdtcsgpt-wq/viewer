@@ -215,12 +215,13 @@ class _ImportDialogState extends State<_ImportDialog> {
           ]),
         );
 
-    RadioListTile<T> radio<T>(T value, T group, String title, String? sub, ValueChanged<T?> f) => RadioListTile<T>(
+    // 하나만 고르는 줄 (Radio 위젯 API 변경과 무관하게 같은 모양)
+    Widget radio<T>(T value, T group, String title, String? sub, ValueChanged<T?> f) => ListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          value: value,
-          groupValue: group,
-          onChanged: f,
+          leading: Icon(value == group ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              color: value == group ? scheme.primary : null),
+          onTap: () => f(value),
           title: Text(title),
           subtitle: sub == null ? null : Text(sub, style: const TextStyle(fontSize: 11)),
         );

@@ -142,7 +142,24 @@ class Settings extends ChangeNotifier {
   bool get ttsSplit => _p.getBool('ttsSplit') ?? false;
   set ttsSplit(bool v) => _set(() => _p.setBool('ttsSplit', v));
 
+  /// 책마다 인물별 목소리 { 이름: 음성 }
+  Map<String, String> speakerVoices(int bookId) {
+    final raw = _p.getString('spk_$bookId');
+    if (raw == null) return {};
+    try {
+      return (jsonDecode(raw) as Map<String, dynamic>).map((k, v) => MapEntry(k, v as String));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  void setSpeakerVoices(int bookId, Map<String, String> m) =>
+      _set(() => m.isEmpty ? _p.remove('spk_$bookId') : _p.setString('spk_$bookId', jsonEncode(m)));
+
   // ---------- 공유 서버 ----------
+  /// 공용 아이디로 접속했을 때 적용할 앱 사용자 (없으면 -1 = 숨김만 빼고 전부)
+  int get shareAsUser => _p.getInt('shareAsUser') ?? -1;
+  set shareAsUser(int v) => _set(() => _p.setInt('shareAsUser', v));
   int get sharePort => _p.getInt('sharePort') ?? 8079;
   set sharePort(int v) => _set(() => _p.setInt('sharePort', v));
   String get shareUser => _p.getString('shareUser') ?? 'user';

@@ -54,7 +54,8 @@ class _SharePageState extends State<SharePage> {
       _s.sharePassword = _pw.text;
       _srv
         ..user = _user.text.trim()
-        ..password = _pw.text;
+        ..password = _pw.text
+        ..asUserId = _s.shareAsUser < 0 ? null : _s.shareAsUser;
       try {
         await _srv.start(port);
       } catch (e) {
@@ -114,7 +115,7 @@ class _SharePageState extends State<SharePage> {
 
     final left = ListView(padding: const EdgeInsets.all(16), children: [
       box('서버', [
-        const Text('PC 와 휴대폰/태블릿을 같은 네트워크(Wi-Fi)에 연결하세요. 숨긴 항목은 보이지 않습니다.'),
+        const Text('PC 와 휴대폰/태블릿을 같은 네트워크(Wi-Fi)에 연결하세요. 숨긴 항목은 보이지 않고, 계정별 접근 권한도 지켜집니다.'),
         const SizedBox(height: 12),
         Row(children: [
           const Text('서버 주소  '),
@@ -161,6 +162,23 @@ class _SharePageState extends State<SharePage> {
             ),
           ),
         ]),
+        const SizedBox(height: 12),
+        Row(children: [
+          const Text('이 아이디로 볼 수 있는 범위  '),
+          Expanded(
+            child: DropdownButton<int>(
+              isExpanded: true,
+              value: _app.users.any((u) => u.id == _s.shareAsUser && !u.isAdmin) ? _s.shareAsUser : -1,
+              items: [
+                const DropdownMenuItem(value: -1, child: Text('제한 없음 (숨김만 제외)')),
+                for (final u in _app.users.where((u) => !u.isAdmin)) DropdownMenuItem(value: u.id!, child: Text('"${u.name}" 계정과 같게')),
+              ],
+              onChanged: on ? null : (v) => setState(() => _s.shareAsUser = v ?? -1),
+            ),
+          ),
+        ]),
+        Text('앱 계정 이름과 비밀번호로 로그인하면 그 계정의 접근 권한(폴더 · 종류 · 묶음)이 그대로 적용됩니다.',
+            style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 12),
         FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: on ? Colors.redAccent : null, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16)),

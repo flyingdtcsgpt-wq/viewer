@@ -11,7 +11,7 @@ import '../models/series.dart';
 /// 같은 Wi-Fi 의 다른 기기에서 라이브러리를 보는 서버
 /// - Web : 브라우저로 둘러보기 · 검색 · 내려받기   http://PC주소:포트/
 /// - OPDS: Panels, ComicGlass, KyBook 같은 리더 앱  http://PC주소:포트/opds
-/// 숨김 항목은 내보내지 않는다. 아이디/비밀번호(기본 인증)를 걸 수 있다.
+/// 숨김 항목은 내보내지 않는다. 앱 계정으로 로그인하면 그 계정의 접근 규칙(폴더·종류·묶음)을 따른다.
 class ShareServer {
   final AppState app;
   ShareServer(this.app);
@@ -26,6 +26,9 @@ class ShareServer {
 
   String user = '';
   String password = '';
+
+  /// 공용 아이디(또는 비밀번호 없이) 접속한 사람에게 적용할 앱 사용자의 접근 규칙. null = 숨김만 빼고 전부
+  int? asUserId;
 
   void _log(String m) {
     final t = DateTime.now();
@@ -60,19 +63,53 @@ class ShareServer {
     return out;
   }
 
-  // ---------------- 보이는 것 ----------------
-  bool _ok(MediaItem e) => !app.isHiddenItem(e) && !e.missing;
-  List<MediaItem> get _items => app.rawItems.where(_ok).toList();
-  List<Series> _children(int? id) =>
-      (app.rawTree.children[id] ?? const <Series>[]).where((s) => !app.isHiddenSeries(s)).toList()..sort((a, b) => a.title.compareTo(b.title));
-  List<MediaItem> _itemsIn(int? id) => (app.rawTree.items[id] ?? const <MediaItem>[]).where(_ok).toList()
+  // ---------------- 보이는 것 (숨김 제외 + 접속한 사용자의 접근 규칙) ----------------
+  bool _ok(MediaItem e, AccessView v) => !app.isHiddenItem(e) && !e.missing && v.item(e);
+  bool _sOk(Series s, AccessView v) => !app.isHiddenSeries(s) && v.series(s);
+  List<MediaItem> _items(AccessView v) => app.rawItems.where((e) => _ok(e, v)).toList();
+  List<Series> _children(int? id, AccessView v) =>
+      (app.rawTree.children[id] ?? const <Series>[]).where((s) => _sOk(s, v) && _count(s, v) > 0).toList()
+        ..sort((a, b) => a.title.compareTo(b.title));
+  List<MediaItem> _itemsIn(int? id, AccessView v) => (app.rawTree.items[id] ?? const <MediaItem>[]).where((e) => _ok(e, v)).toList()
     ..sort((a, b) => (a.volume ?? 0).compareTo(b.volume ?? 0) != 0 ? (a.volume ?? 0).compareTo(b.volume ?? 0) : a.title.compareTo(b.title));
+  /// 묶음 안에서 이 사람이 볼 수 있는 권 수 (숨김·막힌 권은 세지 않음)
+  int _count(Series s, AccessView v) => app.itemsUnderSeries(s.id!).where((e) => _ok(e, v)).length;
+  Series? _series(int? id, AccessView v) {
+    final s = app.seriesById(id);
+    return s != null && _sOk(s, v) ? s : null;
+  }
+
+  /// 누가 접속했는지 → 그 사람의 접근 규칙. 들어올 수 없으면 null
+  Future<AccessView?> _viewer(HttpRequest req) async {
+    String? name, pw;
+    final h = req.headers.value(HttpHeaders.authorizationHeader) ?? '';
+    if (h.startsWith('Basic ')) {
+      try {
+        final t = utf8.decode(base64.decode(h.substring(6)));
+        final i = t.indexOf(':');
+        if (i > 0) {
+          name = t.substring(0, i);
+          pw = t.substring(i + 1);
+        }
+      } catch (_) {}
+    }
+    final asUser = app.users.where((u) => u.id == asUserId).firstOrNull;
+    if (name != null) {
+      // 앱 계정으로 로그인하면 그 계정의 규칙 (비밀번호 없는 계정은 공용 접속이 허용될 때만)
+      final u = app.users.where((u) => u.name == name).firstOrNull;
+      if (u != null && u.hasPassword && u.check(pw ?? '')) return app.accessFor(u);
+      if (user.isNotEmpty && name == user && pw == password) return app.accessFor(asUser);
+    }
+    if (user.isEmpty) return app.accessFor(asUser);
+    return null;
+  }
 
   // ---------------- 요청 처리 ----------------
   Future<void> _handle(HttpRequest req) async {
     final res = req.response;
     try {
-      if (user.isNotEmpty && !_authorized(req)) {
+      final v = await _viewer(req);
+      if (v == null) {
         res.statusCode = HttpStatus.unauthorized;
         res.headers.set('WWW-Authenticate', 'Basic realm="ARARIFlex"');
         await res.close();
@@ -82,14 +119,14 @@ class ShareServer {
       final seg = req.uri.pathSegments;
       _log('${req.connectionInfo?.remoteAddress.address ?? '?'} ${req.method} $path');
 
-      if (path == '/' || path.isEmpty) return await _html(res, _webPage(null, req.uri.queryParameters['q']));
-      if (seg.length == 2 && seg[0] == 's') return await _html(res, _webPage(int.tryParse(seg[1]), null));
-      if (seg.length == 2 && seg[0] == 'file') return await _file(res, int.tryParse(seg[1]), download: true);
-      if (seg.length == 2 && seg[0] == 'cover') return await _cover(res, int.tryParse(seg[1]), series: false);
-      if (seg.length == 2 && seg[0] == 'scover') return await _cover(res, int.tryParse(seg[1]), series: true);
+      if (path == '/' || path.isEmpty) return await _html(res, _webPage(v, null, req.uri.queryParameters['q']));
+      if (seg.length == 2 && seg[0] == 's') return await _html(res, _webPage(v, int.tryParse(seg[1]), null));
+      if (seg.length == 2 && seg[0] == 'file') return await _file(res, v, int.tryParse(seg[1]), download: true);
+      if (seg.length == 2 && seg[0] == 'cover') return await _cover(res, v, int.tryParse(seg[1]), series: false);
+      if (seg.length == 2 && seg[0] == 'scover') return await _cover(res, v, int.tryParse(seg[1]), series: true);
       if (seg.isNotEmpty && seg[0] == 'opds') {
-        if (seg.length == 1) return await _atom(res, _opdsFeed(null, req.uri.queryParameters['q']));
-        if (seg.length == 3 && seg[1] == 's') return await _atom(res, _opdsFeed(int.tryParse(seg[2]), null));
+        if (seg.length == 1) return await _atom(res, _opdsFeed(v, null, req.uri.queryParameters['q']));
+        if (seg.length == 3 && seg[1] == 's') return await _atom(res, _opdsFeed(v, int.tryParse(seg[2]), null));
         if (seg.length == 2 && seg[1] == 'search.xml') return await _atom(res, _openSearch(), type: 'application/opensearchdescription+xml');
       }
       res.statusCode = HttpStatus.notFound;
@@ -101,16 +138,6 @@ class ShareServer {
         res.statusCode = HttpStatus.internalServerError;
         await res.close();
       } catch (_) {}
-    }
-  }
-
-  bool _authorized(HttpRequest req) {
-    final h = req.headers.value(HttpHeaders.authorizationHeader) ?? '';
-    if (!h.startsWith('Basic ')) return false;
-    try {
-      return utf8.decode(base64.decode(h.substring(6))) == '$user:$password';
-    } catch (_) {
-      return false;
     }
   }
 
@@ -126,10 +153,10 @@ class ShareServer {
     await res.close();
   }
 
-  MediaItem? _item(int? id) => id == null ? null : _items.where((e) => e.id == id).firstOrNull;
+  MediaItem? _item(int? id, AccessView v) => id == null ? null : app.rawItems.where((e) => e.id == id && _ok(e, v)).firstOrNull;
 
-  Future<void> _file(HttpResponse res, int? id, {required bool download}) async {
-    final e = _item(id);
+  Future<void> _file(HttpResponse res, AccessView v, int? id, {required bool download}) async {
+    final e = _item(id, v);
     if (e == null || !await File(e.path).exists()) {
       res.statusCode = HttpStatus.notFound;
       await res.close();
@@ -144,13 +171,14 @@ class ShareServer {
     await res.close();
   }
 
-  Future<void> _cover(HttpResponse res, int? id, {required bool series}) async {
+  Future<void> _cover(HttpResponse res, AccessView v, int? id, {required bool series}) async {
     String? path;
     if (series) {
-      final s = app.seriesById(id);
-      if (s != null && !app.isHiddenSeries(s)) path = s.coverPath ?? app.rawTree.stats(s.id!, null).coverPath;
+      final s = _series(id, v);
+      // 묶음 표지가 없으면 이 사람이 볼 수 있는 권의 표지만 쓴다 (숨긴 권 표지가 새지 않게)
+      if (s != null) path = s.coverPath ?? app.itemsUnderSeries(s.id!).where((e) => _ok(e, v) && e.coverPath != null).firstOrNull?.coverPath;
     } else {
-      path = _item(id)?.coverPath;
+      path = _item(id, v)?.coverPath;
     }
     if (path == null || !await File(path).exists()) {
       res.statusCode = HttpStatus.notFound;
@@ -181,26 +209,27 @@ class ShareServer {
   static String _esc(String s) => const HtmlEscape().convert(s);
 
   // ---------------- Web 페이지 ----------------
-  String _webPage(int? seriesId, String? q) {
-    final s = app.seriesById(seriesId);
+  String _webPage(AccessView v, int? seriesId, String? q) {
+    final s = _series(seriesId, v);
+    if (s == null) seriesId = null;
     final query = (q ?? '').trim().toLowerCase();
-    final series = query.isNotEmpty ? <Series>[] : _children(seriesId);
+    final series = query.isNotEmpty ? <Series>[] : _children(seriesId, v);
     final items = query.isNotEmpty
-        ? _items.where((e) => e.title.toLowerCase().contains(query) || e.fileName.toLowerCase().contains(query)).take(300).toList()
-        : _itemsIn(seriesId);
+        ? _items(v).where((e) => e.title.toLowerCase().contains(query) || e.fileName.toLowerCase().contains(query)).take(300).toList()
+        : _itemsIn(seriesId, v);
     final crumbs = <String>['<a href="/">전체</a>'];
     var cur = s;
     final chain = <Series>[];
     while (cur != null) {
       chain.insert(0, cur);
-      cur = app.seriesById(cur.parentId);
+      cur = _series(cur.parentId, v);
     }
     for (final c in chain) {
       crumbs.add('<a href="/s/${c.id}">${_esc(c.title)}</a>');
     }
     final cards = StringBuffer();
     for (final c in series) {
-      final n = app.rawTree.stats(c.id!, null).allItems;
+      final n = _count(c, v);
       cards.write('<a class="card" href="/s/${c.id}"><img loading="lazy" src="/scover/${c.id}" onerror="this.style.visibility=\'hidden\'">'
           '<div class="badge">📁 $n</div><div class="t">${_esc(c.title)}</div></a>');
     }
@@ -230,8 +259,9 @@ ${series.isEmpty && items.isEmpty ? '<p style="padding:20px;color:#888">항목�
   }
 
   // ---------------- OPDS ----------------
-  String _opdsFeed(int? seriesId, String? q) {
-    final s = app.seriesById(seriesId);
+  String _opdsFeed(AccessView v, int? seriesId, String? q) {
+    final s = _series(seriesId, v);
+    if (s == null) seriesId = null;
     final now = DateTime.now().toUtc().toIso8601String();
     final query = (q ?? '').trim().toLowerCase();
     final b = StringBuffer()
@@ -241,14 +271,14 @@ ${series.isEmpty && items.isEmpty ? '<p style="padding:20px;color:#888">항목�
           '<link rel="start" href="/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>'
           '<link rel="search" href="/opds/search.xml" type="application/opensearchdescription+xml"/>');
     if (query.isEmpty) {
-      for (final c in _children(seriesId)) {
+      for (final c in _children(seriesId, v)) {
         b.write('<entry><title>${_esc(c.title)}</title><id>urn:mediashelf:s:${c.id}</id><updated>$now</updated>'
-            '<content type="text">${app.rawTree.stats(c.id!, null).allItems}권</content>'
+            '<content type="text">${_count(c, v)}권</content>'
             '<link rel="subsection" href="/opds/s/${c.id}" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>'
             '<link rel="http://opds-spec.org/image/thumbnail" href="/scover/${c.id}" type="image/jpeg"/></entry>');
       }
     }
-    final items = query.isNotEmpty ? _items.where((e) => e.title.toLowerCase().contains(query)).take(200) : _itemsIn(seriesId);
+    final items = query.isNotEmpty ? _items(v).where((e) => e.title.toLowerCase().contains(query)).take(200) : _itemsIn(seriesId, v);
     for (final e in items) {
       b.write('<entry><title>${_esc(e.title)}</title><id>urn:mediashelf:i:${e.id}</id><updated>$now</updated>'
           '${e.author != null ? '<author><name>${_esc(e.author!)}</name></author>' : ''}'

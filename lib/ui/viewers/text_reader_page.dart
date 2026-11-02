@@ -10,6 +10,7 @@ import '../../models/media_item.dart';
 import '../../services/settings.dart';
 import '../../services/text_document.dart';
 import '../../services/natural_tts.dart';
+import '../../services/speakers.dart';
 import '../../services/tts_service.dart';
 import '../cover_tile.dart';
 import 'epub_original_page.dart';
@@ -247,16 +248,20 @@ class _TextReaderPageState extends State<TextReaderPage> {
       final b = _doc!.blocks[i];
       _showBlock(i);
       if (!b.isImage && (b.text ?? '').trim().isNotEmpty) {
+        final segs = _segments(b.text!, s.ttsSplit);
+        final cast = s.ttsSplit ? s.speakerVoices(item.id!) : const <String, String>{};
         final plan = [
-          for (final (kind, seg) in _segments(b.text!, s.ttsSplit))
+          for (var k = 0; k < segs.length; k++)
             (
-              seg,
-              switch (kind) {
+              segs[k].$2,
+              switch (segs[k].$1) {
+                // 대사: 화자를 알아냈고 그 인물 목소리를 정해 두었으면 그 목소리
+                1 when cast.isNotEmpty && cast[Speakers.speakerAt(segs, k)] != null => cast[Speakers.speakerAt(segs, k)]!,
                 1 when s.ttsDialogueVoice.isNotEmpty => s.ttsDialogueVoice,
                 2 when s.ttsThoughtVoice.isNotEmpty => s.ttsThoughtVoice,
                 _ => s.ttsVoice,
               },
-              s.ttsRate + (kind == 2 ? -2 : 0), // 속마음은 조금 느리게
+              s.ttsRate + (segs[k].$1 == 2 ? -2 : 0), // 속마음은 조금 느리게
             ),
         ];
         // 다음 문단 첫 덩어리도 미리 만들어 두면 문단 사이가 덜 끊긴다
@@ -286,6 +291,81 @@ class _TextReaderPageState extends State<TextReaderPage> {
       setState(() => _ttsBlock = i + 1);
     }
     if (mounted) setState(() => _speaking = false);
+  }
+
+  /// 책에서 말하는 인물을 찾아 인물마다 목소리 정하기
+  Future<void> _castDialog(Settings s) async {
+    final doc = _doc;
+    if (doc == null) return;
+    final found = Speakers.scan(doc.blocks.where((b) => !b.isImage).map((b) => b.text ?? ''));
+    final cast = Map<String, String>.from(s.speakerVoices(item.id!));
+    // 예전에 정했지만 이번에 못 찾은 이름도 보여 준다
+    final names = [...found.map((e) => e.$1), ...cast.keys.where((k) => !found.any((f) => f.$1 == k))];
+    final counts = {for (final (n, c) in found) n: c};
+    final add = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('인물별 목소리'),
+          content: SizedBox(
+            width: 520,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('대사 앞뒤의 "○○가 말했다" 같은 문장으로 누가 말했는지 찾습니다. '
+                  '화자를 알 수 없는 대사는 "대사" 목소리로 읽습니다.',
+                  style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 8),
+              if (names.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('말하는 인물을 찾지 못했습니다. 아래에서 이름을 직접 넣을 수 있습니다.')),
+              Flexible(
+                child: ListView(shrinkWrap: true, children: [
+                  for (final n in names)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.person),
+                      title: Text(n),
+                      subtitle: counts[n] == null ? null : Text('대사 ${counts[n]}번'),
+                      trailing: DropdownButton<String>(
+                        value: _voices.contains(cast[n]) ? cast[n] : '',
+                        items: [
+                          const DropdownMenuItem(value: '', child: Text('대사 목소리')),
+                          for (final v in _voices) DropdownMenuItem(value: v, child: Text(TtsService.label(v))),
+                        ],
+                        onChanged: (v) => setD(() => (v == null || v.isEmpty) ? cast.remove(n) : cast[n] = v),
+                      ),
+                    ),
+                ]),
+              ),
+              Row(children: [
+                Expanded(child: TextField(controller: add, decoration: const InputDecoration(hintText: '인물 이름 직접 추가'))),
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: () {
+                    final n = add.text.trim();
+                    if (n.isEmpty || names.contains(n)) return;
+                    setD(() {
+                      names.add(n);
+                      add.clear();
+                    });
+                  },
+                ),
+              ]),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            FilledButton(
+              onPressed: () {
+                s.setSpeakerVoices(item.id!, cast);
+                Navigator.pop(ctx);
+              },
+              child: const Text('저장'),
+            ),
+          ],
+        ),
+      ),
+    );
+    add.dispose();
   }
 
   void _ttsFailed() {
@@ -388,6 +468,12 @@ class _TextReaderPageState extends State<TextReaderPage> {
               const SizedBox(width: 12),
               const Text('속마음  ', style: TextStyle(color: Colors.white70)),
               voicePick(s.ttsThoughtVoice, (v) => s.ttsThoughtVoice = v, '기본과 같음'),
+              const SizedBox(width: 12),
+              TextButton.icon(
+                onPressed: () => _castDialog(s),
+                icon: const Icon(Icons.groups, size: 18),
+                label: Text('인물별 목소리${s.speakerVoices(item.id!).isEmpty ? '' : ' (${s.speakerVoices(item.id!).length})'}'),
+              ),
             ]),
           if (_voices.isEmpty)
             const Text('음성 목록을 읽는 중… (Windows 설정 → 시간 및 언어 → 음성 에서 한국어 음성을 추가할 수 있습니다)',
