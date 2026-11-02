@@ -1,5 +1,6 @@
 // 빌드할 때 실제 Windows 앱을 샘플 데이터로 띄워 주요 화면을 PNG 로 저장한다.
 // flutter test integration_test/screenshots_test.dart -d windows
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -380,6 +381,40 @@ void main() {
       final leaked = state.allItems.where((e) => e.kind == MediaKind.image || e.kind == MediaKind.video).length;
       debugPrint('CHECK restricted leaked=$leaked');
       expect(leaked, 0);
+    });
+
+    // 공유 서버: 가족 계정으로 로그인하면 막힌 그림이 안 보여야 하고, 공용 아이디(제한 없음)는 보여야 한다
+    await step('share server access', () async {
+      await tester.runAsync(() async {
+        final fam = state.users.firstWhere((u) => !u.isAdmin);
+        await state.updateUser(fam, newPassword: '1111');
+        state.share
+          ..user = 'guest'
+          ..password = 'pw'
+          ..asUserId = null;
+        await state.share.start(18079);
+        Future<String> get(String id, String pw) async {
+          final c = HttpClient();
+          try {
+            final rq = await c.getUrl(Uri.parse('http://127.0.0.1:18079/?q=IMG'));
+            rq.headers.set(HttpHeaders.authorizationHeader, 'Basic ${base64.encode(utf8.encode('$id:$pw'))}');
+            final rs = await rq.close();
+            return '${rs.statusCode} ${await rs.transform(utf8.decoder).join()}';
+          } finally {
+            c.close(force: true);
+          }
+        }
+
+        final asFamily = await get(fam.name, '1111');
+        final asGuest = await get('guest', 'pw');
+        final wrong = await get('guest', 'nope');
+        await state.share.stop();
+        final famSees = asFamily.contains('IMG_'), guestSees = asGuest.contains('IMG_');
+        debugPrint('CHECK share family=${asFamily.substring(0, 3)} seesImages=$famSees guest=${asGuest.substring(0, 3)} seesImages=$guestSees wrong=${wrong.substring(0, 3)}');
+        expect(famSees, isFalse);
+        expect(guestSees, isTrue);
+        expect(wrong.startsWith('401'), isTrue);
+      });
     });
 
     // 자연 음성: 모델을 받아 한국어를 합성해 보고, 소리가 실제로 나는지 숫자로 확인한다
