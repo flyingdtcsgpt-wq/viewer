@@ -26,6 +26,9 @@ jobs:
       - name: Generate platform folders
         run: flutter create --platforms=windows --org com.mediashelf --project-name media_shelf .
 
+      - name: Windows window title / size
+        run: python tool/patch_windows.py
+
       - run: flutter pub get
 
       - name: App icon

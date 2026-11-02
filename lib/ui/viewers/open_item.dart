@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 
 import '../../models/media_item.dart';
+import '../../services/ext_archive.dart';
 import '../detail_page.dart';
 import 'comic_reader_page.dart';
 import 'image_viewer_page.dart';
@@ -46,8 +47,9 @@ Widget? viewerFor(MediaItem item, List<MediaItem>? siblings) {
     case MediaKind.comic:
       return switch (item.extension) {
         '.cbz' || '.zip' => ComicReaderPage(item: item),
+        '.cbr' || '.rar' || '.cb7' || '.7z' when ExtArchive.supported => ComicReaderPage(item: item),
         '.pdf' => PdfReaderPage(item: item),
-        _ => null, // CBR/RAR/7Z 는 아직 시스템 앱으로
+        _ => null, // 그 밖의 형식은 시스템 앱으로
       };
     case MediaKind.image:
       final list = (siblings ?? [item]).where((e) => e.kind == MediaKind.image).toList();

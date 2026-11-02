@@ -13,6 +13,7 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:xml/xml.dart';
 
 import '../models/media_item.dart';
+import 'ext_archive.dart';
 
 /// EPUB 내부 메타데이터 (파일 자체에서 뽑아낸 정보)
 class EmbeddedInfo {
@@ -54,6 +55,7 @@ class CoverService {
             '.epub' => _epubCover(item.path),
             '.cbz' || '.zip' => _zipFirstImage(item.path),
             '.pdf' => _pdfFirstPage(item.path),
+            '.cbr' || '.rar' || '.cb7' || '.7z' when ExtArchive.supported => _extCover(item.path),
             _ => null, // TXT, RAR 등은 인터넷 검색 또는 수동 지정
           };
       }
@@ -74,6 +76,8 @@ class CoverService {
           } finally {
             await input.close();
           }
+        case '.cbr' || '.rar' || '.cb7' || '.7z' when ExtArchive.supported:
+          return (await ExtArchive.listImages(item.path)).length;
         case '.pdf':
           final doc = await PdfDocument.openFile(item.path);
           try {
@@ -191,6 +195,17 @@ class CoverService {
     } finally {
       await input.close();
     }
+  }
+
+  // ---------- RAR / 7Z (Windows 내장 tar) ----------
+  Future<String?> _extCover(String path) async {
+    final names = await ExtArchive.listImages(path);
+    if (names.isEmpty) return null;
+    final b = await ExtArchive.readOne(path, names.first);
+    if (b == null) return null;
+    final out = _target(path, p.extension(names.first));
+    await File(out).writeAsBytes(b);
+    return out;
   }
 
   // ---------- PDF ----------

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -10,6 +11,7 @@ import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../models/media_item.dart';
+import '../../services/ext_archive.dart';
 import '../../services/settings.dart';
 import 'open_item.dart';
 import 'viewer_chrome.dart';
@@ -29,6 +31,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   late final Settings _s = context.read<Settings>();
   InputFileStream? _input;
   List<ArchiveFile> _files = [];
+  List<String>? _disk; // RAR/7Z: 임시 폴더에 푼 이미지 경로들
+  bool _loading = true;
+  int get _n => _disk?.length ?? _files.length;
   final _cache = <int, Uint8List>{};
   Object? _error;
 
@@ -44,7 +49,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   final _focus = FocusNode();
 
   MediaItem get item => widget.item;
-  double get _progress => _files.length <= 1 ? 1 : _page / (_files.length - 1);
+  double get _progress => _n <= 1 ? 1 : _page / (_n - 1);
   double get _scale => _zoom.value.getMaxScaleOnAxis();
 
   @override
@@ -52,23 +57,34 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     super.initState();
     _app;
     _s;
+    _open();
+    _zoom.addListener(() => setState(() {}));
+  }
+
+  Future<void> _open() async {
     try {
-      _input = InputFileStream(item.path);
-      final zip = ZipDecoder().decodeStream(_input!);
-      _files = zip.files.where((f) => f.isFile && imageExts.contains(p.extension(f.name).toLowerCase())).toList()
-        ..sort((a, b) => _natural(a.name, b.name));
-      _page = (int.tryParse(item.position ?? '') ?? 0).clamp(0, _files.isEmpty ? 0 : _files.length - 1);
+      if (ExtArchive.handles(item.path)) {
+        // RAR / 7Z: Windows 내장 tar 로 임시 폴더에 풀어서 읽는다
+        _disk = await ExtArchive.extractAll(item.path);
+      } else {
+        _input = InputFileStream(item.path);
+        final zip = ZipDecoder().decodeStream(_input!);
+        _files = zip.files.where((f) => f.isFile && imageExts.contains(p.extension(f.name).toLowerCase())).toList()
+          ..sort((a, b) => _natural(a.name, b.name));
+      }
+      _page = (int.tryParse(item.position ?? '') ?? 0).clamp(0, _n == 0 ? 0 : _n - 1);
     } catch (e) {
       _error = e;
     }
-    _zoom.addListener(() => setState(() {}));
+    if (mounted) setState(() => _loading = false);
   }
 
   @override
   void dispose() {
-    if (_files.isNotEmpty) _app.saveProgress(item, '$_page', _progress).then((_) => _app.refresh());
+    if (_n > 0) _app.saveProgress(item, '$_page', _progress).then((_) => _app.refresh());
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _input?.closeSync();
+    if (_disk != null) ExtArchive.cleanup(item.path);
     _zoom.dispose();
     _strip.dispose();
     _scroll.dispose();
@@ -79,7 +95,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   Uint8List _bytes(int i) {
     final hit = _cache[i];
     if (hit != null) return hit;
-    final b = _files[i].content;
+    final b = _disk != null ? File(_disk![i]).readAsBytesSync() : _files[i].content;
     _cache[i] = b;
     if (_cache.length > 24) _cache.remove(_cache.keys.first); // 메모리 제한
     return b;
@@ -89,12 +105,12 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   /// 두장보기: 커버 단독이면 [0], [1,2], [3,4]… / 커버 포함이면 [0,1], [2,3]…
   List<List<int>> get _spreads {
-    if (_s.comicMode != 1) return [for (var i = 0; i < _files.length; i++) [i]];
+    if (_s.comicMode != 1) return [for (var i = 0; i < _n; i++) [i]];
     final out = <List<int>>[];
     var i = 0;
-    if (_s.comicCoverAlone && _files.isNotEmpty) out.add([i++]);
-    for (; i < _files.length; i += 2) {
-      out.add([i, if (i + 1 < _files.length) i + 1]);
+    if (_s.comicCoverAlone && _n > 0) out.add([i++]);
+    for (; i < _n; i += 2) {
+      out.add([i, if (i + 1 < _n) i + 1]);
     }
     return out;
   }
@@ -141,7 +157,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       if (ctx != null) {
         Scrollable.ensureVisible(ctx);
       } else if (_scroll.hasClients) {
-        _scroll.jumpTo(_scroll.position.maxScrollExtent * (page / math.max(1, _files.length - 1)));
+        _scroll.jumpTo(_scroll.position.maxScrollExtent * (page / math.max(1, _n - 1)));
       }
       return;
     }
@@ -177,7 +193,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   @override
   Widget build(BuildContext context) {
     final s = context.watch<Settings>();
-    if (_error != null || _files.isEmpty) {
+    if (_loading) return const Scaffold(backgroundColor: viewerBg, body: Center(child: CircularProgressIndicator()));
+    if (_error != null || _n == 0) {
       return Scaffold(
         appBar: AppBar(title: Text(item.title)),
         body: Center(child: Text(_error != null ? '열 수 없습니다: $_error' : '이미지가 없는 압축 파일입니다')),
@@ -258,7 +275,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                 overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
           ),
           const SizedBox(width: 8),
-          Text('${_page + 1} / ${_files.length} · $pct', style: const TextStyle(color: Colors.white60, fontSize: 12)),
+          Text('${_page + 1} / ${_n} · $pct', style: const TextStyle(color: Colors.white60, fontSize: 12)),
           NextVolumeButton(item: item),
         ]),
         const SizedBox(height: 4),
@@ -564,7 +581,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             width: maxW,
             child: ListView.builder(
               controller: _scroll,
-              itemCount: _files.length,
+              itemCount: _n,
               itemBuilder: (_, i) => KeyedSubtree(
                 key: _pageKeys.putIfAbsent(i, () => GlobalKey()),
                 child: _img(i, fit: BoxFit.fitWidth, width: maxW),
