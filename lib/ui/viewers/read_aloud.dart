@@ -208,6 +208,9 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
             ),
           ]),
           if (_status.isNotEmpty) Text(_status, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          if (OcrService.koreanMissing)
+            const Text('이 PC 에 한국어 글자 인식기가 없어 다른 언어로 읽고 있습니다. Windows 설정 → 시간 및 언어 → 언어에서 한국어를 추가하세요.',
+                style: TextStyle(color: Colors.amber, fontSize: 11)),
           if (_voices.isNotEmpty && !_voices.any(NaturalTts.isNatural))
             const Text('자연스러운 음성은 설정 › 읽어주기 음성에서 받을 수 있습니다', style: TextStyle(color: Colors.white38, fontSize: 11)),
         ]),

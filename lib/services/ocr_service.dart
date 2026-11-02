@@ -20,6 +20,10 @@ class OcrService {
 
   static File? _script;
 
+  /// 마지막으로 실제 쓴 인식 언어 ("ko", "en-US" …). 한국어 인식기가 없으면 다른 언어로 대신 읽는다
+  static String? usedLang;
+  static bool get koreanMissing => usedLang != null && !usedLang!.toLowerCase().startsWith('ko');
+
   static const _ps = r'''
 param([string]$lang, [string]$list)
 $ErrorActionPreference = 'Stop'
@@ -123,7 +127,9 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
         return -1;
       });
       final r = (exitCode: code, stdout: await outF, stderr: await errF);
-      final out = r.stdout as String;
+      final out = r.stdout;
+      final lm = RegExp(r'##LANG (\S+)').firstMatch(out);
+      if (lm != null) usedLang = lm.group(1);
       if (out.contains('##NOENGINE')) {
         throw const OcrUnavailable('Windows 글자 인식기가 없습니다. 설정 → 시간 및 언어 → 언어에서 한국어를 추가하세요.');
       }
@@ -132,7 +138,7 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
       final buf = StringBuffer();
       void flush() {
         if (cur != null) {
-          final key = prepared[cur] ?? cur!;
+          final key = prepared[cur] ?? cur;
           final t = buf.toString().trim();
           result[key] = [if ((result[key] ?? '').isNotEmpty) result[key]!, if (t.isNotEmpty) t].join('\n');
         }
@@ -151,7 +157,7 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
       }
       flush();
       if (result.isEmpty && r.exitCode != 0) {
-        throw OcrUnavailable('글자 인식 실패: ${(r.stderr as String).trim().split('\n').first}');
+        throw OcrUnavailable('글자 인식 실패: ${r.stderr.trim().split('\n').first}');
       }
       return result;
     } finally {

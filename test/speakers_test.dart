@@ -36,7 +36,7 @@ void main() {
   });
 
   test('자연 음성 문장 나누기', () {
-    final parts = chunkText('가' * 50 + '. ' + '나' * 50 + '. ' + '다' * 50 + '.', maxLen: 120);
+    final parts = chunkText('${'가' * 50}. ${'나' * 50}. ${'다' * 50}.', maxLen: 120);
     expect(parts.length, 2);
     expect(parts.every((x) => x.length <= 120), isTrue);
     final long = chunkText(List.filled(40, '아주 긴 문장').join(', '), maxLen: 120);
