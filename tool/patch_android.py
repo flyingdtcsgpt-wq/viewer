@@ -257,3 +257,18 @@ dependencies {
 """
     gradle.write_text(g, encoding="utf-8")
 print("mlkit korean added")
+
+# ---- R8: 쓰지 않는 ML Kit 언어(중국어·일본어·데바나가리)는 없어도 된다 ----
+rules = Path("android/app/proguard-rules.pro")
+rules.write_text("""-dontwarn com.google.mlkit.vision.text.chinese.**
+-dontwarn com.google.mlkit.vision.text.devanagari.**
+-dontwarn com.google.mlkit.vision.text.japanese.**
+-keep class ai.onnxruntime.** { *; }
+""", encoding="utf-8")
+g = gradle.read_text(encoding="utf-8")
+if "proguard-rules.pro" not in g:
+    g = g.replace('signingConfig = if (keystorePropertiesFile.exists())',
+                  'proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")\n            signingConfig = if (keystorePropertiesFile.exists())', 1)
+    assert "proguard-rules.pro" in g
+    gradle.write_text(g, encoding="utf-8")
+print("proguard rules added")
