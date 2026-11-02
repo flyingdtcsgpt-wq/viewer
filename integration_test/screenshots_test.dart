@@ -110,7 +110,9 @@ Future<String> _makeSamples(String root) async {
 }
 
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  // 안드로이드: 테스트가 끝나면 앱이 지워지므로 결과 파일은 드라이버로 보낸다 (test_driver/integration_test.dart)
+  final files = <String, String>{};
 
   testWidgets('주요 화면 캡처', (tester) async {
     // 안드로이드: 앱 내부 files/shots 에 저장 → CI 가 adb run-as 로 꺼낸다
@@ -180,6 +182,7 @@ void main() {
           return bd!.buffer.asUint8List();
         });
         File(p.join(out.path, '$name.png')).writeAsBytesSync(bytes!);
+        if (Platform.isAndroid) files['$name.png'] = base64.encode(bytes);
         done.add(name);
         debugPrint('SHOT $name');
       } catch (e, st) {
@@ -475,6 +478,7 @@ void main() {
             final sec = n / 44100;
             debugPrint('CHECK tts $name voice=$voice sec=${sec.toStringAsFixed(2)} rms=${rms.toStringAsFixed(0)} peak=$peak took=${sw.elapsedMilliseconds}ms');
             File(wav).copySync(p.join(out.path, '$name.wav'));
+            if (Platform.isAndroid) files['$name.wav'] = base64.encode(bytes);
             expect(sec, greaterThan(1.0));
             expect(rms, greaterThan(300));
           }
@@ -517,6 +521,7 @@ void main() {
       });
     });
 
+    binding.reportData = {'files': files};
     debugPrint('SHOTS DONE ${done.length}: ${done.join(', ')}');
     expect(done, isNotEmpty);
   });
