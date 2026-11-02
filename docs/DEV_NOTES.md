@@ -181,3 +181,11 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   Dart 는 `AppState.requestOpen` → HomePage 의 `_ExternalOpener` 가 라이브러리에 원본 연결로 넣고 연다
 - RAR/7Z 는 안드로이드에서 아직 못 엶(7-Zip 실행 파일이 없음) → 뷰어가 안내 문구를 보여 줌
 - 모든 파일 접근: `mediashelf/storage` 채널 (폴더 추가 때만 요청)
+- 열기 인텐트 검수 반영: 책·만화 MIME 만 받음(이미지·영상·octet-stream 제외), 복사는 백그라운드 스레드, `opened/<이름+크기 해시>/이름`
+  (덮어쓰기 · 재복사 방지, .part → rename), launchMode singleTask, 최근 앱에서 다시 열 때(FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) 무시,
+  확장자 없으면 MIME 으로, 계정이 막힌 종류면 추가하지 않음
+- TTS: 4000자 제한 → 3500자 단위로 나눠 읽기, 응답 없음 대비 타임아웃, 엔진 초기화 실패 시 다음에 재시도
+- 에뮬레이터에서 integration test 의 tap 은 히트 테스트가 안 맞음(캡처용 OverflowBox 구조) → 화면 상태는 생성자 옵션
+  (`TextReaderPage(readAloud: true)`, `ImageViewerPage(readAloud: true)`)으로 연다
+- 확인됨(에뮬레이터): 기기 음성 72개, 한국어 기기 음성 읽기 성공, 자연 음성, ML Kit 한국어 OCR, 권한 · 숨김 · 공유 서버
+- APK 크기: arm64 약 88MB (libmpv · ONNX Runtime · ML Kit 한국어 모델 · PDFium 포함)
