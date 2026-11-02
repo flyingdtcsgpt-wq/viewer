@@ -69,6 +69,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   Future<void> _open() async {
     try {
+      if (ExtArchive.handles(item.path) && !ExtArchive.supported) {
+        throw 'RAR · 7Z 만화는 아직 PC 버전에서만 열 수 있습니다. (ZIP · CBZ 는 휴대폰에서도 열립니다)';
+      }
       if (ExtArchive.handles(item.path)) {
         // RAR / 7Z: Windows 내장 tar 로 임시 폴더에 풀어서 읽는다
         _ext = await ExtArchive.listImages(item.path);

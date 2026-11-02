@@ -14,6 +14,19 @@ perms = [
 lines = "".join(f'    <uses-permission android:name="{p}"{extra}/>\n' for p, extra in perms if p not in xml)
 xml = re.sub(r"(<manifest[^>]*>\n)", r"\1" + lines, xml, count=1)
 xml = xml.replace('android:label="media_shelf"', 'android:label="ARARIFlex"')
+# 파일 관리자에서 "ARARIFlex 로 열기"
+if "application/epub+zip" not in xml:
+    mimes = ["application/epub+zip", "application/pdf", "text/plain", "application/zip", "application/x-cbz",
+             "application/vnd.comicbook+zip", "application/octet-stream", "image/*", "video/*"]
+    datas = "".join(f'                <data android:mimeType="{m}"/>\n' for m in mimes)
+    view = ('            <intent-filter>\n'
+            '                <action android:name="android.intent.action.VIEW"/>\n'
+            '                <category android:name="android.intent.category.DEFAULT"/>\n'
+            '                <data android:scheme="content"/>\n'
+            '                <data android:scheme="file"/>\n' + datas +
+            '            </intent-filter>\n')
+    i = xml.index("</intent-filter>") + len("</intent-filter>\n")
+    xml = xml[:i] + view + xml[i:]
 # 안드로이드 11+ 에서 음성 엔진(TTS)을 찾으려면 queries 에 적어야 한다
 if "android.intent.action.TTS_SERVICE" not in xml:
     tts_q = '        <intent>\n            <action android:name="android.intent.action.TTS_SERVICE"/>\n        </intent>\n'
@@ -47,6 +60,35 @@ import java.util.UUID
 
 class MainActivity : FlutterActivity() {{
     private var pending: MethodChannel.Result? = null
+
+    // ---- 다른 앱(파일 관리자)에서 연 파일 ----
+    private var openChannel: MethodChannel? = null
+
+    /// content:// 은 앱 폴더(files/opened)로 복사해서 실제 경로를 돌려준다
+    private fun fileFromIntent(i: Intent): String? {{
+        val uri = i.data ?: return null
+        if (uri.scheme == "file") return uri.path
+        return try {{
+            var name = "file"
+            contentResolver.query(uri, null, null, null, null)?.use {{ c ->
+                val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && c.moveToFirst()) name = c.getString(idx) ?: name
+            }}
+            name = name.replace(Regex("[\\\\/:*?\\"<>|]"), "_")
+            val dir = java.io.File(filesDir, "opened").apply {{ mkdirs() }}
+            val out = java.io.File(dir, name)
+            contentResolver.openInputStream(uri)?.use {{ input -> out.outputStream().use {{ input.copyTo(it) }} }}
+            out.absolutePath
+        }} catch (e: Exception) {{ null }}
+    }}
+
+    override fun onNewIntent(newIntent: Intent) {{
+        super.onNewIntent(newIntent)
+        if (newIntent.action == Intent.ACTION_VIEW) {{
+            val path = fileFromIntent(newIntent)
+            if (path != null) openChannel?.invokeMethod("opened", path)
+        }}
+    }}
 
     // ---- 기기 음성(TTS): 소리 내어 읽기 ----
     private var tts: TextToSpeech? = null
@@ -98,6 +140,19 @@ class MainActivity : FlutterActivity() {{
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
         super.configureFlutterEngine(flutterEngine)
+        openChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/open")
+        openChannel?.setMethodCallHandler {{ call, result ->
+            when (call.method) {{
+                // 앱을 연 파일 (한 번만 돌려줌)
+                "takeFile" -> {{
+                    val i = intent
+                    val path = if (i?.action == Intent.ACTION_VIEW) fileFromIntent(i) else null
+                    i?.action = Intent.ACTION_MAIN
+                    result.success(path)
+                }}
+                else -> result.notImplemented()
+            }}
+        }}
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/tts").setMethodCallHandler {{ call, result ->
             when (call.method) {{
                 "voices" -> withTts {{ ok ->

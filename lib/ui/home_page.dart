@@ -19,6 +19,7 @@ import 'import_dialog.dart';
 import 'landing_view.dart';
 import 'series_widgets.dart';
 import 'settings_page.dart';
+import 'viewers/open_item.dart';
 
 const _kinds = <MediaKind?>[null, MediaKind.book, MediaKind.comic, MediaKind.image, MediaKind.video];
 
@@ -162,7 +163,7 @@ class HomePage extends StatelessWidget {
             if (mode != null) await state.removeSelected(deleteFile: mode);
           },
         },
-        child: Focus(autofocus: true, child: page),
+        child: Focus(autofocus: true, child: _ExternalOpener(child: page)),
       ),
     );
   }
@@ -703,5 +704,38 @@ class _LandingTopBarState extends State<_LandingTopBar> {
         ]),
       ),
     );
+  }
+}
+
+/// 다른 앱에서 연 파일이 있으면 로그인 뒤 바로 연다
+class _ExternalOpener extends StatefulWidget {
+  final Widget child;
+  const _ExternalOpener({required this.child});
+  @override
+  State<_ExternalOpener> createState() => _ExternalOpenerState();
+}
+
+class _ExternalOpenerState extends State<_ExternalOpener> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final path = state.pendingOpenPath;
+    if (path != null && !_busy) {
+      _busy = true;
+      state.pendingOpenPath = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final item = await state.itemForExternal(path);
+        if (!mounted) return;
+        _busy = false;
+        if (item == null) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('이 파일은 열 수 없거나 볼 권한이 없습니다')));
+        } else {
+          openItem(context, item);
+        }
+      });
+    }
+    return widget.child;
   }
 }

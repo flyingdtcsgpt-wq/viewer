@@ -1393,6 +1393,23 @@ class AppState extends ChangeNotifier {
     return added;
   }
 
+  // ---- 다른 앱에서 연 파일 (안드로이드 "ARARIFlex 로 열기") ----
+  String? pendingOpenPath;
+  void requestOpen(String path) {
+    pendingOpenPath = path;
+    notifyListeners();
+  }
+
+  /// 연 파일을 라이브러리 항목으로 (이미 있으면 그것, 없으면 원본 연결로 추가)
+  Future<MediaItem?> itemForExternal(String path) async {
+    final hit = _items.where((e) => p.equals(e.path, path)).firstOrNull;
+    if (hit != null) return canSeeItem(hit) ? hit : null;
+    if (kindForPath(path) == null) return null;
+    final item = await _addFile(path, ImportMode.reference);
+    notifyListeners();
+    return item;
+  }
+
   /// 겹치는 라이브러리 폴더 정리: (이미 감싸는 폴더, 이 폴더 안에 이미 등록된 폴더들)
   (String?, List<String>) folderOverlap(String dir) {
     // Windows 는 대소문자 · 끝의 \ 차이를 같은 경로로 본다
