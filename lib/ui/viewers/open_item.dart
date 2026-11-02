@@ -7,6 +7,8 @@ import '../../app_state.dart';
 
 import '../../models/media_item.dart';
 import '../../services/ext_archive.dart';
+import '../../services/settings.dart';
+import 'epub_original_page.dart';
 import '../detail_page.dart';
 import 'comic_reader_page.dart';
 import 'image_viewer_page.dart';
@@ -40,6 +42,7 @@ Widget? viewerFor(MediaItem item, List<MediaItem>? siblings) {
   switch (item.kind) {
     case MediaKind.book:
       return switch (item.extension) {
+        '.epub' when Platform.isWindows && Settings.instance.epubOriginal => EpubOriginalPage(item: item),
         '.txt' || '.epub' => TextReaderPage(item: item),
         '.pdf' => PdfReaderPage(item: item),
         _ => null,

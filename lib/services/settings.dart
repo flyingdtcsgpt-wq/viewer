@@ -8,7 +8,19 @@ import '../models/media_item.dart';
 class Settings extends ChangeNotifier {
   late SharedPreferences _p;
 
-  Future<void> load() async => _p = await SharedPreferences.getInstance();
+  /// 위젯 밖(뷰어 고르기 등)에서 설정을 읽을 때
+  static late Settings instance;
+
+  Future<void> load() async {
+    _p = await SharedPreferences.getInstance();
+    instance = this;
+  }
+
+  /// EPUB 표시 방식: true = 원본 스타일(출판사 CSS 그대로, Windows), false = 읽기 최적화
+  bool get epubOriginal => _p.getBool('epubOriginal') ?? false;
+  set epubOriginal(bool v) => _set(() => _p.setBool('epubOriginal', v));
+  String epubPosition(int itemId) => _p.getString('epubpos_$itemId') ?? '0:0';
+  void setEpubPosition(int itemId, String v) => _p.setString('epubpos_$itemId', v);
 
   /// 등록한 라이브러리 폴더들 (경로 · 별칭 · 그룹, 순서 유지)
   List<LibraryFolder> get libraryFolders {

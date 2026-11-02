@@ -11,6 +11,7 @@ import '../../services/settings.dart';
 import '../../services/text_document.dart';
 import '../../services/tts_service.dart';
 import '../cover_tile.dart';
+import 'epub_original_page.dart';
 import 'open_item.dart';
 import 'viewer_chrome.dart';
 
@@ -938,6 +939,21 @@ class _TextReaderPageState extends State<TextReaderPage> {
   Widget _settingsPanel(Settings s) => ViewerSettingsPanel(
         onClose: () => setState(() => _right = false),
         children: [
+          if (item.extension == '.epub' && Platform.isWindows) ...[
+            SegmentRow<bool>(
+              title: 'EPUB 표시 방식',
+              value: false,
+              onChanged: (v) {
+                if (!v) return;
+                s.epubOriginal = true;
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => EpubOriginalPage(item: item)));
+              },
+              options: const [(true, Icons.menu_book, '원본 스타일'), (false, Icons.tune, '읽기 최적화')],
+            ),
+            const Text('원본 스타일: 출판사가 만든 글꼴·배치·그림 그대로. 읽기 최적화: 앱 테마·글꼴·하이라이트·TTS.',
+                style: TextStyle(color: Colors.white38, fontSize: 12)),
+            const Divider(color: Colors.white12, height: 28),
+          ],
           const PanelSection('읽기'),
           const Text('테마', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
