@@ -11,6 +11,7 @@ import '../services/storage_permission.dart';
 import '../version.dart';
 import 'admin_page.dart';
 import 'batch_editor_page.dart';
+import 'share_page.dart';
 import 'tools/tools_page.dart';
 import 'browser.dart';
 import 'ai_chat_sheet.dart';
@@ -475,6 +476,8 @@ class _TopActionBar extends StatelessWidget {
                       }
                     : null),
                 btn(Icons.construction, '파일 도구', () => push(const ToolsPage())),
+                btn(state.share.running ? Icons.wifi_tethering : Icons.wifi_tethering_off, '공유 서버', () => push(const SharePage()),
+                    color: state.share.running ? Colors.greenAccent : null),
                 btn(Icons.auto_fix_high, '시리즈 자동 묶기', () async {
                   final n = await state.autoGroup();
                   toast(n == 0 ? '새로 묶을 항목이 없습니다' : '$n개 항목을 시리즈로 묶었습니다');

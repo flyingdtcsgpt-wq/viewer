@@ -117,6 +117,14 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------- 공유 서버 ----------
+  int get sharePort => _p.getInt('sharePort') ?? 8079;
+  set sharePort(int v) => _set(() => _p.setInt('sharePort', v));
+  String get shareUser => _p.getString('shareUser') ?? 'user';
+  set shareUser(String v) => _set(() => _p.setString('shareUser', v));
+  String get sharePassword => _p.getString('sharePassword') ?? '';
+  set sharePassword(String v) => _set(() => _p.setString('sharePassword', v));
+
   /// 본문 글꼴: 0 기본, 1 명조, 2 고딕
   int get readerFont => _p.getInt('readerFont') ?? 0;
   set readerFont(int v) => _set(() => _p.setInt('readerFont', v));

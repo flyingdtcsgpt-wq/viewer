@@ -331,10 +331,10 @@ class _LibraryState extends State<_Library> {
                     : ReorderableListView.builder(
                         buildDefaultDragHandles: false,
                         itemCount: list.length,
-                        onReorder: (a, b) {
+                        onReorderItem: (a, b) {
                           final l = [...list];
                           final x = l.removeAt(a);
-                          l.insert(b > a ? b - 1 : b, x);
+                          l.insert(b, x);
                           s.libraryFolders = l;
                           setState(() => _sel = null);
                         },

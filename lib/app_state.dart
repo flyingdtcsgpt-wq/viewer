@@ -15,6 +15,7 @@ import 'services/metadata_service.dart';
 import 'services/organizer.dart';
 import 'services/series_parser.dart';
 import 'services/settings.dart';
+import 'services/share_server.dart';
 
 enum SortBy { added, recent, title, author, rating }
 
@@ -278,6 +279,12 @@ class AppState extends ChangeNotifier {
         _items.where(canSeeItem).toList(),
         _series.values.where(canSeeSeries),
       );
+
+  /// 숨김·차단 규칙을 적용하기 전 전체 항목 (공유 서버 등 내부용)
+  List<MediaItem> get rawItems => _items;
+
+  /// 공유 서버 (관리자가 켬)
+  late final ShareServer share = ShareServer(this);
 
   /// 보이기 규칙을 무시한 전체 트리 (내부 정리용)
   LibraryTree get rawTree => LibraryTree.build(_items, _series.values);
