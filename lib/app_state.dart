@@ -1149,15 +1149,16 @@ class AppState extends ChangeNotifier {
   /// 뷰어를 닫을 때 목록 갱신
   void refresh() => notifyListeners();
 
-  Future<void> applyMetadata(MediaItem item, BookMetadata m) async {
-    item
-      ..title = m.title.isNotEmpty ? m.title : item.title
-      ..author = m.author ?? item.author
-      ..publisher = m.publisher ?? item.publisher
-      ..isbn = m.isbn ?? item.isbn
-      ..year = m.year ?? item.year
-      ..description = m.description ?? item.description;
-    if (m.coverUrl != null) {
+  /// 검색 결과를 항목에 적용. [fields]: title, author, publisher, isbn, year, description, cover (null = 전부)
+  Future<void> applyMetadata(MediaItem item, BookMetadata m, {Set<String>? fields}) async {
+    bool on(String f) => fields == null || fields.contains(f);
+    if (on('title') && m.title.isNotEmpty) item.title = m.title;
+    if (on('author') && m.author != null) item.author = m.author;
+    if (on('publisher') && m.publisher != null) item.publisher = m.publisher;
+    if (on('isbn') && m.isbn != null) item.isbn = m.isbn;
+    if (on('year') && m.year != null) item.year = m.year;
+    if (on('description') && m.description != null) item.description = m.description;
+    if (on('cover') && m.coverUrl != null) {
       item.coverPath = await covers.download(m.coverUrl!, item.path) ?? item.coverPath;
     }
     await save(item);
@@ -1227,6 +1228,29 @@ class AppState extends ChangeNotifier {
   Future<void> hideSelected(bool hidden) {
     final (ss, ii) = _selection();
     return setHidden(items: ii, series: ss, hidden: hidden);
+  }
+
+  /// 선택한 항목들 (묶음을 고르면 그 안의 모든 권) — 일괄 편집용
+  List<MediaItem> get selectedItemsDeep {
+    final (ss, ii) = _selection();
+    final out = <MediaItem>{...ii};
+    for (final s in ss) {
+      out.addAll(_itemsUnder(s.id!).where(canSeeItem));
+    }
+    return out.toList()
+      ..sort((a, b) {
+        final c = seriesPath(a.seriesId).compareTo(seriesPath(b.seriesId));
+        return c != 0 ? c : _byVolume(a, b);
+      });
+  }
+
+  /// 제목으로 묶음을 찾고 없으면 맨 위에 만든 뒤, 항목들을 그 안으로
+  Future<Series> moveToSeriesNamed(Iterable<MediaItem> items, String title) async {
+    final n = normalizeTitle(title);
+    var s = _series.values.where((x) => normalizeTitle(x.title) == n).firstOrNull;
+    s ??= await createSeries(title);
+    await moveItems(items, s.id);
+    return s;
   }
 
   /// 선택한 것의 'i:id' / 's:id' 목록 (접근 권한 설정용)

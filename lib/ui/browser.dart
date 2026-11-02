@@ -9,6 +9,7 @@ import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../models/series.dart';
 import '../services/settings.dart';
+import 'batch_editor_page.dart';
 import 'cover_tile.dart';
 import 'detail_page.dart';
 import 'landing_view.dart' show HoverZoom;
@@ -900,6 +901,7 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
       const PopupMenuDivider(),
     ],
     if (admin) ...[
+      item('batch', Icons.edit_note, multi || e is SeriesEntry ? '메타데이터 일괄 관리' : '메타데이터 관리 (편집기)'),
       item('move', Icons.drive_file_move, multi ? '선택한 ${state.selected.length}개 다른 묶음으로' : '다른 묶음으로 이동'),
       item('hide', Icons.visibility_off, '숨기기'),
       item('access', Icons.lock_person, '사용자 접근'),
@@ -934,6 +936,9 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
       }
     case 'info':
       if (e is ItemEntry) Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(item: e.item)));
+    case 'batch':
+      final items = state.selectedItemsDeep;
+      if (items.isNotEmpty) Navigator.push(context, MaterialPageRoute(builder: (_) => BatchEditorPage(items: items)));
     case 'series':
       if (e is SeriesEntry) showSeriesEditor(context, e.series);
     case 'move':

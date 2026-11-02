@@ -10,6 +10,7 @@ import '../services/settings.dart';
 import '../services/storage_permission.dart';
 import '../version.dart';
 import 'admin_page.dart';
+import 'batch_editor_page.dart';
 import 'browser.dart';
 import 'ai_chat_sheet.dart';
 import 'history_page.dart';
@@ -466,6 +467,12 @@ class _TopActionBar extends StatelessWidget {
                     : null),
                 if (state.hiddenUnlocked) btn(Icons.visibility, '숨김 해제', has ? () => state.hideSelected(false) : null),
                 btn(Icons.lock_person, '사용자 접근', has ? () => showAccessForSelection(context) : null),
+                btn(Icons.edit_note, '메타데이터 관리', has
+                    ? () {
+                        final items = state.selectedItemsDeep;
+                        if (items.isNotEmpty) push(BatchEditorPage(items: items));
+                      }
+                    : null),
                 btn(Icons.auto_fix_high, '시리즈 자동 묶기', () async {
                   final n = await state.autoGroup();
                   toast(n == 0 ? '새로 묶을 항목이 없습니다' : '$n개 항목을 시리즈로 묶었습니다');

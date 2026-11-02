@@ -94,10 +94,10 @@ class _DetailPageState extends State<DetailPage> {
 
   Future<void> _searchOnline() async {
     final query = _v(_isbn) ?? [_v(_title), _v(_author)].whereType<String>().join(' ');
-    final picked = await showMetadataSearch(context, query);
+    final picked = await showMetadataSearch(context, query, title: item.title);
     if (picked == null) return;
     await _run(() async {
-      await state.applyMetadata(item, picked);
+      await state.applyMetadata(item, picked.meta, fields: picked.fields);
       setState(_reloadFields);
     });
   }
