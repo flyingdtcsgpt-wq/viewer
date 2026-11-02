@@ -13,3 +13,14 @@ if rc.exists():
     r = r.replace('"FileDescription", "media_shelf"', '"FileDescription", "MediaShelf"').replace('"ProductName", "media_shelf"', '"ProductName", "MediaShelf"')
     rc.write_text(r, encoding="utf-8")
 print("windows runner patched")
+
+# 오래된 C++/WinRT 플러그인(webview_windows 등)이 최신 MSVC 에서 막히지 않게
+cm = Path("windows/CMakeLists.txt")
+c = cm.read_text(encoding="utf-8")
+flag = "add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)"
+if flag not in c:
+    import re
+    c = re.sub(r"(project\([^)]*\)\n)", r"\1" + flag + "\n", c, count=1)
+    assert flag in c, "project() not found in windows/CMakeLists.txt"
+    cm.write_text(c, encoding="utf-8")
+print("coroutine flag added")
