@@ -114,6 +114,7 @@ void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   // 안드로이드: 테스트가 끝나면 앱이 지워지므로 결과 파일은 드라이버로 보낸다 (test_driver/integration_test.dart)
   final files = <String, String>{};
+  binding.reportData = {'files': files}; // 테스트가 중간에 멈춰도 그때까지 찍은 것은 보낸다
 
   testWidgets('주요 화면 캡처', (tester) async {
     // 안드로이드: 앱 내부 files/shots 에 저장 → CI 가 adb run-as 로 꺼낸다

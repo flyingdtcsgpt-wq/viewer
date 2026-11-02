@@ -1418,10 +1418,12 @@ class AppState extends ChangeNotifier {
   Future<MediaItem?> itemForExternal(String path) async {
     final hit = _items.where((e) => p.equals(e.path, path)).firstOrNull;
     if (hit != null) return canSeeItem(hit) ? hit : null;
-    if (kindForPath(path) == null) return null;
+    final kind = kindForPath(path);
+    // 이 계정에 막힌 종류면 라이브러리에 넣지도 않는다
+    if (kind == null || !kindAllowed(kind)) return null;
     final item = await _addFile(path, ImportMode.reference);
     notifyListeners();
-    return item;
+    return item != null && canSeeItem(item) ? item : null;
   }
 
   /// 겹치는 라이브러리 폴더 정리: (이미 감싸는 폴더, 이 폴더 안에 이미 등록된 폴더들)

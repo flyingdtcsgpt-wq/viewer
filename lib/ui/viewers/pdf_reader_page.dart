@@ -146,8 +146,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                       const SizedBox(width: 8),
                       Text('$_page / $_pages · ${(_progress * 100).round()}%', style: const TextStyle(color: Colors.white60, fontSize: 12)),
                       NextVolumeButton(item: item),
-                      if (MediaQuery.sizeOf(context).width < 600) ...[
-                        const Spacer(),
+                      if (MediaQuery.sizeOf(context).width < 900) ...[
                         IconButton(
                           tooltip: '소리 내어 읽기',
                           icon: Icon(Icons.record_voice_over, color: _readAloud ? toolActive : Colors.white),

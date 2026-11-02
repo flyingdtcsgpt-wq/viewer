@@ -726,14 +726,22 @@ class _ExternalOpenerState extends State<_ExternalOpener> {
       _busy = true;
       state.pendingOpenPath = null;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final item = await state.itemForExternal(path);
+        MediaItem? item;
+        try {
+          item = await state.itemForExternal(path);
+        } catch (_) {
+          item = null;
+        } finally {
+          _busy = false;
+        }
         if (!mounted) return;
-        _busy = false;
         if (item == null) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('이 파일은 열 수 없거나 볼 권한이 없습니다')));
         } else {
           openItem(context, item);
         }
+        // 기다리는 동안 또 열린 파일이 있으면 이어서
+        if (state.pendingOpenPath != null) setState(() {});
       });
     }
     return widget.child;

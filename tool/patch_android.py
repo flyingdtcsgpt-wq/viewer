@@ -17,7 +17,7 @@ xml = xml.replace('android:label="media_shelf"', 'android:label="ARARIFlex"')
 # 파일 관리자에서 "ARARIFlex 로 열기"
 if "application/epub+zip" not in xml:
     mimes = ["application/epub+zip", "application/pdf", "text/plain", "application/zip", "application/x-cbz",
-             "application/vnd.comicbook+zip", "application/octet-stream", "image/*", "video/*"]
+             "application/vnd.comicbook+zip"]  # RAR 은 폰에서 못 열어 다른 앱으로 넘기므로 받지 않는다
     datas = "".join(f'                <data android:mimeType="{m}"/>\n' for m in mimes)
     view = ('            <intent-filter>\n'
             '                <action android:name="android.intent.action.VIEW"/>\n'
@@ -27,6 +27,8 @@ if "application/epub+zip" not in xml:
             '            </intent-filter>\n')
     i = xml.index("</intent-filter>") + len("</intent-filter>\n")
     xml = xml[:i] + view + xml[i:]
+    # 파일 관리자에서 열어도 앱이 하나만 뜨게 (두 번째 엔진 · DB 동시 사용 방지)
+    xml = re.sub(r'android:launchMode="\w+"', 'android:launchMode="singleTask"', xml, count=1)
 # 안드로이드 11+ 에서 음성 엔진(TTS)을 찾으려면 queries 에 적어야 한다
 if "android.intent.action.TTS_SERVICE" not in xml:
     tts_q = '        <intent>\n            <action android:name="android.intent.action.TTS_SERVICE"/>\n        </intent>\n'
@@ -69,24 +71,49 @@ class MainActivity : FlutterActivity() {{
         val uri = i.data ?: return null
         if (uri.scheme == "file") return uri.path
         return try {{
-            var name = "file"
+            var name = ""
+            var size = -1L
             contentResolver.query(uri, null, null, null, null)?.use {{ c ->
-                val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0 && c.moveToFirst()) name = c.getString(idx) ?: name
+                if (c.moveToFirst()) {{
+                    val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    val si = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (ni >= 0) name = c.getString(ni) ?: ""
+                    if (si >= 0 && !c.isNull(si)) size = c.getLong(si)
+                }}
             }}
-            name = name.replace(Regex("[\\\\/:*?\\"<>|]"), "_")
-            val dir = java.io.File(filesDir, "opened").apply {{ mkdirs() }}
+            name = name.replace(Regex("[\\\\/:*?\\"<>|]"), "_").trim()
+            if (name.isEmpty() || name == "." || name == "..") name = "file"
+            // 확장자가 없으면 파일 종류(MIME)로 붙인다 (메신저 · 다운로드 앱은 이름만 줄 때가 많다)
+            if (!name.contains('.')) {{
+                val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(contentResolver.getType(uri))
+                if (ext != null) name = "$name.$ext"
+            }}
+            // 같은 이름의 다른 파일이 덮어쓰지 않게: 이름 + 크기로 폴더를 나눈다 (같은 파일이면 다시 복사하지 않음)
+            val key = Integer.toHexString((name + "|" + size).hashCode())
+            val dir = java.io.File(java.io.File(filesDir, "opened"), key).apply {{ mkdirs() }}
             val out = java.io.File(dir, name)
-            contentResolver.openInputStream(uri)?.use {{ input -> out.outputStream().use {{ input.copyTo(it) }} }}
+            if (out.exists() && (size < 0 || out.length() == size)) return out.absolutePath
+            val tmp = java.io.File(dir, "$name.part")
+            contentResolver.openInputStream(uri)?.use {{ input -> tmp.outputStream().use {{ input.copyTo(it) }} }} ?: return null
+            if (!tmp.renameTo(out)) {{ tmp.delete(); return null }}
             out.absolutePath
         }} catch (e: Exception) {{ null }}
     }}
 
+    /// 복사는 오래 걸릴 수 있으니 따로 돌리고 결과만 화면 스레드로
+    private fun fileFromIntentAsync(i: Intent, done: (String?) -> Unit) {{
+        Thread {{
+            val p = fileFromIntent(i)
+            runOnUiThread {{ done(p) }}
+        }}.start()
+    }}
+
     override fun onNewIntent(newIntent: Intent) {{
         super.onNewIntent(newIntent)
+        setIntent(newIntent)
         if (newIntent.action == Intent.ACTION_VIEW) {{
-            val path = fileFromIntent(newIntent)
-            if (path != null) openChannel?.invokeMethod("opened", path)
+            fileFromIntentAsync(newIntent) {{ path -> if (path != null) openChannel?.invokeMethod("opened", path) }}
+            newIntent.action = Intent.ACTION_MAIN
         }}
     }}
 
@@ -105,6 +132,14 @@ class MainActivity : FlutterActivity() {{
         if (tts != null) return
         tts = TextToSpeech(this) {{ status ->
             ttsReady = status == TextToSpeech.SUCCESS
+            if (ttsReady != true) {{
+                // 실패하면 다음에 다시 시도할 수 있게 비운다
+                runOnUiThread {{
+                    tts?.shutdown(); tts = null; ttsReady = null
+                    ttsWaiting.toList().forEach {{ it(false) }}
+                    ttsWaiting.clear()
+                }}
+            }}
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {{
                 override fun onStart(id: String?) {{}}
                 override fun onDone(id: String?) = finishUtterance(id, true)
@@ -146,9 +181,14 @@ class MainActivity : FlutterActivity() {{
                 // 앱을 연 파일 (한 번만 돌려줌)
                 "takeFile" -> {{
                     val i = intent
-                    val path = if (i?.action == Intent.ACTION_VIEW) fileFromIntent(i) else null
-                    i?.action = Intent.ACTION_MAIN
-                    result.success(path)
+                    // 최근 앱 목록에서 다시 열면 예전 "열기" 요청이 다시 오므로 무시
+                    val fromHistory = i != null && (i.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+                    if (i?.action == Intent.ACTION_VIEW && !fromHistory) {{
+                        i.action = Intent.ACTION_MAIN
+                        fileFromIntentAsync(i) {{ path -> result.success(path) }}
+                    }} else {{
+                        result.success(null)
+                    }}
                 }}
                 else -> result.notImplemented()
             }}

@@ -141,7 +141,7 @@ class TtsService {
   static Future<List<String>> _systemVoices() async {
     try {
       if (Platform.isAndroid) {
-        final v = await _android.invokeListMethod<String>('voices');
+        final v = await _android.invokeListMethod<String>('voices').timeout(const Duration(seconds: 10), onTimeout: () => null);
         return [for (final x in v ?? const <String>[]) '$_andPrefix$x'];
       }
       if (Platform.isWindows) {
@@ -174,10 +174,19 @@ class TtsService {
     if (Platform.isAndroid) {
       try {
         final name = voice != null && voice.startsWith(_andPrefix) ? voice.substring(_andPrefix.length).split('|').first : '';
-        final ok = await _android.invokeMethod<bool>('speak', {'text': t, 'voice': name, 'rate': (1 + rate.clamp(-10, 10) * 0.1).clamp(0.3, 3.0)});
-        if (gen != _gen) return false;
-        if (ok != true) failed = true;
-        return ok == true;
+        // 안드로이드 음성 엔진은 한 번에 약 4000자까지
+        for (final part in t.length > 3500 ? chunkText(t, maxLen: 3500) : [t]) {
+          final ok = await _android
+              .invokeMethod<bool>('speak', {'text': part, 'voice': name, 'rate': (1 + rate.clamp(-10, 10) * 0.1).clamp(0.3, 3.0)})
+              // 엔진이 끝났다고 알려 주지 않아도 멈추지 않게 (글자 수에 맞춘 넉넉한 시간)
+              .timeout(Duration(seconds: 30 + part.length ~/ 3), onTimeout: () => null);
+          if (gen != _gen) return false;
+          if (ok != true) {
+            failed = true;
+            return false;
+          }
+        }
+        return true;
       } catch (_) {
         failed = gen == _gen;
         return false;

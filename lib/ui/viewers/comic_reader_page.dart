@@ -356,7 +356,6 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           Text('${_page + 1} / $_n · $pct', style: const TextStyle(color: Colors.white60, fontSize: 12)),
           NextVolumeButton(item: item),
           if (!wide && OcrService.supported) ...[
-            const Spacer(),
             IconButton(
               tooltip: '소리 내어 읽기',
               icon: Icon(Icons.record_voice_over, color: _readAloud ? toolActive : Colors.white),

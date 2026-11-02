@@ -203,7 +203,12 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
         for (var t = 0; t < tiles.length; t++) {
           final f = File(p.join(tmp.path, '${i}_$t.png'));
           await f.writeAsBytes(tiles[t]);
-          final r = await rec.processImage(InputImage.fromFilePath(f.path));
+          final RecognizedText r;
+          try {
+            r = await rec.processImage(InputImage.fromFilePath(f.path));
+          } catch (_) {
+            continue; // 한 조각이 실패해도 나머지는 읽는다
+          }
           // 블록 순서: 위에서 아래, 같은 줄이면 왼쪽부터
           final blocks = [...r.blocks]..sort((a, b) {
               final dy = a.boundingBox.top - b.boundingBox.top;

@@ -25,18 +25,6 @@ Future<void> main() async {
   final state = AppState(db, settings, covers);
   await state.load();
 
-  // 안드로이드: 파일 관리자에서 "ARARIFlex 로 열기" 한 파일
-  if (Platform.isAndroid) {
-    const ch = MethodChannel('mediashelf/open');
-    ch.setMethodCallHandler((call) async {
-      if (call.method == 'opened' && call.arguments is String) state.requestOpen(call.arguments as String);
-    });
-    try {
-      final first = await ch.invokeMethod<String>('takeFile');
-      if (first != null) state.pendingOpenPath = first;
-    } catch (_) {}
-  }
-
   runApp(MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: settings),
@@ -44,6 +32,17 @@ Future<void> main() async {
     ],
     child: const MediaShelfApp(),
   ));
+
+  // 안드로이드: 파일 관리자에서 "ARARIFlex 로 열기" 한 파일 (복사가 오래 걸릴 수 있어 화면을 먼저 띄운 뒤)
+  if (Platform.isAndroid) {
+    const ch = MethodChannel('mediashelf/open');
+    ch.setMethodCallHandler((call) async {
+      if (call.method == 'opened' && call.arguments is String) state.requestOpen(call.arguments as String);
+    });
+    ch.invokeMethod<String>('takeFile').then((first) {
+      if (first != null) state.requestOpen(first);
+    }).catchError((_) {});
+  }
 }
 
 class MediaShelfApp extends StatelessWidget {
