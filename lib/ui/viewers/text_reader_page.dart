@@ -470,10 +470,18 @@ class _TextReaderPageState extends State<TextReaderPage> {
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
+          // 다른 뷰어와 같은 자리: 왼쪽 끝 = 닫기
           IconButton(
-            style: IconButton.styleFrom(backgroundColor: _left ? toolActive : toolBg),
+            style: IconButton.styleFrom(backgroundColor: toolActive),
+            tooltip: '닫기 (Esc)',
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.maybePop(context),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            style: IconButton.styleFrom(backgroundColor: _left ? toolActive.withValues(alpha: 0.6) : toolBg),
             tooltip: '목차 · 하이라이트 · 검색',
-            icon: const Icon(Icons.tune, color: Colors.white),
+            icon: const Icon(Icons.toc, color: Colors.white),
             onPressed: () => setState(() => _left = !_left),
           ),
           const SizedBox(width: 10),
@@ -487,8 +495,6 @@ class _TextReaderPageState extends State<TextReaderPage> {
             style: const TextStyle(color: Colors.white60, fontSize: 12),
           ),
           NextVolumeButton(item: item),
-          const Spacer(),
-          IconButton(tooltip: '닫기', icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.maybePop(context)),
         ]),
         const SizedBox(height: 4),
         SingleChildScrollView(

@@ -279,6 +279,7 @@ class AppState extends ChangeNotifier {
   @override
   void notifyListeners() {
     _tree = null; // 묶음 색인 다시 만들기
+    _seriesWithAccess = null;
     super.notifyListeners();
   }
 
@@ -393,6 +394,7 @@ class AppState extends ChangeNotifier {
       await db.setDenied(u.id!, t, !allowed);
     }
     if (u.id == user?.id && !u.isAdmin) _denied = await db.deniedFor(u.id!);
+    _seriesWithAccess = null;
     notifyListeners();
   }
 
@@ -417,8 +419,45 @@ class AppState extends ChangeNotifier {
   bool isHiddenSeries(Series s) => _anyAncestor(s.id, (x) => x.hidden);
 
   bool canAccessItem(MediaItem e) =>
-      _denied.isEmpty || (!_denied.contains('i:${e.id}') && !_anyAncestor(e.seriesId, (s) => _denied.contains('s:${s.id}')));
-  bool canAccessSeries(Series s) => _denied.isEmpty || !_anyAncestor(s.id, (x) => _denied.contains('s:${x.id}'));
+      _denied.isEmpty ||
+      (!_denied.contains('i:${e.id}') && !_deniedByScope(e) && !_anyAncestor(e.seriesId, (s) => _denied.contains('s:${s.id}')));
+  bool canAccessSeries(Series s) =>
+      _denied.isEmpty ||
+      (!_anyAncestor(s.id, (x) => _denied.contains('s:${x.id}')) &&
+          (!_scopedDenial || (_seriesWithAccess ??= _computeSeriesAccess()).contains(s.id)));
+
+  /// 라이브러리 폴더(f:경로) · 종류(k:comic 등) 단위로 막혔는가
+  bool get _scopedDenial => _denied.any((d) => d.startsWith('f:') || d.startsWith('k:'));
+  bool _deniedByScope(MediaItem e) {
+    for (final d in _denied) {
+      if (d == 'k:${e.kind.name}') return true;
+      if (d.startsWith('f:')) {
+        final f = d.substring(2);
+        if (p.equals(f, e.path) || p.isWithin(f, e.path)) return true;
+      }
+    }
+    return false;
+  }
+
+  /// 폴더·종류로 막힌 게 있으면, 볼 수 있는 권이 하나도 없는 묶음도 감춘다
+  Set<int>? _seriesWithAccess;
+  Set<int> _computeSeriesAccess() {
+    final ok = <int>{};
+    for (final e in _items) {
+      if (!canAccessItem(e)) continue;
+      var cur = e.seriesId;
+      while (cur != null && ok.add(cur)) {
+        cur = _series[cur]?.parentId;
+      }
+    }
+    return ok;
+  }
+
+  bool kindAllowed(MediaKind k) => !_denied.contains('k:${k.name}');
+
+  /// 이 사용자에게 보이는 라이브러리 폴더 (사이드바)
+  List<LibraryFolder> get visibleLibraryFolders =>
+      settings.libraryFolders.where((f) => !_denied.contains('f:${f.path}')).toList();
 
   bool canSeeItem(MediaItem e) => user != null && canAccessItem(e) && (hiddenUnlocked || !isHiddenItem(e));
   bool canSeeSeries(Series s) => user != null && canAccessSeries(s) && (hiddenUnlocked || !isHiddenSeries(s));
@@ -670,7 +709,13 @@ class AppState extends ChangeNotifier {
       if (s != null && canSeeSeries(s)) return SeriesEntry(s, statsOf(s));
       return ItemEntry(c);
     }
-    return rootEntries(limit: 1).firstOrNull;
+    // 표지가 있는 작품을 먼저 대표로 (배너가 비어 보이지 않게)
+    final recent = rootEntries(limit: 12);
+    bool hasCover(Entry e) => switch (e) {
+          SeriesEntry s => (s.series.coverPath ?? s.stats.coverPath) != null,
+          ItemEntry i => i.item.coverPath != null,
+        };
+    return recent.where(hasCover).firstOrNull ?? recent.firstOrNull;
   }
 
   static int _byVolume(MediaItem a, MediaItem b) {

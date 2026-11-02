@@ -171,15 +171,18 @@ class _Card extends StatelessWidget {
   final Widget child;
   const _Card(this.child);
   @override
-  Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
+  // Material 로 감싸야 안의 목록 줄을 누르거나 마우스를 올렸을 때 강조가 보인다
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
           color: Theme.of(context).colorScheme.surfaceContainer,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Theme.of(context).colorScheme.surfaceContainerHighest),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: BorderSide(color: Theme.of(context).colorScheme.surfaceContainerHighest),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(padding: const EdgeInsets.all(16), child: child),
         ),
-        child: child,
       );
 }
 

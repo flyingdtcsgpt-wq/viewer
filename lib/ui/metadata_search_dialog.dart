@@ -191,7 +191,7 @@ class _MetadataSearchDialogState extends State<_MetadataSearchDialog> {
           child: Column(children: [
             // 위: 제목 / AI 원제 찾기 / 검색창
             Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
-              Text(widget.title ?? '정보 가져오기', style: text.titleLarge?.copyWith(color: const Color(0xFF4FA3FF), fontWeight: FontWeight.w900)),
+              Text(widget.title ?? '정보 가져오기', style: text.titleLarge?.copyWith(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w900)),
               if (ai) OutlinedButton.icon(onPressed: _loading ? null : _aiQuery, icon: const Icon(Icons.auto_fix_high), label: const Text('AI 원제 찾기')),
               SizedBox(
                 width: wide ? 420 : double.infinity,

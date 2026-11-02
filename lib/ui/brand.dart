@@ -70,3 +70,66 @@ class _Wave extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+
+/// 표지가 없을 때 쓰는 "만든 표지": 제목마다 색이 정해진 책 표지 모양
+class TitleCover extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final IconData icon;
+  const TitleCover({super.key, required this.title, this.subtitle, this.icon = Icons.menu_book});
+
+  /// 제목으로 정해지는 색 (항상 같은 제목 = 같은 색)
+  static Color hueOf(String title) {
+    var h = 0;
+    for (final c in title.codeUnits) {
+      h = (h * 31 + c) & 0x7fffffff;
+    }
+    return HSLColor.fromAHSL(1, (h % 360).toDouble(), 0.42, 0.30).toColor();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = hueOf(title);
+    final dark = HSLColor.fromColor(base).withLightness(0.14).toColor();
+    return LayoutBuilder(builder: (context, c) {
+      final w = c.maxWidth.isFinite ? c.maxWidth : 160.0;
+      final fs = (w * 0.12).clamp(11.0, 34.0);
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [base, dark]),
+        ),
+        child: Stack(children: [
+          // 책등 느낌의 왼쪽 띠
+          Positioned(left: w * 0.06, top: 0, bottom: 0, width: 2, child: ColoredBox(color: Colors.white.withValues(alpha: 0.12))),
+          Positioned(
+            right: -w * 0.12,
+            bottom: -w * 0.08,
+            child: Icon(icon, size: w * 0.62, color: Colors.white.withValues(alpha: 0.07)),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(w * 0.14, w * 0.14, w * 0.10, w * 0.10),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(width: w * 0.22, height: 3, color: brandRed),
+              SizedBox(height: w * 0.06),
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 5,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white, fontSize: fs, height: 1.25, fontWeight: FontWeight.w800),
+                ),
+              ),
+              if (subtitle != null && subtitle!.isNotEmpty) ...[
+                SizedBox(height: w * 0.04),
+                Text(subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.white70, fontSize: (fs * 0.55).clamp(9.0, 18.0))),
+              ],
+            ]),
+          ),
+        ]),
+      );
+    });
+  }
+}

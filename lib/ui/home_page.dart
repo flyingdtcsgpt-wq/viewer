@@ -7,7 +7,6 @@ import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../services/settings.dart';
 import '../services/storage_permission.dart';
-import '../version.dart';
 import 'admin_page.dart';
 import 'batch_editor_page.dart';
 import 'share_page.dart';
@@ -207,10 +206,11 @@ class _Sidebar extends StatelessWidget {
 
     return ListView(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), children: [
       // 앱 이름 + 사용자
-      Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
-        child: const Logo(size: 26),
-      ),
+      if (inDrawer)
+        const Padding(
+          padding: EdgeInsets.fromLTRB(12, 4, 4, 4),
+          child: Logo(size: 26),
+        ),
       Card(
         margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: ListTile(
@@ -242,10 +242,10 @@ class _Sidebar extends StatelessWidget {
       item(Icons.history, '내 열람 기록', act(() => push(const HistoryPage()))),
 
       // 라이브러리 폴더 (설정에서 정한 순서 · 그룹 · 별칭)
-      if (state.settings.libraryFolders.isNotEmpty) ...[
+      if (state.visibleLibraryFolders.isNotEmpty) ...[
         section('라이브러리'),
-        for (final (i, f) in state.settings.libraryFolders.indexed) ...[
-          if (f.group.isNotEmpty && (i == 0 || state.settings.libraryFolders[i - 1].group != f.group))
+        for (final (i, f) in state.visibleLibraryFolders.indexed) ...[
+          if (f.group.isNotEmpty && (i == 0 || state.visibleLibraryFolders[i - 1].group != f.group))
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 8, 16, 2),
               child: Text(f.group, style: text.labelSmall?.copyWith(color: Colors.grey)),
@@ -274,6 +274,7 @@ class _Sidebar extends StatelessWidget {
 
       section('종류'),
       for (var i = 0; i < _kinds.length; i++)
+        if (i == 0 || state.kindAllowed(_kinds[i]!))
         item(
           _kindIcons[i],
           _kindName(_kinds[i]),
@@ -403,68 +404,116 @@ class _TopActionBar extends StatelessWidget {
           ),
         );
 
+    // 고른 항목이 있을 때만 쓸 수 있는 동작은 고른 뒤에만 나타난다 (흐린 버튼이 자리를 차지하지 않게)
+    final selActions = <Widget>[
+      Padding(
+        padding: const EdgeInsets.only(right: 10),
+        child: InputChip(
+          avatar: Icon(Icons.check_circle, size: 18, color: scheme.primary),
+          label: Text('${state.selected.length}개 선택'),
+          onDeleted: state.clearSelection,
+          deleteButtonTooltipMessage: '선택 해제 (Esc)',
+        ),
+      ),
+      if (admin) ...[
+        btn(Icons.delete_outline, '삭제', () async {
+          final mode = await confirmDelete(context, '선택한 ${state.selected.length}개');
+          if (mode != null) await state.removeSelected(deleteFile: mode);
+        }, color: Colors.redAccent),
+        btn(Icons.create_new_folder_outlined, '묶기', () async {
+          final t = await askText(context, '새 묶음 이름', hint: '예) 명탐정 코난');
+          if (t != null && t.isNotEmpty) await state.groupSelected(t);
+        }),
+        btn(Icons.drive_file_move, '다른 묶음으로', () async {
+          final c = await pickSeries(context, title: '어느 묶음으로 옮길까요?');
+          if (c != null) await state.moveSelected(c.id);
+        }),
+        btn(Icons.edit_note, '메타데이터', () {
+          final items = state.selectedItemsDeep;
+          if (items.isNotEmpty) push(BatchEditorPage(items: items));
+        }),
+        btn(Icons.visibility_off, '숨기기', () async {
+          if (!state.hasHiddenPassword) return toast('먼저 관리자 메뉴에서 숨김 비밀번호를 정하세요');
+          await state.hideSelected(true);
+        }),
+        if (state.hiddenUnlocked) btn(Icons.visibility, '숨김 해제', () => state.hideSelected(false)),
+        btn(Icons.lock_person, '사용자 접근', () => showAccessForSelection(context)),
+      ],
+    ];
+
     return Container(
       color: scheme.surfaceContainerLowest,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
       child: Row(children: [
         const Logo(size: 22),
-        const SizedBox(width: 16),
+        const SizedBox(width: 20),
+        if (admin && !has) ...[
+          PopupMenuButton<int>(
+            tooltip: '라이브러리에 추가',
+            position: PopupMenuPosition.under,
+            onSelected: (v) => v == 0 ? addFolderFlow(context) : addFilesFlow(context),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.create_new_folder), title: Text('폴더 추가'), subtitle: Text('폴더 안의 책 · 만화 · 그림 · 영상을 찾아 추가'))),
+              PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.note_add), title: Text('파일 추가'), subtitle: Text('파일을 골라서 추가'))),
+            ],
+            child: IgnorePointer(
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                ),
+                onPressed: () {},
+                icon: const Icon(Icons.add, size: 20),
+                label: const Text('추가'),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
         Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(children: [
-              if (admin) ...[
-                btn(Icons.create_new_folder, '폴더 추가', () => addFolderFlow(context)),
-                btn(Icons.note_add, '파일 추가', () => addFilesFlow(context)),
-                btn(Icons.delete_outline, '선택 삭제', has
-                    ? () async {
-                        final mode = await confirmDelete(context, '선택한 ${state.selected.length}개');
-                        if (mode != null) await state.removeSelected(deleteFile: mode);
-                      }
-                    : null,
-                    color: Colors.redAccent),
-              ],
-              btn(Icons.check_box_outlined, '전체 선택/해제', admin ? () => state.selected.length > 1 ? state.clearSelection() : state.selectAll() : null),
-              if (admin) ...[
-                btn(Icons.create_new_folder_outlined, '묶기', has
-                    ? () async {
-                        final t = await askText(context, '새 묶음 이름', hint: '예) 명탐정 코난');
-                        if (t != null && t.isNotEmpty) await state.groupSelected(t);
-                      }
-                    : null),
-                btn(Icons.drive_file_move, '다른 묶음으로', has
-                    ? () async {
-                        final c = await pickSeries(context, title: '어느 묶음으로 옮길까요?');
-                        if (c != null) await state.moveSelected(c.id);
-                      }
-                    : null),
-                btn(Icons.visibility_off, '숨기기', has
-                    ? () async {
-                        if (!state.hasHiddenPassword) return toast('먼저 관리자 메뉴에서 숨김 비밀번호를 정하세요');
-                        await state.hideSelected(true);
-                      }
-                    : null),
-                if (state.hiddenUnlocked) btn(Icons.visibility, '숨김 해제', has ? () => state.hideSelected(false) : null),
-                btn(Icons.lock_person, '사용자 접근', has ? () => showAccessForSelection(context) : null),
-                btn(Icons.edit_note, '메타데이터 관리', has
-                    ? () {
-                        final items = state.selectedItemsDeep;
-                        if (items.isNotEmpty) push(BatchEditorPage(items: items));
-                      }
-                    : null),
-                btn(Icons.construction, '파일 도구', () => push(const ToolsPage())),
-                btn(state.share.running ? Icons.wifi_tethering : Icons.wifi_tethering_off, '공유 서버', () => push(const SharePage()),
-                    color: state.share.running ? Colors.greenAccent : null),
-                btn(Icons.auto_fix_high, '시리즈 자동 묶기', () async {
+          child: has
+              ? SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: selActions))
+              : const SizedBox(),
+        ),
+        if (admin)
+          PopupMenuButton<int>(
+            tooltip: '더보기',
+            icon: const Icon(Icons.more_horiz),
+            position: PopupMenuPosition.under,
+            onSelected: (v) async {
+              switch (v) {
+                case 0:
+                  state.selected.length > 1 ? state.clearSelection() : state.selectAll();
+                case 1:
                   final n = await state.autoGroup();
                   toast(n == 0 ? '새로 묶을 항목이 없습니다' : '$n개 항목을 시리즈로 묶었습니다');
-                }),
-              ],
-            ]),
+                case 2:
+                  push(const ToolsPage());
+                case 3:
+                  push(const SharePage());
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.select_all), title: Text('전체 선택 / 해제'), trailing: Text('Ctrl+A'))),
+              const PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.auto_fix_high), title: Text('시리즈 자동 묶기'))),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 2, child: ListTile(leading: Icon(Icons.construction), title: Text('파일 도구'))),
+              PopupMenuItem(
+                value: 3,
+                child: ListTile(
+                  leading: Icon(state.share.running ? Icons.wifi_tethering : Icons.wifi_tethering_off,
+                      color: state.share.running ? Colors.greenAccent : null),
+                  title: Text(state.share.running ? '공유 서버 (켜짐)' : '공유 서버'),
+                ),
+              ),
+            ],
           ),
-        ),
-        Text('Version $appVersion', style: Theme.of(context).textTheme.labelMedium),
-        const SizedBox(width: 10),
+        if (admin && state.share.running)
+          IconButton(
+            tooltip: '공유 서버 켜짐',
+            icon: const Icon(Icons.wifi_tethering, color: Colors.greenAccent),
+            onPressed: () => push(const SharePage()),
+          ),
         IconButton(tooltip: '내 열람 기록', icon: const Icon(Icons.history), onPressed: () => push(const HistoryPage())),
         IconButton(tooltip: 'AI 도우미', icon: const Icon(Icons.auto_awesome), onPressed: () => showAiChat(context)),
         if (admin) IconButton(tooltip: '관리자', icon: const Icon(Icons.manage_accounts), onPressed: () => push(const AdminPage())),

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models/entry.dart';
 import '../models/series.dart';
+import 'brand.dart';
 import 'viewers/open_item.dart';
 
 // =====================================================================
@@ -68,9 +69,9 @@ class SeriesTile extends StatelessWidget {
               0,
               1,
               child: cover == null
-                  ? Center(child: Icon(st.isVideo ? Icons.video_library : Icons.collections_bookmark, size: 48))
+                  ? TitleCover(title: s.title, subtitle: s.author, icon: st.isVideo ? Icons.video_library : Icons.collections_bookmark)
                   : Image.file(File(cover), fit: BoxFit.cover, cacheWidth: (400 * dpr).round(),
-                      errorBuilder: (_, _, _) => const Icon(Icons.collections_bookmark, size: 48)),
+                      errorBuilder: (_, _, _) => TitleCover(title: s.title, icon: Icons.collections_bookmark)),
             ),
             // 권수 배지
             Positioned(

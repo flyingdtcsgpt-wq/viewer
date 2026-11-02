@@ -240,6 +240,12 @@ void main() {
         }
         await shot('05_묶음_안_상세패널');
       }
+      // 고르면 위 작업 줄에 선택 동작이 나타난다
+      for (final e in state.entries.take(2)) {
+        state.toggleSelect(e);
+      }
+      await shot('05b_선택했을때_작업줄');
+      state.clearSelection();
       state.setFilter(kind: MediaKind.book);
       book = state.allItems.where((e) => e.kind == MediaKind.book && e.path.endsWith('.txt')).firstOrNull;
       await shot('06_라이브러리_책');
@@ -293,6 +299,13 @@ void main() {
     await step('admin', () async {
       await push(const AdminPage());
       await shot('12_관리자');
+      await popAll();
+    });
+
+    await step('access', () async {
+      final fam = state.users.firstWhere((u) => !u.isAdmin);
+      await push(AccessPage(target: fam));
+      await shot('12b_계정별_보이는범위', 1800);
       await popAll();
     });
 

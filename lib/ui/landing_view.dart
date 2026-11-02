@@ -7,6 +7,7 @@ import '../app_state.dart';
 import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../models/series.dart';
+import 'brand.dart';
 import 'cover_tile.dart';
 import 'detail_page.dart';
 import 'series_widgets.dart';
@@ -100,7 +101,14 @@ class _Hero extends StatelessWidget {
         onInfo = () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(item: it)));
     }
 
-    final height = wide ? (size.height * 0.62).clamp(360.0, 720.0) : size.width * 1.25;
+    // 표지가 없으면 배너를 낮추고, 만든 표지를 책처럼 세워 둔다
+    final height = cover == null
+        ? (wide ? (size.height * 0.46).clamp(320.0, 520.0) : size.width * 1.15)
+        : (wide ? (size.height * 0.62).clamp(360.0, 720.0) : size.width * 1.25);
+    final icon = switch (entry) {
+      SeriesEntry e => e.stats.isVideo ? Icons.video_library : Icons.collections_bookmark,
+      ItemEntry e => e.item.kind == MediaKind.video ? Icons.movie : Icons.menu_book,
+    };
     final text = Theme.of(context).textTheme;
 
     final info = Column(
@@ -165,6 +173,34 @@ class _Hero extends StatelessWidget {
               child: Image.file(File(cover), fit: BoxFit.cover, alignment: Alignment.topCenter, errorBuilder: (_, _, _) => const SizedBox()),
             ),
           ),
+        if (cover == null) ...[
+          // 제목 색으로 은은한 배경 + 오른쪽에 세워 둔 만든 표지
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: wide ? const Alignment(0.6, -0.2) : const Alignment(0, -0.5),
+                radius: 1.1,
+                colors: [TitleCover.hueOf(title).withValues(alpha: 0.55), bg],
+              ),
+            ),
+          ),
+          Align(
+            alignment: wide ? const Alignment(0.75, 0) : const Alignment(0, -0.75),
+            child: Builder(builder: (_) {
+              final h = wide ? (height - 80).clamp(200.0, 400.0) : size.width * 0.55;
+              return Container(
+                height: h,
+                width: h * 2 / 3,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: const [BoxShadow(blurRadius: 32, color: Colors.black87, offset: Offset(0, 12))],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: TitleCover(title: title, icon: icon),
+              );
+            }),
+          ),
+        ],
         // 왼쪽/아래 그라데이션으로 배경과 자연스럽게 섞기
         DecoratedBox(
           decoration: BoxDecoration(

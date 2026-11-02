@@ -76,7 +76,7 @@ class Settings extends ChangeNotifier {
   String get aiModel => _p.getString('aiModel') ?? 'claude-haiku-5-5';
   set aiModel(String v) => _set(() => _p.setString('aiModel', v));
 
-  double get coverSize => _p.getDouble('coverSize') ?? 170;
+  double get coverSize => _p.getDouble('coverSize') ?? 210;
   set coverSize(double v) => _set(() => _p.setDouble('coverSize', v));
 
   /// 기본은 어두운(넷플릭스풍) 화면. 켜면 밝은 화면

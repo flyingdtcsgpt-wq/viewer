@@ -10,6 +10,7 @@ import '../models/media_item.dart';
 import '../models/series.dart';
 import '../services/settings.dart';
 import 'batch_editor_page.dart';
+import 'brand.dart';
 import 'cover_tile.dart';
 import 'detail_page.dart';
 import 'landing_view.dart' show HoverZoom;
@@ -757,7 +758,7 @@ class _SeriesDetail extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
                 child: cover == null
-                    ? const Center(child: Icon(Icons.collections_bookmark, size: 64))
+                    ? TitleCover(title: series.title, subtitle: series.author, icon: Icons.collections_bookmark)
                     : Image.file(File(cover), fit: BoxFit.cover, width: double.infinity, errorBuilder: (_, _, _) => const SizedBox()),
               ),
             ),
@@ -1114,7 +1115,7 @@ class StatusBar extends StatelessWidget {
         Text('항목 크기', style: Theme.of(context).textTheme.bodySmall),
         SizedBox(
           width: 160,
-          child: Slider(min: 120, max: 320, value: s.coverSize.clamp(120, 320), onChanged: s.viewMode == 1 ? (v) => s.coverSize = v : null),
+          child: Slider(min: 140, max: 360, value: s.coverSize.clamp(140, 360), onChanged: s.viewMode == 1 ? (v) => s.coverSize = v : null),
         ),
       ]),
     );

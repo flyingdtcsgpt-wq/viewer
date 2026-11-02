@@ -73,19 +73,24 @@ class _SharePageState extends State<SharePage> {
     final on = _srv.running;
     final base = 'http://$_ip:${on ? _srv.port : _port.text}';
 
-    Widget box(String title, List<Widget> children) => Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
+    Widget box(String title, List<Widget> children) => Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Material(
             color: scheme.surfaceContainer,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: scheme.surfaceContainerHighest),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+              side: BorderSide(color: scheme.surfaceContainerHighest),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 10),
+                ...children,
+              ]),
+            ),
           ),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(color: Color(0xFF4FA3FF), fontWeight: FontWeight.w800)),
-            const SizedBox(height: 10),
-            ...children,
-          ]),
         );
 
     Widget url(String u) => Row(children: [
@@ -203,7 +208,7 @@ class _SharePageState extends State<SharePage> {
           ? Row(children: [
               Expanded(flex: 5, child: left),
               Expanded(flex: 4, child: Column(children: [
-                const Padding(padding: EdgeInsets.only(top: 16), child: Text('서버 상태 로그', style: TextStyle(color: Color(0xFF4FA3FF), fontWeight: FontWeight.w800))),
+                Padding(padding: const EdgeInsets.only(top: 16), child: Text('서버 상태 로그', style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w800))),
                 Expanded(child: log),
               ])),
             ])

@@ -245,6 +245,37 @@ class _AccessPageState extends State<AccessPage> {
     }
 
     if (denied != null) {
+      // 1) 라이브러리 폴더 단위
+      if (state.settings.libraryFolders.isNotEmpty) {
+        rows.add(const _Section('라이브러리 폴더', '폴더를 끄면 그 폴더 안의 모든 파일이 보이지 않습니다'));
+        for (final lf in state.settings.libraryFolders) {
+          if (f.isNotEmpty && !lf.path.toLowerCase().contains(f) && !lf.name.toLowerCase().contains(f)) continue;
+          rows.add(_row(
+            depth: 0,
+            icon: Icons.folder_special,
+            title: lf.name,
+            subtitle: lf.path,
+            allowed: !denied.contains('f:${lf.path}'),
+            enabled: true,
+            onChanged: (v) => _set(['f:${lf.path}'], v),
+          ));
+        }
+      }
+      // 2) 종류 단위
+      rows.add(const _Section('종류', '예) 아이 계정에서 영상만 막기'));
+      for (final k in MediaKind.values) {
+        rows.add(_row(
+          depth: 0,
+          icon: _icon(k),
+          title: kindLabel(k),
+          subtitle: '',
+          allowed: !denied.contains('k:${k.name}'),
+          enabled: true,
+          onChanged: (v) => _set(['k:${k.name}'], v),
+        ));
+      }
+      // 3) 묶음 · 작품 단위
+      rows.add(const _Section('묶음 · 작품', '묶음을 끄면 그 안의 모든 하위 묶음과 권이 막힙니다'));
       walk(null, 0, false);
       final loose = [...?raw.items[null]]..sort((a, b) => a.title.compareTo(b.title));
       final shownLoose = loose.where((e) => f.isEmpty || e.title.toLowerCase().contains(f)).toList();
@@ -328,4 +359,17 @@ class _AccessPageState extends State<AccessPage> {
         MediaKind.image => Icons.image,
         MediaKind.video => Icons.movie,
       };
+}
+
+class _Section extends StatelessWidget {
+  final String title, help;
+  const _Section(this.title, this.help);
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Theme.of(context).colorScheme.primary)),
+          Text(help, style: Theme.of(context).textTheme.bodySmall),
+        ]),
+      );
 }

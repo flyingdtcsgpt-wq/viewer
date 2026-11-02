@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../models/media_item.dart';
+import 'brand.dart';
 import 'series_widgets.dart';
 
 class CoverTile extends StatelessWidget {
@@ -120,21 +121,13 @@ class CoverImage extends StatelessWidget {
   }
 
   Widget _placeholder(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final icon = switch (item.kind) {
       MediaKind.book => Icons.menu_book,
       MediaKind.comic => Icons.auto_stories,
       MediaKind.image => Icons.image,
       MediaKind.video => Icons.movie,
     };
-    return Container(
-      color: scheme.surfaceContainerHighest,
-      padding: const EdgeInsets.all(12),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, size: 40, color: scheme.onSurfaceVariant),
-        const SizedBox(height: 8),
-        Text(item.title, textAlign: TextAlign.center, maxLines: 4, overflow: TextOverflow.ellipsis),
-      ]),
-    );
+    return TitleCover(title: item.title, subtitle: item.author, icon: icon);
   }
+
 }

@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 
 const viewerBg = Color(0xFF1B1B1B);
 const toolBg = Color(0xFF2A2A2A);
-const toolActive = Color(0xFF2F8CF0); // 선택된 버튼 (참고 화면의 파란색)
+const toolActive = Color(0xFFE50914); // 선택된 버튼: 앱 포인트 색(빨강)
 
 class ToolGroup extends StatelessWidget {
   final List<Widget> children;
