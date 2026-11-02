@@ -108,6 +108,7 @@ jobs:
       # 한국어 글자 인식기 설치 (서버 Windows 에는 없을 수 있음, 실패해도 계속)
       - name: Korean OCR language
         continue-on-error: true
+        timeout-minutes: 5
         shell: pwsh
         run: |
           Get-WindowsCapability -Online -Name 'Language.OCR*ko-KR*' | Format-Table Name, State
