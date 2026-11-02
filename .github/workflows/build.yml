@@ -49,10 +49,10 @@ jobs:
         run: |
           $rel = "build\windows\x64\runner\Release"
           New-Item -ItemType Directory -Force "$rel\tools\7zip" | Out-Null
-          Invoke-WebRequest https://www.7-zip.org/a/7zr.exe -OutFile 7zr.exe
-          Invoke-WebRequest https://www.7-zip.org/a/7z2409-x64.exe -OutFile 7zsetup.exe
-          .\7zr.exe x 7zsetup.exe -o7zfull -y | Out-Null
-          Copy-Item 7zfull\7z.exe, 7zfull\7z.dll, 7zfull\License.txt "$rel\tools\7zip\"
+          # 빌드 머신에 깔린 7-Zip 을 가져온다 (없으면 choco 로 설치)
+          $sz = "$env:ProgramFiles\7-Zip"
+          if (-not (Test-Path "$sz\7z.dll")) { choco install 7zip -y --no-progress | Out-Null }
+          Copy-Item "$sz\7z.exe", "$sz\7z.dll", "$sz\License.txt" "$rel\tools\7zip\"
           foreach ($d in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
             Copy-Item "$env:WINDIR\System32\$d" $rel -ErrorAction SilentlyContinue
           }
