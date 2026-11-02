@@ -106,16 +106,22 @@ class HomePage extends StatelessWidget {
               ),
         drawer: const Drawer(child: SafeArea(child: _Sidebar(inDrawer: true))),
         body: showLanding ? const LandingView(topBar: _LandingTopBar(wide: false)) : body,
-        // 휴대폰 하단 탭: 홈 · 책 · 만화 · 그림 · 영상
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: showLanding || state.kindFilter == null ? 0 : _kinds.indexOf(state.kindFilter),
-          onDestinationSelected: (i) => i == 0 ? state.showLanding() : state.setFilter(kind: _kinds[i]),
-          destinations: [
-            const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '홈'),
-            for (var i = 1; i < _kinds.length; i++)
-              NavigationDestination(icon: Icon(_kindIcons[i]), label: _kindName(_kinds[i])),
-          ],
-        ),
+        // 휴대폰 하단 탭: 홈 + 이 계정에 허용된 종류만 (막힌 종류는 탭에서도 빠짐)
+        bottomNavigationBar: Builder(builder: (_) {
+          final tabs = <int>[0, for (var i = 1; i < _kinds.length; i++) if (state.kindAllowed(_kinds[i]!)) i];
+          if (tabs.length < 2) return const SizedBox.shrink(); // 탭이 홈 하나뿐이면 막대를 감춘다
+          final cur = showLanding || state.kindFilter == null ? 0 : tabs.indexOf(_kinds.indexOf(state.kindFilter));
+          return NavigationBar(
+            selectedIndex: cur < 0 ? 0 : cur,
+            onDestinationSelected: (t) => tabs[t] == 0 ? state.showLanding() : state.setFilter(kind: _kinds[tabs[t]]),
+            destinations: [
+              for (final i in tabs)
+                i == 0
+                    ? const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '홈')
+                    : NavigationDestination(icon: Icon(_kindIcons[i]), label: _kindName(_kinds[i])),
+            ],
+          );
+        }),
       );
     }
 

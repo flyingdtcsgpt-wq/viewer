@@ -337,6 +337,24 @@ void main() {
       }
     });
 
+    // 가족 계정: 그림 · 영상을 막으면 탭/사이드바/홈에서 사라져야 한다
+    await step('restricted', () async {
+      final fam = state.users.firstWhere((u) => !u.isAdmin);
+      await tester.runAsync(() async {
+        await state.setAccess(fam, ['k:image', 'k:video'], allowed: false);
+      });
+      state.logout();
+      await wait();
+      await tester.runAsync(() => state.login(fam, ''));
+      state.showLanding();
+      await shot('18_휴대폰_가족계정_그림영상막음');
+      size.value = pcSize;
+      await shot('19_PC_가족계정_그림영상막음');
+      final leaked = state.allItems.where((e) => e.kind == MediaKind.image || e.kind == MediaKind.video).length;
+      debugPrint('CHECK restricted leaked=$leaked');
+      expect(leaked, 0);
+    });
+
     debugPrint('SHOTS DONE ${done.length}: ${done.join(', ')}');
     expect(done, isNotEmpty);
   });
