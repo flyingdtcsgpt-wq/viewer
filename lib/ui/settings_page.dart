@@ -8,9 +8,9 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models/media_item.dart';
 import '../services/settings.dart';
-import '../services/storage_permission.dart';
 import '../version.dart';
 import 'admin_page.dart';
+import 'import_dialog.dart';
 import 'brand.dart';
 
 /// 환경 설정 — 왼쪽 분류 / 오른쪽 내용 (BookManager 스타일)
@@ -314,11 +314,7 @@ class _LibraryState extends State<_Library> {
                 const Text('등록 폴더', style: TextStyle(fontWeight: FontWeight.w700)),
                 const Spacer(),
                 FilledButton.icon(
-                  onPressed: () async {
-                    if (!await ensureStorageAccess(context)) return;
-                    final dir = await FilePicker.getDirectoryPath(dialogTitle: '라이브러리 폴더 선택');
-                    if (dir != null) await state.addWatchFolder(dir);
-                  },
+                  onPressed: () => addFolderFlow(context),
                   icon: const Icon(Icons.create_new_folder),
                   label: const Text('추가'),
                 ),

@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +16,7 @@ import 'brand.dart';
 import 'browser.dart';
 import 'ai_chat_sheet.dart';
 import 'history_page.dart';
+import 'import_dialog.dart';
 import 'landing_view.dart';
 import 'series_widgets.dart';
 import 'settings_page.dart';
@@ -300,16 +300,8 @@ class _Sidebar extends StatelessWidget {
 
       if (admin && inDrawer) ...[
         section('라이브러리 관리'),
-        item(Icons.create_new_folder, '폴더 등록', act(() async {
-          if (!await ensureStorageAccess(rootContext)) return;
-          final dir = await FilePicker.getDirectoryPath(dialogTitle: '스캔할 폴더 선택');
-          if (dir != null) await state.addWatchFolder(dir);
-        })),
-        item(Icons.note_add, '파일 가져오기', act(() async {
-          final files = await FilePicker.pickFiles(dialogTitle: '가져올 파일 선택');
-          final paths = files.map((f) => f.path).whereType<String>().toList();
-          if (paths.isNotEmpty) await state.importFiles(paths);
-        })),
+        item(Icons.create_new_folder, '폴더 추가', act(() => addFolderFlow(rootContext))),
+        item(Icons.note_add, '파일 추가', act(() => addFilesFlow(rootContext))),
         item(Icons.refresh, '다시 스캔', state.scanning ? null : act(() async {
           if (await ensureStorageAccess(rootContext)) await state.rescanAll();
         })),
@@ -422,16 +414,8 @@ class _TopActionBar extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Row(children: [
               if (admin) ...[
-                btn(Icons.create_new_folder, '폴더 추가', () async {
-                  if (!await ensureStorageAccess(context)) return;
-                  final dir = await FilePicker.getDirectoryPath(dialogTitle: '스캔할 폴더 선택');
-                  if (dir != null) await state.addWatchFolder(dir);
-                }),
-                btn(Icons.note_add, '파일 추가', () async {
-                  final files = await FilePicker.pickFiles(dialogTitle: '가져올 파일 선택');
-                  final paths = files.map((f) => f.path).whereType<String>().toList();
-                  if (paths.isNotEmpty) await state.importFiles(paths);
-                }),
+                btn(Icons.create_new_folder, '폴더 추가', () => addFolderFlow(context)),
+                btn(Icons.note_add, '파일 추가', () => addFilesFlow(context)),
                 btn(Icons.delete_outline, '선택 삭제', has
                     ? () async {
                         final mode = await confirmDelete(context, '선택한 ${state.selected.length}개');

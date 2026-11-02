@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show FileImage;
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import 'db/library_db.dart';
 import 'models/entry.dart';
@@ -257,7 +258,16 @@ class AppState extends ChangeNotifier {
   bool scanning = false;
   String scanStatus = '';
 
+  /// 비밀번호를 잊었을 때: 데이터 폴더에 이 파일을 만들고 앱을 다시 켜면 로그인 화면에서 초기화
+  String resetFilePath = '';
+  bool resetRequested = false;
+
   Future<void> load() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      resetFilePath = p.join(dir.path, 'RESET_PASSWORD.txt');
+      resetRequested = await File(resetFilePath).exists();
+    } catch (_) {}
     users = await db.users();
     _items = await db.all();
     _series
@@ -330,6 +340,19 @@ class AppState extends ChangeNotifier {
         ..position = p?.$2
         ..lastOpened = p?.$3 == null ? null : DateTime.fromMillisecondsSinceEpoch(p!.$3!);
     }
+    notifyListeners();
+  }
+
+  /// 초기화 파일로 관리자 비밀번호(와 숨김 비밀번호)를 새로 정한다
+  Future<void> resetPasswords(AppUser admin, String newPassword, {required bool clearHidden}) async {
+    admin.setPassword(newPassword);
+    await db.updateUser(admin);
+    if (clearHidden) settings.setHiddenPw('', '');
+    try {
+      await File(resetFilePath).delete();
+    } catch (_) {}
+    resetRequested = false;
+    users = await db.users();
     notifyListeners();
   }
 

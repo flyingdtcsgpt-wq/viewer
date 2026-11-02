@@ -59,6 +59,13 @@ class AdminPage extends StatelessWidget {
               '앱을 닫으면 다시 숨겨집니다. 이 비밀번호를 아는 사용자는 누구나 숨김 목록을 볼 수 있습니다.',
               style: text.bodySmall,
             ),
+            const SizedBox(height: 6),
+            Text(
+              '비밀번호를 잊었을 때: 관리자는 여기서 숨김 비밀번호를 언제든 새로 정할 수 있습니다. '
+              '관리자 비밀번호까지 잊었다면, 앱을 끄고 아래 위치에 RESET_PASSWORD.txt 라는 빈 파일을 만든 뒤 다시 켜세요. '
+              '로그인 화면에서 관리자 비밀번호를 새로 정할 수 있습니다.\n${state.resetFilePath}',
+              style: text.bodySmall?.copyWith(color: Colors.amber),
+            ),
             const SizedBox(height: 8),
             ListTile(
               leading: Icon(state.hasHiddenPassword ? Icons.lock : Icons.lock_open),

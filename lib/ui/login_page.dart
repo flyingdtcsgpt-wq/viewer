@@ -44,6 +44,12 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 비밀번호 초기화 파일이 있으면 초기화 화면부터
+    if (context.watch<AppState>().resetRequested && !context.read<AppState>().needsSetup) return const _ResetView();
+    return _main(context);
+  }
+
+  Widget _main(BuildContext context) {
     final state = context.watch<AppState>();
     final setup = state.needsSetup;
     final text = Theme.of(context).textTheme;
@@ -216,6 +222,76 @@ class _ProfileState extends State<_Profile> {
             style: TextStyle(color: active ? Theme.of(context).colorScheme.onSurface : Colors.grey, fontSize: 16),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+/// 비밀번호를 잊었을 때: 데이터 폴더의 RESET_PASSWORD.txt 가 있으면 여기서 관리자 비밀번호를 새로 정한다
+class _ResetView extends StatefulWidget {
+  const _ResetView();
+  @override
+  State<_ResetView> createState() => _ResetViewState();
+}
+
+class _ResetViewState extends State<_ResetView> {
+  final _a = TextEditingController(), _b = TextEditingController();
+  AppUser? _admin;
+  bool _clearHidden = true;
+  String? _error;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final admins = state.users.where((u) => u.isAdmin).toList();
+    _admin ??= admins.firstOrNull;
+    return Scaffold(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                const Icon(Icons.lock_reset, size: 48),
+                const SizedBox(height: 8),
+                const Text('비밀번호 초기화', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                Text('초기화 파일(${state.resetFilePath})이 있어서 이 화면이 열렸습니다. 끝나면 파일은 자동으로 지워집니다.',
+                    style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<AppUser>(
+                  initialValue: _admin,
+                  decoration: const InputDecoration(labelText: '관리자', border: OutlineInputBorder()),
+                  items: [for (final u in admins) DropdownMenuItem(value: u, child: Text(u.name))],
+                  onChanged: (v) => setState(() => _admin = v),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: _a, obscureText: true, decoration: const InputDecoration(labelText: '새 비밀번호 (4자 이상)', border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: _b, obscureText: true, decoration: const InputDecoration(labelText: '새 비밀번호 확인', border: OutlineInputBorder())),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _clearHidden,
+                  onChanged: (v) => setState(() => _clearHidden = v ?? true),
+                  title: const Text('숨김 비밀번호도 지우기'),
+                  subtitle: const Text('숨긴 항목은 그대로 숨김 상태로 남고, 관리자 메뉴에서 숨김 비밀번호를 새로 정하면 다시 볼 수 있습니다.'),
+                ),
+                if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () async {
+                    if (_admin == null) return;
+                    if (_a.text.length < 4) return setState(() => _error = '4자 이상으로 정하세요');
+                    if (_a.text != _b.text) return setState(() => _error = '두 칸이 다릅니다');
+                    await state.resetPasswords(_admin!, _a.text, clearHidden: _clearHidden);
+                  },
+                  child: const Text('초기화하고 로그인 화면으로'),
+                ),
+              ]),
+            ),
+          ),
+        ),
       ),
     );
   }
