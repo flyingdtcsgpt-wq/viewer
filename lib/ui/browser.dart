@@ -895,7 +895,7 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
       item('info', Icons.edit_note, '메타데이터 관리'),
       const PopupMenuDivider(),
     ],
-    if (e case SeriesEntry s when admin && !multi) ...[
+    if (e is SeriesEntry && admin && !multi) ...[
       item('series', Icons.edit, '묶음 정보'),
       const PopupMenuDivider(),
     ],

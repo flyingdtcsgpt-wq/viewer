@@ -12,13 +12,10 @@ import '../version.dart';
 import 'admin_page.dart';
 import 'browser.dart';
 import 'ai_chat_sheet.dart';
-import 'cover_tile.dart';
-import 'detail_page.dart';
 import 'history_page.dart';
 import 'landing_view.dart';
 import 'series_widgets.dart';
 import 'settings_page.dart';
-import 'viewers/open_item.dart';
 
 const _kinds = <MediaKind?>[null, MediaKind.book, MediaKind.comic, MediaKind.image, MediaKind.video];
 
