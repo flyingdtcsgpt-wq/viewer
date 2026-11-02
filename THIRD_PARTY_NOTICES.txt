@@ -1,0 +1,36 @@
+﻿MediaShelf — 함께 배포되는 오픈소스 구성요소 / Third-party notices
+=====================================================================
+
+이 프로그램은 아래 오픈소스 구성요소를 포함합니다. 각 구성요소의 저작권은 해당 저작자에게 있습니다.
+앱 안의 "설정 → 정보 → 오픈소스 라이선스" 에서 Dart/Flutter 패키지별 전체 라이선스 문구를 볼 수 있습니다.
+
+1. Flutter / Dart SDK
+   BSD 3-Clause License — https://github.com/flutter/flutter/blob/master/LICENSE
+
+2. media_kit, media_kit_video, media_kit_libs_video
+   MIT License — https://github.com/media-kit/media-kit
+
+3. mpv (libmpv) 와 FFmpeg (영상 재생 · 코덱)
+   mpv: GNU LGPL v2.1 이상 또는 GPL v2 이상 (빌드 구성에 따름) — https://mpv.io
+   FFmpeg: GNU LGPL v2.1 이상 또는 GPL v2 이상 (빌드 구성에 따름) — https://ffmpeg.org
+   이 프로그램에 들어 있는 libmpv 바이너리는 media-kit/libmpv-win32-video-build 에서 만든 것입니다.
+   소스 코드: https://github.com/media-kit/libmpv-win32-video-build , https://github.com/mpv-player/mpv , https://git.ffmpeg.org/ffmpeg.git
+   이 라이브러리는 동적 링크(DLL)로 사용되며, 사용자가 같은 이름의 다른 빌드로 바꿔 쓸 수 있습니다.
+
+4. PDFium (PDF 보기) — pdfrx 를 통해 사용
+   BSD 3-Clause License — https://pdfium.googlesource.com/pdfium/ , 바이너리: https://github.com/bblanchon/pdfium-binaries
+
+5. SQLite (라이브러리 데이터베이스)
+   Public Domain — https://sqlite.org/copyright.html
+
+6. 7-Zip (RAR · 7Z 읽기, tools\7zip 폴더)
+   Copyright (C) Igor Pavlov. GNU LGPL + BSD 3-clause 일부 + unRAR 라이선스 제한
+   unRAR 코드는 RAR 압축 알고리즘을 다시 만드는 데 쓸 수 없습니다.
+   전체 라이선스: tools\7zip\License.txt , 소스: https://www.7-zip.org
+
+7. Microsoft Visual C++ 런타임 (msvcp140.dll, vcruntime140.dll, vcruntime140_1.dll)
+   Microsoft Visual Studio 재배포 가능 구성요소 라이선스에 따라 앱과 함께 배포됩니다.
+
+8. 그 밖의 Dart 패키지 (provider, sqflite, archive, xml, http, file_picker, path_provider,
+   shared_preferences, crypto, cp949_codec, fc_native_video_thumbnail, open_filex 등)
+   각 패키지의 라이선스(MIT / BSD / Apache 2.0 등) — 앱 안 "오픈소스 라이선스" 화면 참고

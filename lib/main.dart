@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:provider/provider.dart';
@@ -12,6 +13,7 @@ import 'ui/login_page.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized(); // 영상 플레이어(libmpv)
+  _registerNativeLicenses();
   final settings = Settings();
   await settings.load();
   final db = await LibraryDb.open();
@@ -93,4 +95,20 @@ ThemeData appTheme(Brightness b) {
       style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))),
     ),
   );
+}
+
+/// 앱 안 "오픈소스 라이선스" 화면에 Dart 패키지 말고 함께 들어간 네이티브 구성요소도 보이게
+void _registerNativeLicenses() {
+  LicenseRegistry.addLicense(() async* {
+    yield const LicenseEntryWithLineBreaks(['mpv (libmpv)'],
+        'mpv — GNU LGPL v2.1+ or GPL v2+ depending on build configuration.\nhttps://mpv.io  /  source: https://github.com/mpv-player/mpv\nBinary from https://github.com/media-kit/libmpv-win32-video-build');
+    yield const LicenseEntryWithLineBreaks(['FFmpeg'],
+        'FFmpeg — GNU LGPL v2.1+ or GPL v2+ depending on build configuration.\nhttps://ffmpeg.org  /  source: https://git.ffmpeg.org/ffmpeg.git');
+    yield const LicenseEntryWithLineBreaks(['PDFium'], 'PDFium — BSD 3-Clause License.\nhttps://pdfium.googlesource.com/pdfium/  /  binaries: https://github.com/bblanchon/pdfium-binaries');
+    yield const LicenseEntryWithLineBreaks(['SQLite'], 'SQLite is in the Public Domain. https://sqlite.org/copyright.html');
+    yield const LicenseEntryWithLineBreaks(['7-Zip'],
+        '7-Zip — Copyright (C) Igor Pavlov.\nGNU LGPL + BSD 3-clause (some parts) + unRAR license restriction:\nthe unRAR code may not be used to develop a RAR (WinRAR) compatible archiver.\nFull text: tools\\7zip\\License.txt — https://www.7-zip.org');
+    yield const LicenseEntryWithLineBreaks(['Microsoft Visual C++ Runtime'],
+        'msvcp140.dll, vcruntime140.dll, vcruntime140_1.dll — distributed under the Microsoft Visual Studio redistributable license terms.');
+  });
 }

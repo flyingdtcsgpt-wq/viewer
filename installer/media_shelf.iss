@@ -19,6 +19,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequiredOverridesAllowed=dialog
 WizardStyle=modern
 UninstallDisplayIcon={app}\media_shelf.exe
+; 설치 전에 오픈소스 구성요소 안내를 보여준다
+InfoBeforeFile=..\THIRD_PARTY_NOTICES.txt
 SetupIconFile=..\windows\runner\resources\app_icon.ico
 
 [Languages]

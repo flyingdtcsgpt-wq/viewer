@@ -474,6 +474,22 @@ class _Viewer extends StatelessWidget {
         _seg<int>('넘김효과', s.viewerEffect, const [(0, '없음'), (1, '슬라이드'), (2, '페이드'), (3, '책 넘김')], (v) => s.viewerEffect = v),
         _seg<bool>('배경', s.viewerImmersive, const [(false, '단색'), (true, '몰입형')], (v) => s.viewerImmersive = v),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('화면 좌우 눌러 넘기기'), value: s.tapToTurn, onChanged: (v) => s.tapToTurn = v),
+        const Divider(height: 28),
+        const Text('영상', style: TextStyle(fontWeight: FontWeight.w800)),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('GPU(하드웨어) 디코딩'),
+          subtitle: const Text('4K · HEVC 영상이 부드러워집니다. 화면이 깨지면 끄세요 (다음 재생부터 적용)'),
+          value: s.videoHwdec,
+          onChanged: (v) => s.videoHwdec = v,
+        ),
+        Row(children: [
+          const SizedBox(width: 90, child: Text('자막 크기')),
+          Expanded(child: Slider(min: 16, max: 96, value: s.subtitleSize.clamp(16, 96), onChanged: (v) => s.subtitleSize = v)),
+          SizedBox(width: 36, child: Text('${s.subtitleSize.round()}')),
+        ]),
+        const Text('코덱: H.264 · H.265(HEVC) · AV1 · VP9 · MPEG · DivX/Xvid · WMV, 오디오 AAC · AC3 · DTS · FLAC 등 대부분을 앱 안의 FFmpeg 로 재생합니다 (별도 코덱 설치 필요 없음).',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('아래 썸네일 / 장 탐색 바'), value: s.viewerSlider, onChanged: (v) => s.viewerSlider = v),
         const SizedBox(height: 8),
         OutlinedButton(onPressed: s.resetViewer, child: const Text('뷰어 설정 초기화')),
@@ -579,6 +595,13 @@ class _About extends StatelessWidget {
         _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('MediaShelf', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFFE50914))),
           const Text('Version $appVersion'),
+          const SizedBox(height: 12),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => showLicensePage(context: context, applicationName: 'MediaShelf', applicationVersion: appVersion),
+            icon: const Icon(Icons.gavel),
+            label: const Text('오픈소스 라이선스'),
+          ),
           const SizedBox(height: 12),
           FutureBuilder<Directory>(
             future: getApplicationSupportDirectory(),

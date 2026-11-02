@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -27,7 +28,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   late final AppState _app = context.read<AppState>();
   late final Settings _settings = context.read<Settings>();
   final _player = Player();
-  late final _video = VideoController(_player);
+  // GPU 디코딩 (설정에서 끌 수 있음 — 일부 오래된 그래픽카드에서 화면이 깨질 때)
+  late final _video = VideoController(_player, configuration: VideoControllerConfiguration(enableHardwareAcceleration: _settings.videoHwdec));
+  double _subDelay = 0; // 자막 싱크 (초)
   final _subs = <StreamSubscription>[];
   Timer? _saveTimer;
 
@@ -158,6 +161,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               child: Center(child: Text('${rate}x', style: const TextStyle(color: Colors.white))),
             ),
           ),
+          _subtitleMenu(),
+          _audioMenu(),
           IconButton(
             tooltip: '정보 / 태그',
             icon: const Icon(Icons.info_outline),
@@ -165,9 +170,111 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           ),
         ],
       ),
-      body: Video(controller: _video),
+      body: Video(
+        controller: _video,
+        subtitleViewConfiguration: SubtitleViewConfiguration(
+          style: TextStyle(
+            fontSize: context.select<Settings, double>((s) => s.subtitleSize),
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            height: 1.35,
+            shadows: const [Shadow(blurRadius: 4, color: Colors.black), Shadow(offset: Offset(1, 1), color: Colors.black)],
+          ),
+        ),
+      ),
     );
   }
+
+  // ---------------- 자막 / 오디오 ----------------
+
+  Future<void> _setSubDelay(double v) async {
+    setState(() => _subDelay = v);
+    final p = _player.platform;
+    if (p is NativePlayer) await p.setProperty('sub-delay', v.toStringAsFixed(2));
+  }
+
+  String _trackName(String id, String? title, String? lang) {
+    final parts = [title, lang].whereType<String>().where((e) => e.isNotEmpty);
+    return parts.isEmpty ? '트랙 $id' : '${parts.join(' · ')}  (#$id)';
+  }
+
+  Widget _subtitleMenu() => StreamBuilder<Tracks>(
+        stream: _player.stream.tracks,
+        builder: (context, _) {
+          final tracks = _player.state.tracks.subtitle.where((t) => t.id != 'auto' && t.id != 'no').toList();
+          final cur = _player.state.track.subtitle;
+          final size = _settings.subtitleSize;
+          return PopupMenuButton<String>(
+            tooltip: '자막',
+            icon: Icon(cur.id == 'no' ? Icons.subtitles_off : Icons.subtitles, color: Colors.white),
+            onSelected: (v) async {
+              switch (v) {
+                case 'off':
+                  await _player.setSubtitleTrack(SubtitleTrack.no());
+                case 'auto':
+                  await _player.setSubtitleTrack(SubtitleTrack.auto());
+                case 'file':
+                  final f = await FilePicker.pickFile(
+                    dialogTitle: '자막 파일 (srt · ass · smi · vtt)',
+                    type: FileType.custom,
+                    allowedExtensions: const ['srt', 'ass', 'ssa', 'smi', 'sami', 'vtt', 'sub'],
+                  );
+                  if (f?.path != null) await _player.setSubtitleTrack(SubtitleTrack.uri(f!.path!, title: f.name));
+                case 'big':
+                  _settings.subtitleSize = (size + 4).clamp(16, 96);
+                case 'small':
+                  _settings.subtitleSize = (size - 4).clamp(16, 96);
+                case 'later':
+                  await _setSubDelay(_subDelay + 0.5);
+                case 'earlier':
+                  await _setSubDelay(_subDelay - 0.5);
+                case 'sync0':
+                  await _setSubDelay(0);
+                default:
+                  final t = tracks.where((t) => 'sub:${t.id}' == v).firstOrNull;
+                  if (t != null) await _player.setSubtitleTrack(t);
+              }
+              if (mounted) setState(() {});
+            },
+            itemBuilder: (_) => [
+              CheckedPopupMenuItem(value: 'off', checked: cur.id == 'no', child: const Text('자막 끄기')),
+              CheckedPopupMenuItem(value: 'auto', checked: cur.id == 'auto', child: const Text('자동 (같은 이름 자막 / 내장 첫 자막)')),
+              for (final t in tracks)
+                CheckedPopupMenuItem(value: 'sub:${t.id}', checked: cur.id == t.id, child: Text(_trackName(t.id, t.title, t.language))),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'file', child: ListTile(leading: Icon(Icons.folder_open), title: Text('자막 파일 불러오기…'), dense: true)),
+              const PopupMenuDivider(),
+              PopupMenuItem(value: 'big', child: Text('자막 크게  (지금 ${size.round()})')),
+              const PopupMenuItem(value: 'small', child: Text('자막 작게')),
+              const PopupMenuDivider(),
+              PopupMenuItem(value: 'later', child: Text('자막 늦게 +0.5초  (지금 ${_subDelay.toStringAsFixed(1)}초)')),
+              const PopupMenuItem(value: 'earlier', child: Text('자막 빠르게 -0.5초')),
+              const PopupMenuItem(value: 'sync0', child: Text('싱크 초기화')),
+            ],
+          );
+        },
+      );
+
+  Widget _audioMenu() => StreamBuilder<Tracks>(
+        stream: _player.stream.tracks,
+        builder: (context, _) {
+          final tracks = _player.state.tracks.audio.where((t) => t.id != 'auto' && t.id != 'no').toList();
+          if (tracks.length < 2) return const SizedBox();
+          final cur = _player.state.track.audio;
+          return PopupMenuButton<String>(
+            tooltip: '오디오 트랙',
+            icon: const Icon(Icons.audiotrack, color: Colors.white),
+            onSelected: (v) async {
+              final t = tracks.where((t) => t.id == v).firstOrNull;
+              if (t != null) await _player.setAudioTrack(t);
+              if (mounted) setState(() {});
+            },
+            itemBuilder: (_) => [
+              for (final t in tracks) CheckedPopupMenuItem(value: t.id, checked: cur.id == t.id, child: Text(_trackName(t.id, t.title, t.language))),
+            ],
+          );
+        },
+      );
 }
 
 String _fmt(Duration d) {

@@ -43,6 +43,22 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
+      # 오프라인 PC 에서도 되도록: 7-Zip(RAR/7Z), VC++ 런타임, 라이선스 고지를 함께 넣는다
+      - name: Bundle 7-Zip, VC++ runtime, notices
+        shell: pwsh
+        run: |
+          $rel = "build\windows\x64\runner\Release"
+          New-Item -ItemType Directory -Force "$rel\tools\7zip" | Out-Null
+          Invoke-WebRequest https://www.7-zip.org/a/7zr.exe -OutFile 7zr.exe
+          Invoke-WebRequest https://www.7-zip.org/a/7z2409-x64.exe -OutFile 7zsetup.exe
+          .\7zr.exe x 7zsetup.exe -o7zfull -y | Out-Null
+          Copy-Item 7zfull\7z.exe, 7zfull\7z.dll, 7zfull\License.txt "$rel\tools\7zip\"
+          foreach ($d in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            Copy-Item "$env:WINDIR\System32\$d" $rel -ErrorAction SilentlyContinue
+          }
+          Copy-Item THIRD_PARTY_NOTICES.txt $rel
+          Get-ChildItem -Recurse "$rel\tools" | Select-Object FullName, Length
+
       - name: Install Inno Setup if missing
         shell: pwsh
         run: |

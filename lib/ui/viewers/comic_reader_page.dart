@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -31,9 +31,12 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   late final Settings _s = context.read<Settings>();
   InputFileStream? _input;
   List<ArchiveFile> _files = [];
-  List<String>? _disk; // RAR/7Z: 임시 폴더에 푼 이미지 경로들
+  List<String>? _ext; // RAR/7Z: 압축 안 이미지 이름들 (풀지 않고 한 쪽씩 꺼내 읽음)
+  PageLoader? _loader;
+  // 아직 안 읽힌 쪽 자리에 잠깐 보여줄 투명 그림
+  static final _blank = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
   bool _loading = true;
-  int get _n => _disk?.length ?? _files.length;
+  int get _n => _ext?.length ?? _files.length;
   final _cache = <int, Uint8List>{};
   Object? _error;
 
@@ -65,7 +68,12 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     try {
       if (ExtArchive.handles(item.path)) {
         // RAR / 7Z: Windows 내장 tar 로 임시 폴더에 풀어서 읽는다
-        _disk = await ExtArchive.extractAll(item.path);
+        _ext = await ExtArchive.listImages(item.path);
+        _loader = PageLoader(item.path, _ext!, (i, b) {
+          if (!mounted) return;
+          setState(() => _cache[i] = b);
+          _trim();
+        });
       } else {
         _input = InputFileStream(item.path);
         final zip = ZipDecoder().decodeStream(_input!);
@@ -84,7 +92,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     if (_n > 0) _app.saveProgress(item, '$_page', _progress).then((_) => _app.refresh());
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _input?.closeSync();
-    if (_disk != null) ExtArchive.cleanup(item.path);
+    _loader?.close();
     _zoom.dispose();
     _strip.dispose();
     _scroll.dispose();
@@ -95,10 +103,34 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   Uint8List _bytes(int i) {
     final hit = _cache[i];
     if (hit != null) return hit;
-    final b = _disk != null ? File(_disk![i]).readAsBytesSync() : _files[i].content;
+    if (_loader != null) {
+      // 꿀뷰 방식: 지금 쪽을 먼저, 다음 몇 쪽은 미리 꺼내 둔다
+      _loader!.want(i, urgent: (i - _page).abs() <= 2);
+      return _blank;
+    }
+    final b = _files[i].content;
     _cache[i] = b;
-    if (_cache.length > 24) _cache.remove(_cache.keys.first); // 메모리 제한
+    _trim();
     return b;
+  }
+
+  /// 메모리 제한: 지금 쪽에서 먼 것부터 버린다
+  void _trim() {
+    const keep = 40;
+    if (_cache.length <= keep) return;
+    final far = _cache.keys.toList()..sort((a, b) => (b - _page).abs().compareTo((a - _page).abs()));
+    for (final k in far.take(_cache.length - keep)) {
+      _cache.remove(k);
+      _loader?.forget(k);
+    }
+  }
+
+  /// 다음 쪽 미리 읽기
+  void _prefetch() {
+    if (_loader == null) return;
+    for (var k = 1; k <= 4; k++) {
+      _loader!.want(_page + k * (_dir >= 0 ? 1 : -1));
+    }
   }
 
   // ---------------- 쪽 묶음 ----------------
@@ -131,6 +163,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       _dir = t > _spread ? 1 : -1;
       _page = sp[t].first;
     });
+    _prefetch();
     _app.saveProgress(item, '$_page', _progress);
     _scrollStripTo(t);
   }

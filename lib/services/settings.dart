@@ -176,6 +176,11 @@ class Settings extends ChangeNotifier {
   // ---------- 이미지 / 영상 ----------
   int get slideshowSeconds => _p.getInt('slideshowSeconds') ?? 4;
   set slideshowSeconds(int v) => _set(() => _p.setInt('slideshowSeconds', v));
+  /// 영상: GPU(하드웨어) 디코딩
+  bool get videoHwdec => _p.getBool('videoHwdec') ?? true;
+  set videoHwdec(bool v) => _set(() => _p.setBool('videoHwdec', v));
+  double get subtitleSize => _p.getDouble('subtitleSize') ?? 36;
+  set subtitleSize(double v) => _set(() => _p.setDouble('subtitleSize', v));
   double get videoRate => _p.getDouble('videoRate') ?? 1.0;
   set videoRate(double v) => _set(() => _p.setDouble('videoRate', v));
 
