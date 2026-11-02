@@ -1285,7 +1285,7 @@ class AppState extends ChangeNotifier {
       if (opt.watch && base != null && opt.mode == ImportMode.reference) {
         registerWatchFolder(base);
       }
-      scanStatus = '완료: ${added}개 추가';
+      scanStatus = '완료: $added개 추가';
     } finally {
       scanning = false;
       notifyListeners();

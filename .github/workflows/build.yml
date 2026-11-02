@@ -35,7 +35,7 @@ jobs:
         run: dart run flutter_launcher_icons -f tool/icons_windows.yaml
 
       - name: Analyze (오류만 실패 처리)
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings lib test
 
       - name: Test
         run: flutter test
@@ -81,6 +81,41 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+
+  # 주요 화면을 실제 Windows 앱으로 띄워 PNG 로 저장 (UI 확인용)
+  screenshots:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate platform folders
+        run: flutter create --platforms=windows --org com.mediashelf --project-name media_shelf .
+
+      - name: Windows window title / size
+        run: python tool/patch_windows.py
+
+      - run: flutter pub get
+
+      - name: Analyze screenshot test
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings integration_test
+
+      - name: Capture screens
+        shell: pwsh
+        env:
+          SHOTS_DIR: ${{ github.workspace }}\screenshots
+        run: flutter test integration_test/screenshots_test.dart -d windows
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ARARIFlex-screenshots
+          path: screenshots/*.png
 
   android:
     # 지금은 PC 버전 집중: 안드로이드는 태그(릴리스)나 수동 실행 때만 빌드
