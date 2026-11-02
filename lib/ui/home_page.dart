@@ -506,7 +506,7 @@ class _ToolbarState extends State<_Toolbar> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final settings = context.watch<Settings>();
+    context.watch<Settings>(); // 설정이 바뀌면 다시 그리기
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       child: Wrap(
