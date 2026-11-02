@@ -92,6 +92,26 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 본문 글꼴: 0 기본, 1 명조, 2 고딕
+  int get readerFont => _p.getInt('readerFont') ?? 0;
+  set readerFont(int v) => _set(() => _p.setInt('readerFont', v));
+
+  /// 하이라이트: 항목별 "색번호|문장" 목록
+  List<(int, String)> highlights(int itemId) => (_p.getStringList('hl_$itemId') ?? []).map((e) {
+        final i = e.indexOf('|');
+        return (int.tryParse(e.substring(0, i)) ?? 0, e.substring(i + 1));
+      }).toList();
+  void addHighlight(int itemId, int color, String text) {
+    final l = _p.getStringList('hl_$itemId') ?? [];
+    l.add('$color|$text');
+    _set(() => _p.setStringList('hl_$itemId', l));
+  }
+
+  void removeHighlight(int itemId, String text) {
+    final l = (_p.getStringList('hl_$itemId') ?? []).where((e) => e.substring(e.indexOf('|') + 1) != text).toList();
+    _set(() => _p.setStringList('hl_$itemId', l));
+  }
+
   /// 책갈피 (항목별 쪽 번호 목록)
   List<int> bookmarks(int itemId) => (_p.getStringList('bm_$itemId') ?? []).map(int.parse).toList();
   void toggleBookmark(int itemId, int page) {
