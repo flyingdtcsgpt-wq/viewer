@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../services/auth.dart';
+import 'brand.dart';
 
 /// 첫 실행이면 관리자 만들기, 아니면 사용자 선택 + 비밀번호
 class LoginPage extends StatefulWidget {
@@ -59,7 +60,7 @@ class _LoginPageState extends State<LoginPage> {
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  const Center(child: Text('MEDIASHELF', style: TextStyle(color: Color(0xFFE50914), fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: 2))),
+                  Center(child: ArariLogo(size: 38, onDark: Theme.of(context).brightness == Brightness.dark)),
                   const SizedBox(height: 16),
                   Text(
                     setup ? '처음 사용합니다. 관리자 계정을 만드세요.' : '누가 보고 있나요?',

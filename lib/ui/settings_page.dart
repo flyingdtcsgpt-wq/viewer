@@ -11,6 +11,7 @@ import '../services/settings.dart';
 import '../services/storage_permission.dart';
 import '../version.dart';
 import 'admin_page.dart';
+import 'brand.dart';
 
 /// 환경 설정 — 왼쪽 분류 / 오른쪽 내용 (BookManager 스타일)
 /// PC 는 큰 창(대화상자), 휴대폰은 전체 화면
@@ -593,12 +594,13 @@ class _About extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _Page('정보', [
         _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('MediaShelf', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFFE50914))),
+          Align(alignment: Alignment.centerLeft, child: ArariLogo(size: 30, onDark: Theme.of(context).brightness == Brightness.dark)),
+          const Text(appNameKo),
           const Text('Version $appVersion'),
           const SizedBox(height: 12),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: () => showLicensePage(context: context, applicationName: 'MediaShelf', applicationVersion: appVersion),
+            onPressed: () => showLicensePage(context: context, applicationName: appName, applicationVersion: appVersion),
             icon: const Icon(Icons.gavel),
             label: const Text('오픈소스 라이선스'),
           ),

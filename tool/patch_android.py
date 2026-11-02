@@ -13,7 +13,7 @@ perms = [
 ]
 lines = "".join(f'    <uses-permission android:name="{p}"{extra}/>\n' for p, extra in perms if p not in xml)
 xml = re.sub(r"(<manifest[^>]*>\n)", r"\1" + lines, xml, count=1)
-xml = xml.replace('android:label="media_shelf"', 'android:label="MediaShelf"')
+xml = xml.replace('android:label="media_shelf"', 'android:label="ARARIFlex"')
 path.write_text(xml, encoding="utf-8")
 print(xml[:1500])
 

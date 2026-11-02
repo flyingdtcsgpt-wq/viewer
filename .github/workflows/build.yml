@@ -69,11 +69,11 @@ jobs:
         run: |
           $ver = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$ver" installer\media_shelf.iss
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\MediaShelf-$ver-windows-portable.zip
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\ARARIFlex-$ver-windows-portable.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MediaShelf-windows
+          name: ARARIFlex-windows
           path: dist/*
 
       - name: Publish release
@@ -135,13 +135,13 @@ jobs:
           ver=$(grep -oP '^version:\s*\K[0-9.]+' pubspec.yaml)
           ls -la build/app/outputs/flutter-apk/
           # 요즘 폰(갤럭시 S/노트/A 대부분): arm64
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/MediaShelf-$ver-android.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/ARARIFlex-$ver-android.apk
           # 아주 오래된 32비트 폰용
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/MediaShelf-$ver-android-old32bit.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/ARARIFlex-$ver-android-old32bit.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MediaShelf-android
+          name: ARARIFlex-android
           path: dist/*
 
       - name: Publish release

@@ -13,6 +13,7 @@ import 'admin_page.dart';
 import 'batch_editor_page.dart';
 import 'share_page.dart';
 import 'tools/tools_page.dart';
+import 'brand.dart';
 import 'browser.dart';
 import 'ai_chat_sheet.dart';
 import 'history_page.dart';
@@ -22,20 +23,12 @@ import 'settings_page.dart';
 
 const _kinds = <MediaKind?>[null, MediaKind.book, MediaKind.comic, MediaKind.image, MediaKind.video];
 
-/// 넷플릭스풍 빨간 글자 로고
+/// ARARIFlex 로고 (어두운 배경용)
 class Logo extends StatelessWidget {
   final double size;
   const Logo({super.key, this.size = 24});
   @override
-  Widget build(BuildContext context) => Text(
-        'MEDIASHELF',
-        style: TextStyle(
-          color: const Color(0xFFE50914),
-          fontSize: size,
-          fontWeight: FontWeight.w900,
-          letterSpacing: size * 0.06,
-        ),
-      );
+  Widget build(BuildContext context) => ArariLogo(size: size, onDark: Theme.of(context).brightness == Brightness.dark);
 }
 const _kindIcons = [Icons.apps, Icons.menu_book, Icons.auto_stories, Icons.image, Icons.movie];
 String _kindName(MediaKind? k) => k == null ? '전체' : kindLabel(k);

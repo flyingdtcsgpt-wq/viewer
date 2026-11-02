@@ -28,7 +28,7 @@ Future<bool> ensureStorageAccess(BuildContext context) async {
       title: const Text('파일 접근 권한이 필요합니다'),
       content: const Text(
         '등록한 폴더 안의 책·만화·영상 파일을 읽으려면 "모든 파일 관리" 권한이 필요합니다.\n\n'
-        '다음 화면에서 MediaShelf 의 "모든 파일 관리 허용"을 켠 뒤 뒤로 돌아오세요.\n'
+        '다음 화면에서 ARARIFlex 의 "모든 파일 관리 허용"을 켠 뒤 뒤로 돌아오세요.\n'
         '파일은 이 기기 안에서만 읽고, 어디로도 보내지 않습니다.',
       ),
       actions: [
@@ -45,7 +45,7 @@ Future<bool> ensureStorageAccess(BuildContext context) async {
   final ok = await _granted();
   if (!ok && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('권한이 없어 폴더를 읽을 수 없습니다. 설정 → 앱 → MediaShelf → 권한에서 켜 주세요.')),
+      const SnackBar(content: Text('권한이 없어 폴더를 읽을 수 없습니다. 설정 → 앱 → ARARIFlex → 권한에서 켜 주세요.')),
     );
   }
   return ok;

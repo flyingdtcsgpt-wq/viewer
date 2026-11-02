@@ -74,7 +74,7 @@ class ShareServer {
     try {
       if (user.isNotEmpty && !_authorized(req)) {
         res.statusCode = HttpStatus.unauthorized;
-        res.headers.set('WWW-Authenticate', 'Basic realm="MediaShelf"');
+        res.headers.set('WWW-Authenticate', 'Basic realm="ARARIFlex"');
         await res.close();
         return;
       }
@@ -209,11 +209,11 @@ class ShareServer {
           '<div class="badge">${e.extension.substring(1).toUpperCase()}</div><div class="t">${_esc(e.volumeLabel != null && e.seriesId != null ? '${e.volumeLabel} ${e.title}' : e.title)}</div></a>');
     }
     return '''<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MediaShelf${s != null ? ' - ${_esc(s.title)}' : ''}</title>
+<title>ARARIFlex${s != null ? ' - ${_esc(s.title)}' : ''}</title>
 <style>
 body{margin:0;background:#141414;color:#eee;font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif}
 header{display:flex;gap:16px;align-items:center;padding:14px 20px;background:#0b0b0b;position:sticky;top:0}
-.logo{color:#e50914;font-weight:900;font-size:22px;letter-spacing:1px;text-decoration:none}
+.logo{color:#fff;font-weight:900;font-size:22px;letter-spacing:1px;text-decoration:none}
 form{margin-left:auto}input{background:#222;border:1px solid #444;color:#eee;padding:8px 12px;border-radius:6px;width:220px}
 nav{padding:10px 20px;color:#aaa}nav a{color:#ddd;text-decoration:none}nav a+a:before{content:" › ";color:#666}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px;padding:12px 20px 40px}
@@ -222,7 +222,7 @@ nav{padding:10px 20px;color:#aaa}nav a{color:#ddd;text-decoration:none}nav a+a:b
 .card .t{position:absolute;left:0;right:0;bottom:0;padding:28px 8px 8px;font-weight:700;font-size:13px;text-align:center;background:linear-gradient(transparent,#000d)}
 .badge{position:absolute;top:6px;right:6px;background:#000b;padding:2px 6px;border-radius:5px;font-size:11px}
 </style></head><body>
-<header><a class="logo" href="/">MEDIASHELF</a><form action="/"><input name="q" placeholder="검색" value="${_esc(q ?? '')}"></form></header>
+<header><a class="logo" href="/"><b style="color:#fff">ARARI</b> <i style="background:linear-gradient(90deg,#b20710,#ff4d5a);-webkit-background-clip:text;color:transparent">Flex</i></a><form action="/"><input name="q" placeholder="검색" value="${_esc(q ?? '')}"></form></header>
 <nav>${crumbs.join('')}</nav>
 <div class="grid">$cards</div>
 ${series.isEmpty && items.isEmpty ? '<p style="padding:20px;color:#888">항목이 없습니다.</p>' : ''}
@@ -237,7 +237,7 @@ ${series.isEmpty && items.isEmpty ? '<p style="padding:20px;color:#888">항목�
     final b = StringBuffer()
       ..write('<?xml version="1.0" encoding="UTF-8"?>\n'
           '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:dc="http://purl.org/dc/terms/">'
-          '<id>urn:mediashelf:${seriesId ?? 'root'}</id><title>${_esc(s?.title ?? 'MediaShelf')}</title><updated>$now</updated>'
+          '<id>urn:mediashelf:${seriesId ?? 'root'}</id><title>${_esc(s?.title ?? 'ARARIFlex')}</title><updated>$now</updated>'
           '<link rel="start" href="/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>'
           '<link rel="search" href="/opds/search.xml" type="application/opensearchdescription+xml"/>');
     if (query.isEmpty) {
@@ -262,6 +262,6 @@ ${series.isEmpty && items.isEmpty ? '<p style="padding:20px;color:#888">항목�
   }
 
   String _openSearch() => '<?xml version="1.0" encoding="UTF-8"?>'
-      '<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/"><ShortName>MediaShelf</ShortName>'
+      '<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/"><ShortName>ARARIFlex</ShortName>'
       '<Url type="application/atom+xml;profile=opds-catalog" template="/opds?q={searchTerms}"/></OpenSearchDescription>';
 }

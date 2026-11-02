@@ -38,7 +38,7 @@ class MediaShelfApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final light = context.select<Settings, bool>((s) => s.lightMode);
     return MaterialApp(
-      title: 'MediaShelf',
+      title: 'ARARIFlex',
       debugShowCheckedModeBanner: false,
       theme: appTheme(Brightness.light),
       darkTheme: appTheme(Brightness.dark),
@@ -49,7 +49,7 @@ class MediaShelfApp extends StatelessWidget {
   }
 }
 
-/// 넷플릭스풍: 거의 검은 배경 + 빨간 포인트
+/// 거의 검은 배경 + ARARIFlex 빨간 포인트
 const brandRed = Color(0xFFE50914);
 
 ThemeData appTheme(Brightness b) {

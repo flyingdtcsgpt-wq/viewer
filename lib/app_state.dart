@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show FileImage;
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import 'db/library_db.dart';
@@ -9,6 +10,7 @@ import 'models/entry.dart';
 import 'models/media_item.dart';
 import 'models/series.dart';
 import 'services/ai_service.dart';
+import 'services/archive_tools.dart';
 import 'services/auth.dart';
 import 'services/cover_service.dart';
 import 'services/metadata_service.dart';
@@ -1069,8 +1071,16 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<bool> _importFile(String path, StorageMode mode) async {
-    if (await db.exists(path)) return false;
+  Future<bool> _importFile(String path, StorageMode mode) async =>
+      (await _addFile(path, mode == StorageMode.managed && settings.libraryRoot != null
+              ? (settings.moveFiles ? ImportMode.move : ImportMode.copy)
+              : ImportMode.reference,
+          root: settings.libraryRoot)) !=
+      null;
+
+  /// 파일 하나 등록. 이미 있으면 null
+  Future<MediaItem?> _addFile(String path, ImportMode mode, {String? root}) async {
+    if (await db.exists(path)) return null;
     final kind = kindForPath(path)!;
     final stat = await File(path).stat();
     final item = MediaItem(
@@ -1094,16 +1104,190 @@ class AppState extends ChangeNotifier {
     item.coverPath = await covers.generate(item);
     item.pages = await covers.pageCount(item);
 
-    if (mode == StorageMode.managed && settings.libraryRoot != null) {
-      item.path = await Organizer.apply(item, settings.libraryRoot!, settings.organizePattern, move: settings.moveFiles);
+    if (mode != ImportMode.reference && root != null) {
+      item.path = await Organizer.apply(item, root, settings.organizePattern, move: mode == ImportMode.move);
       item.storage = StorageMode.managed;
       if (item.kind == MediaKind.image) item.coverPath = item.path;
     }
-    if (await db.exists(item.path)) return false;
+    if (await db.exists(item.path)) return null;
     item.id = await db.insert(item);
     _items.insert(0, item);
-    return true;
+    return item;
   }
+
+  // =====================================================================
+  //  가져오기 미리보기 (발견된 항목을 보여주고 골라서 추가)
+  // =====================================================================
+
+  final Map<String, String> _quickHashCache = {};
+
+  /// 앞 256KB + 크기로 만든 빠른 지문 (같은 파일인지 대충 판별)
+  Future<String> _quickHash(String path) async {
+    final hit = _quickHashCache[path];
+    if (hit != null) return hit;
+    try {
+      final f = File(path);
+      final raf = await f.open();
+      final head = await raf.read(256 * 1024);
+      await raf.close();
+      final h = '${await f.length()}:${sha1.convert(head)}';
+      _quickHashCache[path] = h;
+      return h;
+    } catch (_) {
+      return path;
+    }
+  }
+
+  /// 폴더를 훑어 등록할 수 있는 파일 목록 (아직 아무것도 등록하지 않음)
+  Future<List<ImportCandidate>> previewFolder(String dir, {void Function(int found)? onProgress}) async {
+    final paths = <String>[];
+    await for (final ent in Directory(dir).list(recursive: true, followLinks: false).handleError((_) {})) {
+      if (ent is File && kindForPath(ent.path) != null && !ArchiveTools.isJunk(ent.path.replaceAll('\\', '/'))) {
+        paths.add(ent.path);
+        if (paths.length % 50 == 0) onProgress?.call(paths.length);
+      }
+    }
+    paths.sort(ArchiveTools.natural);
+    return previewFiles(paths);
+  }
+
+  Future<List<ImportCandidate>> previewFiles(List<String> paths) async {
+    final registered = {for (final e in _items) e.path};
+    final bySize = <int, List<String>>{}; // 크기 → 이미 등록된 파일
+    for (final e in _items) {
+      bySize.putIfAbsent(e.size, () => []).add(e.path);
+    }
+    final out = <ImportCandidate>[];
+    final seenHash = <String, String>{}; // 이번 목록 안에서 같은 파일
+    for (final path in paths) {
+      final kind = kindForPath(path);
+      if (kind == null) continue;
+      int size;
+      try {
+        size = await File(path).length();
+      } catch (_) {
+        continue;
+      }
+      final c = ImportCandidate(path, kind, size);
+      if (registered.contains(path)) {
+        c.status = ImportStatus.registered;
+        c.selected = false;
+      } else {
+        // 크기가 같은 것만 내용 앞부분을 비교 (빠르게)
+        final same = bySize[size] ?? const <String>[];
+        final sameInList = out.where((o) => o.size == size && o.status == ImportStatus.fresh);
+        if (same.isNotEmpty || sameInList.isNotEmpty) {
+          final h = await _quickHash(path);
+          for (final other in same) {
+            if (await _quickHash(other) == h) {
+              c.status = ImportStatus.duplicate;
+              c.duplicateOf = other;
+              break;
+            }
+          }
+          if (c.status == ImportStatus.fresh) {
+            for (final o in sameInList) {
+              if ((seenHash[o.path] ??= await _quickHash(o.path)) == h) {
+                c.status = ImportStatus.duplicate;
+                c.duplicateOf = o.path;
+                break;
+              }
+            }
+          }
+          seenHash[path] = h;
+        }
+        c.selected = c.status == ImportStatus.fresh;
+      }
+      out.add(c);
+    }
+    return out;
+  }
+
+  /// 고른 항목 추가
+  Future<int> importCandidates(List<ImportCandidate> picked, ImportOptions opt) async {
+    scanning = true;
+    var added = 0;
+    final made = <MediaItem, String>{}; // 새 항목 → 원래 경로
+    try {
+      for (var i = 0; i < picked.length; i++) {
+        final c = picked[i];
+        scanStatus = '추가 중 (${i + 1}/${picked.length}): ${p.basename(c.path)}';
+        notifyListeners();
+        try {
+          final item = await _addFile(c.path, opt.mode, root: opt.targetRoot);
+          if (item != null) {
+            made[item] = c.path;
+            added++;
+          }
+        } catch (_) {}
+      }
+
+      // ---- 묶기 ----
+      final base = opt.baseDir;
+      switch (opt.group) {
+        case GroupMode.auto:
+          if (made.isNotEmpty) await autoGroup();
+        case GroupMode.wholeFolder:
+          if (made.isNotEmpty) {
+            final s = await createSeries(opt.bundleName ?? (base != null ? p.basename(base) : '새 묶음'));
+            await moveItems(made.keys, s.id);
+            if (opt.hidden) await setHidden(series: [s], hidden: true);
+          }
+        case GroupMode.folderTree:
+          if (made.isNotEmpty && base != null) {
+            final root = await createSeries(p.basename(base));
+            final cache = <String, int>{'': root.id!};
+            Future<int> seriesFor(String relDir) async {
+              if (cache.containsKey(relDir)) return cache[relDir]!;
+              final parent = await seriesFor(p.dirname(relDir) == '.' ? '' : p.dirname(relDir));
+              final s = await createSeries(p.basename(relDir), parentId: parent);
+              return cache[relDir] = s.id!;
+            }
+
+            for (final e in made.entries) {
+              var rel = p.relative(p.dirname(e.value), from: base);
+              if (rel == '.') rel = '';
+              await moveItems([e.key], await seriesFor(rel));
+            }
+            if (opt.hidden) await setHidden(series: [root], hidden: true);
+          }
+        case GroupMode.none:
+          break;
+      }
+      if (opt.hidden && opt.group != GroupMode.wholeFolder && opt.group != GroupMode.folderTree) {
+        await setHidden(items: made.keys, hidden: true);
+      }
+
+      // ---- 라이브러리 폴더로 등록 (원본 연결일 때) ----
+      if (opt.watch && base != null && opt.mode == ImportMode.reference) {
+        registerWatchFolder(base);
+      }
+      scanStatus = '완료: ${added}개 추가';
+    } finally {
+      scanning = false;
+      notifyListeners();
+    }
+    return added;
+  }
+
+  /// 겹치는 라이브러리 폴더 정리: (이미 감싸는 폴더, 이 폴더 안에 이미 등록된 폴더들)
+  (String?, List<String>) folderOverlap(String dir) {
+    final sep = Platform.pathSeparator;
+    bool inside(String a, String b) => a == b || a.startsWith(b.endsWith(sep) ? b : '$b$sep');
+    final parent = settings.watchFolders.where((w) => inside(dir, w)).firstOrNull;
+    final children = settings.watchFolders.where((w) => w != dir && inside(w, dir)).toList();
+    return (parent, children);
+  }
+
+  /// 라이브러리 폴더 등록 (안쪽에 이미 등록된 폴더는 이 폴더 하나로 합친다)
+  void registerWatchFolder(String dir) {
+    final (parent, children) = folderOverlap(dir);
+    if (parent != null) return; // 이미 바깥 폴더가 등록돼 있음
+    final list = settings.libraryFolders.where((f) => !children.contains(f.path)).toList()..add(LibraryFolder(dir));
+    settings.libraryFolders = list;
+  }
+
+
 
   static String _titleFromFileName(String path) => p
       .basenameWithoutExtension(path)
@@ -1332,6 +1516,10 @@ class LibraryTree {
           if (e.addedAt.isAfter(latest)) latest = e.addedAt;
           if (e.lastOpened != null && (opened == null || e.lastOpened!.isAfter(opened))) opened = e.lastOpened;
         }
+        final kinds = <MediaKind, int>{};
+        for (final e in direct) {
+          kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
+        }
         var nonEmptySubs = 0;
         for (final c in subs) {
           final st = stats(c.id!, kind);
@@ -1343,6 +1531,7 @@ class LibraryTree {
           if (st.latestAdded.isAfter(latest)) latest = st.latestAdded;
           if (st.lastOpened != null && (opened == null || st.lastOpened!.isAfter(opened))) opened = st.lastOpened;
           cover ??= c.coverPath ?? st.coverPath;
+          st.kinds.forEach((k, v) => kinds[k] = (kinds[k] ?? 0) + v);
         }
         return SeriesStats(
           direct: direct.length,
@@ -1353,6 +1542,45 @@ class LibraryTree {
           isVideo: all > 0 && videos * 2 >= all,
           latestAdded: latest,
           lastOpened: opened,
+          kinds: kinds,
         );
       });
+}
+
+// ---------------- 가져오기 ----------------
+
+enum ImportMode { reference, move, copy }
+
+/// auto: 파일명으로 시리즈 / folderTree: 폴더 구조 그대로 / wholeFolder: 폴더 전체를 묶음 하나로 / none
+enum GroupMode { auto, folderTree, wholeFolder, none }
+
+enum ImportStatus { fresh, registered, duplicate }
+
+class ImportCandidate {
+  final String path;
+  final MediaKind kind;
+  final int size;
+  ImportStatus status = ImportStatus.fresh;
+  String? duplicateOf;
+  bool selected = true;
+  ImportCandidate(this.path, this.kind, this.size);
+}
+
+class ImportOptions {
+  ImportMode mode;
+  String? targetRoot;
+  GroupMode group;
+  bool hidden;
+  bool watch;
+  String? baseDir;
+  String? bundleName;
+  ImportOptions({
+    this.mode = ImportMode.reference,
+    this.targetRoot,
+    this.group = GroupMode.auto,
+    this.hidden = false,
+    this.watch = true,
+    this.baseDir,
+    this.bundleName,
+  });
 }

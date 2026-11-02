@@ -31,8 +31,11 @@ class SeriesStats {
   final bool isVideo;
   final DateTime latestAdded;
   final DateTime? lastOpened;
+  /// 종류별 개수 (책 · 만화 · 그림 · 영상이 섞인 묶음 표시용)
+  final Map<MediaKind, int> kinds;
 
   const SeriesStats({
+    this.kinds = const {},
     required this.direct,
     required this.childSeries,
     required this.allItems,

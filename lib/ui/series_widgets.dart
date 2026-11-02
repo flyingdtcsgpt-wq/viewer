@@ -660,7 +660,7 @@ Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = 
         title: Text('$what 삭제'),
         content: Text(
           '어떻게 지울까요?\n\n'
-          '• 목록에서만 제거: MediaShelf 에서만 빠지고, 하드디스크의 파일은 그대로 남습니다.\n'
+          '• 목록에서만 제거: ARARIFlex 에서만 빠지고, 하드디스크의 파일은 그대로 남습니다.\n'
           '• 원본 파일까지 삭제: 실제 파일을 지웁니다. 되돌릴 수 없습니다.'
           '${isSeries ? '\n\n묶음 안의 모든 하위 묶음과 권이 함께 지워집니다.' : ''}',
         ),

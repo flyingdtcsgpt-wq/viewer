@@ -178,6 +178,25 @@ class PosterCard extends StatelessWidget {
           // 오른쪽 위: 쪽수 / 권수
           if (topRight != null) Positioned(right: 6, top: 6, child: pill(Text(topRight))),
           if (hidden) Positioned(left: 6, top: 30, child: pill(const Text('숨김'))),
+          // 종류가 섞인 묶음: 책 · 그림 · 영상 개수를 따로
+          if (entry case SeriesEntry s when s.stats.kinds.length > 1)
+            Positioned(
+              left: 6,
+              right: 6,
+              bottom: progress > 0 ? 44 : 40,
+              child: Wrap(spacing: 4, runSpacing: 4, children: [
+                for (final k in s.stats.kinds.entries)
+                  pill(Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(switch (k.key) {
+                      MediaKind.book => Icons.menu_book,
+                      MediaKind.comic => Icons.auto_stories,
+                      MediaKind.image => Icons.image,
+                      MediaKind.video => Icons.movie,
+                    }),
+                    Text(' ${k.value}'),
+                  ])),
+              ]),
+            ),
           if (entry case ItemEntry i when i.item.favorite)
             const Positioned(right: 6, top: 30, child: Icon(Icons.favorite, color: Colors.redAccent, size: 18)),
           if (entry case ItemEntry i when i.item.missing)

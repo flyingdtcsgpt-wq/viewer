@@ -1,11 +1,11 @@
-# MediaShelf
+# ARARIFlex (아라리플렉스)
 
 책(EPUB · PDF · TXT), 만화(CBZ · ZIP · CBR · RAR · 7Z), 그림, 영상을 한 곳에서 관리하고 읽는 개인 라이브러리 앱.
 **Windows 를 먼저** 완성하고, 같은 코드로 Android → iOS/macOS 순서로 넓힌다. (Flutter)
 
 ## 받기
 GitHub Actions 가 push 할 때마다 빌드한다. 저장소의 **Actions → 최신 실행 → Artifacts** 에서
-`MediaShelf-windows` (설치파일 `…-windows-setup.exe` + 포터블 zip) 를 받는다.
+`ARARIFlex-windows` (설치파일 `…-windows-setup.exe` + 포터블 zip) 를 받는다.
 Android APK 는 태그(`v*`)를 올리거나 Actions 에서 수동 실행할 때 빌드된다.
 
 ## 주요 기능
