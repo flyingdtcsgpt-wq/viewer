@@ -355,6 +355,14 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           const SizedBox(width: 8),
           Text('${_page + 1} / $_n · $pct', style: const TextStyle(color: Colors.white60, fontSize: 12)),
           NextVolumeButton(item: item),
+          if (!wide && OcrService.supported) ...[
+            const Spacer(),
+            IconButton(
+              tooltip: '소리 내어 읽기',
+              icon: Icon(Icons.record_voice_over, color: _readAloud ? toolActive : Colors.white),
+              onPressed: () => setState(() => _readAloud = !_readAloud),
+            ),
+          ],
         ]),
         const SizedBox(height: 4),
         SingleChildScrollView(

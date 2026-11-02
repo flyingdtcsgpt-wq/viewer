@@ -350,7 +350,7 @@ void main() {
       if (book != null) {
         await push(TextReaderPage(item: book!));
         await wait(1500);
-        final ttsBtn = find.text('TTS');
+        final ttsBtn = find.byIcon(Icons.record_voice_over);
         if (ttsBtn.evaluate().isNotEmpty) {
           await tester.tap(ttsBtn.first);
           await wait(800);

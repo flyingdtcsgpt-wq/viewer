@@ -624,6 +624,15 @@ class _TextReaderPageState extends State<TextReaderPage> {
             style: const TextStyle(color: Colors.white60, fontSize: 12),
           ),
           NextVolumeButton(item: item),
+          // 휴대폰: 도구줄이 화면 밖으로 넘쳐도 읽어주기는 바로 누를 수 있게
+          if (!wide) ...[
+            const Spacer(),
+            IconButton(
+              tooltip: '소리 내어 읽기',
+              icon: Icon(Icons.record_voice_over, color: _ttsPanel || _speaking ? toolActive : Colors.white),
+              onPressed: () => setState(() => _ttsPanel = !_ttsPanel),
+            ),
+          ],
         ]),
         const SizedBox(height: 4),
         SingleChildScrollView(

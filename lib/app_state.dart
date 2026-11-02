@@ -276,6 +276,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// "완료: …" 같은 알림은 잠깐 보였다가 사라진다
+  void _clearStatusLater() {
+    final msg = scanStatus;
+    Future.delayed(const Duration(seconds: 8), () {
+      if (!scanning && scanStatus == msg) {
+        scanStatus = '';
+        notifyListeners();
+      }
+    });
+  }
+
   @override
   void notifyListeners() {
     _tree = null; // 묶음 색인 다시 만들기
@@ -1119,6 +1130,7 @@ class AppState extends ChangeNotifier {
         if (missingDirs > 0) '없는 폴더 $missingDirs개',
       ];
       scanStatus = '완료: ${parts.join(' · ')}';
+      _clearStatusLater();
       if (found == 0 && (entries == 0 || dirErrors > 0) && Platform.isAndroid) {
         scanStatus += '  — 폴더 안을 읽지 못했습니다. 저장소 권한("모든 파일 관리 허용")을 확인하세요.';
       }
@@ -1147,6 +1159,7 @@ class AppState extends ChangeNotifier {
       }
       final grouped = added > 0 && settings.autoGroup ? await autoGroup() : 0;
       scanStatus = '완료: 새 항목 $added개${grouped > 0 ? ' · $grouped개 시리즈로 묶음' : ''}';
+      _clearStatusLater();
     } finally {
       scanning = false;
       notifyListeners();
@@ -1386,6 +1399,7 @@ class AppState extends ChangeNotifier {
         registerWatchFolder(base);
       }
       scanStatus = failed == 0 ? '완료: $added개 추가' : '완료: $added개 추가, $failed개 실패 (파일이 사용 중이거나 권한이 없음)';
+      _clearStatusLater();
     } finally {
       scanning = false;
       notifyListeners();
