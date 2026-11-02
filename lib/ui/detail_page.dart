@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../models/media_item.dart';
 import 'cover_tile.dart';
 import 'metadata_search_dialog.dart';
+import 'browser.dart' show showRatingDialog;
 import 'series_widgets.dart';
 import 'viewers/open_item.dart';
 
@@ -197,14 +198,19 @@ class _DetailPageState extends State<DetailPage> {
       ]),
       const SizedBox(height: 12),
       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        for (var i = 1; i <= 5; i++)
-          IconButton(
-            icon: Icon(i <= item.rating ? Icons.star : Icons.star_border, color: Colors.amber),
-            onPressed: () {
-              setState(() => item.rating = item.rating == i ? 0 : i);
-              state.save(item);
-            },
+        // 10점 만점 (별 반 개 = 1점) — 누르면 평가 창
+        for (var i = 0; i < 5; i++)
+          Icon(
+            item.rating >= (i + 1) * 2 ? Icons.star : (item.rating == i * 2 + 1 ? Icons.star_half : Icons.star_border),
+            color: Colors.amber,
           ),
+        TextButton(
+          onPressed: () async {
+            await showRatingDialog(context, item);
+            if (mounted) setState(() {});
+          },
+          child: Text(item.rating == 0 ? '평가하기' : '${item.rating} / 10'),
+        ),
       ]),
     ]);
 

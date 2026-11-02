@@ -62,6 +62,30 @@ class CoverService {
     }
   }
 
+  /// 쪽수: 만화 zip/cbz 는 이미지 수, PDF 는 페이지 수. 모르면 null
+  Future<int?> pageCount(MediaItem item) async {
+    try {
+      switch (item.extension) {
+        case '.cbz' || '.zip':
+          final input = InputFileStream(item.path);
+          try {
+            final zip = ZipDecoder().decodeStream(input);
+            return zip.files.where((f) => f.isFile && imageExts.contains(p.extension(f.name).toLowerCase())).length;
+          } finally {
+            await input.close();
+          }
+        case '.pdf':
+          final doc = await PdfDocument.openFile(item.path);
+          try {
+            return doc.pages.length;
+          } finally {
+            doc.dispose();
+          }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// 인터넷 커버 이미지를 내려받아 캐시에 저장
   Future<String?> download(String url, String key) async {
     final res = await http.get(Uri.parse(url));

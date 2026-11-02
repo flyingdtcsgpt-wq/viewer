@@ -22,7 +22,7 @@ class LibraryDb {
     final db = LibraryDb();
     db._db = await openDatabase(
       p.join(dir.path, 'library.db'),
-      version: 4,
+      version: 5,
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE items(
@@ -37,7 +37,7 @@ class LibraryDb {
             size INTEGER DEFAULT 0, added_at INTEGER NOT NULL,
             missing INTEGER DEFAULT 0,
             progress REAL DEFAULT 0, position TEXT, last_opened INTEGER,
-            series_id INTEGER, volume REAL, hidden INTEGER DEFAULT 0
+            series_id INTEGER, volume REAL, hidden INTEGER DEFAULT 0, pages INTEGER
           )''');
         await _createSeries(db);
         await db.execute('ALTER TABLE series ADD COLUMN hidden INTEGER DEFAULT 0');
@@ -60,6 +60,10 @@ class LibraryDb {
           await db.execute('ALTER TABLE items ADD COLUMN hidden INTEGER DEFAULT 0');
           await db.execute('ALTER TABLE series ADD COLUMN hidden INTEGER DEFAULT 0');
           await _createUsers(db);
+        }
+        if (from < 5) {
+          await db.execute('ALTER TABLE items ADD COLUMN pages INTEGER');
+          await db.execute('UPDATE items SET rating = rating * 2'); // 5점 → 10점 만점
         }
       },
     );

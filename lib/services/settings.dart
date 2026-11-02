@@ -97,6 +97,14 @@ class Settings extends ChangeNotifier {
   int? get lastUserId => _p.getInt('lastUserId');
   set lastUserId(int? v) => _set(() => v == null ? _p.remove('lastUserId') : _p.setInt('lastUserId', v));
 
+  /// 목록 보기 방식: 0 표, 1 격자(기본), 2 카드 목록
+  int get viewMode => _p.getInt('viewMode') ?? 1;
+  set viewMode(int v) => _set(() => _p.setInt('viewMode', v));
+
+  /// 아래 상세 패널 펼침
+  bool get detailOpen => _p.getBool('detailOpen') ?? true;
+  set detailOpen(bool v) => _set(() => _p.setBool('detailOpen', v));
+
   void _set(Future<bool> Function() f) {
     f();
     notifyListeners();

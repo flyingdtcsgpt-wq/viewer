@@ -40,7 +40,7 @@ class MediaItem {
   String? description;
   String? coverPath;
   List<String> tags;
-  int rating; // 0~5
+  int rating; // 0~10 (별 반 개 = 1)
   bool favorite;
   int size;
   DateTime addedAt;
@@ -51,6 +51,7 @@ class MediaItem {
   int? seriesId; // 속한 묶음
   double? volume; // 권/화 번호 (10.5 같은 번외편도 가능)
   bool hidden; // 관리자가 숨김 처리
+  int? pages; // 쪽수 (만화 zip / PDF)
 
   MediaItem({
     this.id,
@@ -77,6 +78,7 @@ class MediaItem {
     this.seriesId,
     this.volume,
     this.hidden = false,
+    this.pages,
   })  : tags = tags ?? [],
         addedAt = addedAt ?? DateTime.now();
 
@@ -108,6 +110,7 @@ class MediaItem {
         'series_id': seriesId,
         'volume': volume,
         'hidden': hidden ? 1 : 0,
+        'pages': pages,
       };
 
   factory MediaItem.fromMap(Map<String, Object?> m) => MediaItem(
@@ -139,6 +142,7 @@ class MediaItem {
         seriesId: m['series_id'] as int?,
         volume: (m['volume'] as num?)?.toDouble(),
         hidden: (m['hidden'] as int?) == 1,
+        pages: m['pages'] as int?,
       );
 
   /// "3권", "10.5권", 영상은 "3화"

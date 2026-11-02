@@ -8,7 +8,9 @@ import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../services/settings.dart';
 import '../services/storage_permission.dart';
+import '../version.dart';
 import 'admin_page.dart';
+import 'browser.dart';
 import 'ai_chat_sheet.dart';
 import 'cover_tile.dart';
 import 'detail_page.dart';
@@ -67,26 +69,37 @@ class HomePage extends StatelessWidget {
             Expanded(child: Text(state.scanStatus, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall)),
           ]),
         ),
-      if (inSeries) const SeriesHeader(),
-      const Expanded(child: _Grid()),
+      if (inSeries && !state.recursive) const SeriesHeader(),
+      const Expanded(child: EntryBrowser(desktop: false)),
     ]);
 
     final showLanding = state.landing && !state.selecting && !state.flatMode;
 
     Widget page;
     if (wide) {
+      // PC: 위 작업 줄 / 왼쪽 사이드바 / 가운데 목록 / 아래 상세 패널 + 상태 막대
       page = Scaffold(
         body: SafeArea(
-          child: Row(children: [
-            const SizedBox(width: 260, child: Material(child: _Sidebar())),
-            const VerticalDivider(width: 1),
+          child: Column(children: [
+            const _TopActionBar(),
+            const Divider(height: 1),
             Expanded(
-              child: showLanding
-                  ? const Scaffold(body: LandingView(topBar: _LandingTopBar(wide: true)))
-                  : Scaffold(
-                      appBar: AppBar(leading: back, automaticallyImplyLeading: false, title: Text(title, overflow: TextOverflow.ellipsis)),
-                      body: body,
-                    ),
+              child: Row(children: [
+                const SizedBox(width: 270, child: Material(child: _Sidebar())),
+                const VerticalDivider(width: 1),
+                Expanded(
+                  child: showLanding
+                      ? const LandingView(topBar: _LandingTopBar(wide: true))
+                      : Column(children: [
+                          const _Toolbar(phone: false),
+                          const PathBar(),
+                          if (state.hiddenUnlocked) const _HiddenBanner(),
+                          const Expanded(child: EntryBrowser(desktop: true)),
+                          const DetailPanel(),
+                          const StatusBar(),
+                        ]),
+                ),
+              ]),
             ),
           ]),
         ),
@@ -135,6 +148,21 @@ class HomePage extends StatelessWidget {
             }
           },
           const SingleActivator(LogicalKeyboardKey.backspace, alt: true): state.goUp,
+          const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): state.goBack,
+          const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true): state.goForward,
+          const SingleActivator(LogicalKeyboardKey.keyA, control: true): state.selectAll,
+          const SingleActivator(LogicalKeyboardKey.f5): () {
+            if (state.isAdmin && !state.scanning) state.rescanAll();
+          },
+          const SingleActivator(LogicalKeyboardKey.enter): () {
+            final e = state.focusedEntry;
+            if (e != null) openEntry(context, e, state.entries.whereType<ItemEntry>().map((x) => x.item).toList());
+          },
+          const SingleActivator(LogicalKeyboardKey.delete): () async {
+            if (!state.isAdmin || state.selected.isEmpty) return;
+            final mode = await confirmDelete(context, '선택한 ${state.selected.length}개');
+            if (mode != null) await state.removeSelected(deleteFile: mode);
+          },
         },
         child: Focus(autofocus: true, child: page),
       ),
@@ -201,8 +229,26 @@ class _Sidebar extends StatelessWidget {
         ),
       ),
 
-      section('보기'),
-      item(Icons.home, '홈', act(state.showLanding), selected: state.landing && !state.flatMode),
+      section('모아보기'),
+      item(Icons.home, '홈', act(state.showLanding), selected: state.landing && !state.flatMode && state.collection == Collection.none),
+      for (final (c, icon) in const [
+        (Collection.favorites, Icons.star),
+        (Collection.recent, Icons.schedule),
+        (Collection.reading, Icons.auto_stories),
+        (Collection.finished, Icons.task_alt),
+        (Collection.recentAdded, Icons.calendar_month),
+        (Collection.missing, Icons.search),
+      ])
+        item(
+          icon,
+          collectionLabel(c),
+          act(() => state.setCollection(c)),
+          selected: state.collection == c,
+          trailing: '${state.collectionCount(c)}',
+        ),
+      item(Icons.history, '내 열람 기록', act(() => push(const HistoryPage()))),
+
+      section('라이브러리'),
       for (var i = 0; i < _kinds.length; i++)
         item(
           _kindIcons[i],
@@ -211,12 +257,24 @@ class _Sidebar extends StatelessWidget {
             state.enterSeries(null);
             i == 0 ? state.setFilter(clearKind: true) : state.setFilter(kind: _kinds[i]);
           }),
-          selected: !state.landing && state.kindFilter == _kinds[i] && state.currentSeriesId == null,
+          selected: !state.landing && state.collection == Collection.none && state.kindFilter == _kinds[i] && state.currentSeriesId == null,
           trailing: '${state.count(_kinds[i])}',
         ),
-      item(Icons.history, '내 열람 기록', act(() => push(const HistoryPage()))),
 
-      if (admin) ...[
+      // 맨 위 묶음들 (폴더처럼)
+      if (state.tree.children[null]?.isNotEmpty ?? false) ...[
+        section('묶음'),
+        for (final s in [...state.tree.children[null]!]..sort((a, b) => a.title.compareTo(b.title)))
+          item(
+            Icons.folder,
+            s.title,
+            act(() => state.enterSeries(s.id)),
+            selected: state.breadcrumb.firstOrNull?.id == s.id && state.collection == Collection.none,
+            trailing: '${state.statsOf(s).allItems}',
+          ),
+      ],
+
+      if (admin && inDrawer) ...[
         section('라이브러리 관리'),
         item(Icons.create_new_folder, '폴더 등록', act(() async {
           if (!await ensureStorageAccess(rootContext)) return;
@@ -303,6 +361,105 @@ class _Sidebar extends StatelessWidget {
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기'))],
       ),
+    );
+  }
+}
+
+/// PC 위쪽 작업 줄: 폴더 추가 · 파일 추가 · 선택 삭제 · 전체 선택 … / 버전 · 기록 · AI · 설정
+class _TopActionBar extends StatelessWidget {
+  const _TopActionBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final scheme = Theme.of(context).colorScheme;
+    final admin = state.isAdmin;
+    final has = state.selected.isNotEmpty;
+    void push(Widget p) => Navigator.push(context, MaterialPageRoute(builder: (_) => p));
+    void toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+
+    Widget btn(IconData icon, String label, VoidCallback? onTap, {Color? color}) => Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: FilledButton.tonalIcon(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.surfaceContainerHigh,
+              foregroundColor: color ?? scheme.onSurface,
+              disabledBackgroundColor: scheme.surfaceContainer,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            ),
+            onPressed: onTap,
+            icon: Icon(icon, size: 18),
+            label: Text(label),
+          ),
+        );
+
+    return Container(
+      color: scheme.surfaceContainerLowest,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Row(children: [
+        const Logo(size: 22),
+        const SizedBox(width: 16),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              if (admin) ...[
+                btn(Icons.create_new_folder, '폴더 추가', () async {
+                  if (!await ensureStorageAccess(context)) return;
+                  final dir = await FilePicker.getDirectoryPath(dialogTitle: '스캔할 폴더 선택');
+                  if (dir != null) await state.addWatchFolder(dir);
+                }),
+                btn(Icons.note_add, '파일 추가', () async {
+                  final files = await FilePicker.pickFiles(dialogTitle: '가져올 파일 선택');
+                  final paths = files.map((f) => f.path).whereType<String>().toList();
+                  if (paths.isNotEmpty) await state.importFiles(paths);
+                }),
+                btn(Icons.delete_outline, '선택 삭제', has
+                    ? () async {
+                        final mode = await confirmDelete(context, '선택한 ${state.selected.length}개');
+                        if (mode != null) await state.removeSelected(deleteFile: mode);
+                      }
+                    : null,
+                    color: Colors.redAccent),
+              ],
+              btn(Icons.check_box_outlined, '전체 선택/해제', admin ? () => state.selected.length > 1 ? state.clearSelection() : state.selectAll() : null),
+              if (admin) ...[
+                btn(Icons.create_new_folder_outlined, '묶기', has
+                    ? () async {
+                        final t = await askText(context, '새 묶음 이름', hint: '예) 명탐정 코난');
+                        if (t != null && t.isNotEmpty) await state.groupSelected(t);
+                      }
+                    : null),
+                btn(Icons.drive_file_move, '다른 묶음으로', has
+                    ? () async {
+                        final c = await pickSeries(context, title: '어느 묶음으로 옮길까요?');
+                        if (c != null) await state.moveSelected(c.id);
+                      }
+                    : null),
+                btn(Icons.visibility_off, '숨기기', has
+                    ? () async {
+                        if (!state.hasHiddenPassword) return toast('먼저 관리자 메뉴에서 숨김 비밀번호를 정하세요');
+                        await state.hideSelected(true);
+                      }
+                    : null),
+                if (state.hiddenUnlocked) btn(Icons.visibility, '숨김 해제', has ? () => state.hideSelected(false) : null),
+                btn(Icons.lock_person, '사용자 접근', has ? () => showAccessForSelection(context) : null),
+                btn(Icons.auto_fix_high, '시리즈 자동 묶기', () async {
+                  final n = await state.autoGroup();
+                  toast(n == 0 ? '새로 묶을 항목이 없습니다' : '$n개 항목을 시리즈로 묶었습니다');
+                }),
+              ],
+            ]),
+          ),
+        ),
+        Text('Version $appVersion', style: Theme.of(context).textTheme.labelMedium),
+        const SizedBox(width: 10),
+        IconButton(tooltip: '내 열람 기록', icon: const Icon(Icons.history), onPressed: () => push(const HistoryPage())),
+        IconButton(tooltip: 'AI 도우미', icon: const Icon(Icons.auto_awesome), onPressed: () => showAiChat(context)),
+        if (admin) IconButton(tooltip: '관리자', icon: const Icon(Icons.manage_accounts), onPressed: () => push(const AdminPage())),
+        IconButton(tooltip: '설정', icon: const Icon(Icons.settings), onPressed: () => push(const SettingsPage())),
+      ]),
     );
   }
 }
@@ -402,105 +559,16 @@ class _ToolbarState extends State<_Toolbar> {
             selected: state.favoritesOnly,
             onSelected: (v) => state.setFilter(favorites: v),
           ),
+          FilterChip(
+            avatar: const Icon(Icons.account_tree, size: 16),
+            label: const Text('하위 묶음 포함'),
+            selected: state.recursive,
+            onSelected: state.setRecursive,
+          ),
           if (state.tagFilter != null)
             InputChip(label: Text('#${state.tagFilter}'), onDeleted: () => state.setFilter(clearTag: true)),
-          if (!widget.phone)
-            SizedBox(
-              width: 180,
-              child: Row(children: [
-                const Icon(Icons.photo_size_select_large, size: 18),
-                Expanded(
-                  child: Slider(min: 110, max: 300, value: settings.coverSize, onChanged: (v) => settings.coverSize = v),
-                ),
-              ]),
-            ),
         ],
       ),
-    );
-  }
-}
-
-// =====================================================================
-//  표지 목록
-// =====================================================================
-class _Grid extends StatelessWidget {
-  const _Grid();
-
-  @override
-  Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    final entries = state.entries;
-    final width = MediaQuery.sizeOf(context).width;
-    // 휴대폰은 화면 폭 기준 2~3열 자동, 큰 화면은 슬라이더 값
-    final coverSize = width < 600 ? (width - 24) / (width < 400 ? 2 : 3) : context.watch<Settings>().coverSize;
-    final inSeries = state.currentSeriesId != null && !state.flatMode;
-    final admin = state.isAdmin;
-
-    if (entries.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.library_books_outlined, size: 64),
-          const SizedBox(height: 12),
-          Text(inSeries
-              ? '이 묶음은 비어 있습니다.'
-              : (admin ? '항목이 없습니다. 왼쪽 메뉴의 "폴더 등록"으로 추가하세요.' : '볼 수 있는 항목이 없습니다.')),
-        ]),
-      );
-    }
-    // 뷰어에서 앞뒤로 넘길 목록 (묶음 안이면 권 번호순)
-    final siblings = entries.whereType<ItemEntry>().map((e) => e.item).toList();
-
-    void info(MediaItem e) => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(item: e)));
-
-    void tap(Entry e) {
-      final ctrl = HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
-      if (admin && (state.selecting || ctrl)) {
-        state.toggleSelect(e);
-        return;
-      }
-      switch (e) {
-        case SeriesEntry s:
-          state.enterSeries(s.series.id);
-        case ItemEntry i:
-          openItem(context, i.item, siblings: siblings);
-      }
-    }
-
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 48),
-      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: coverSize,
-        childAspectRatio: 0.6,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: entries.length,
-      itemBuilder: (context, i) {
-        final e = entries[i];
-        final sel = state.selected.contains(e.key);
-        return HoverZoom(child: switch (e) {
-          SeriesEntry s => SeriesTile(
-              key: ValueKey(e.key),
-              entry: s,
-              selected: sel,
-              hidden: state.isHiddenSeries(s.series),
-              onTap: () => tap(e),
-              // 선택(묶기·숨김·권한·삭제)은 관리자만
-              onLongPress: admin ? () => state.toggleSelect(e) : () => state.enterSeries(s.series.id),
-              onEdit: admin ? () => showSeriesEditor(context, s.series) : () {},
-            ),
-          ItemEntry it => CoverTile(
-              key: ValueKey(e.key),
-              item: it.item,
-              selected: sel,
-              hidden: state.isHiddenItem(it.item),
-              showVolume: inSeries,
-              onTap: () => tap(e),
-              onLongPress: admin ? () => state.toggleSelect(e) : () => info(it.item),
-              onInfo: () => info(it.item),
-            ),
-        });
-      },
     );
   }
 }

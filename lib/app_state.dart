@@ -17,6 +17,24 @@ import 'services/settings.dart';
 
 enum SortBy { added, recent, title, author, rating }
 
+/// 모아보기 (왼쪽 사이드바)
+enum Collection { none, favorites, recent, reading, finished, recentAdded, missing }
+
+String collectionLabel(Collection c) => switch (c) {
+      Collection.none => '',
+      Collection.favorites => '즐겨찾기',
+      Collection.recent => '최근 읽음',
+      Collection.reading => '읽는 중',
+      Collection.finished => '다 읽음',
+      Collection.recentAdded => '최근 추가됨',
+      Collection.missing => '누락 권수 확인',
+    };
+
+/// 목록 보기 방식 (아래 상태 막대)
+enum ViewMode { table, grid, cards }
+
+typedef NavState = ({int? series, Collection col, MediaKind? kind, bool landing});
+
 class AppState extends ChangeNotifier {
   final LibraryDb db;
   final Settings settings;
@@ -34,6 +52,151 @@ class AppState extends ChangeNotifier {
 
   /// 첫 화면(넷플릭스풍 배너 + 가로 줄) 보기 중인지. 종류를 고르거나 검색하면 격자 보기로.
   bool landing = true;
+
+  /// 모아보기 (즐겨찾기 / 최근 읽음 …)
+  Collection collection = Collection.none;
+
+  /// 하위 묶음까지 펼쳐서 모든 권 보기
+  bool recursive = false;
+
+  /// 한 번 눌러 고른 칸 (아래 상세 패널에 표시)
+  String? focusedKey;
+
+  // ---------------- 뒤로 / 앞으로 ----------------
+  final _back = <NavState>[];
+  final _fwd = <NavState>[];
+  NavState get _nav => (series: currentSeriesId, col: collection, kind: kindFilter, landing: landing);
+  void _push() {
+    final n = _nav;
+    if (_back.isNotEmpty && _back.last == n) return;
+    _back.add(n);
+    if (_back.length > 100) _back.removeAt(0);
+    _fwd.clear();
+  }
+
+  void _apply(NavState n) {
+    currentSeriesId = n.series;
+    collection = n.col;
+    kindFilter = n.kind;
+    landing = n.landing;
+    selected.clear();
+    focusedKey = null;
+  }
+
+  bool get canBack => _back.isNotEmpty;
+  bool get canForward => _fwd.isNotEmpty;
+  void goBack() {
+    if (_back.isEmpty) return;
+    _fwd.add(_nav);
+    _apply(_back.removeLast());
+    notifyListeners();
+  }
+
+  void goForward() {
+    if (_fwd.isEmpty) return;
+    _back.add(_nav);
+    _apply(_fwd.removeLast());
+    notifyListeners();
+  }
+
+  void setCollection(Collection c) {
+    _push();
+    collection = c;
+    currentSeriesId = null;
+    landing = false;
+    selected.clear();
+    focusedKey = null;
+    notifyListeners();
+  }
+
+  void setRecursive(bool v) {
+    recursive = v;
+    notifyListeners();
+  }
+
+  /// 한 번 클릭: 고르기(상세 표시). 다중 선택은 Ctrl+클릭
+  void focus(Entry e) {
+    focusedKey = e.key;
+    selected
+      ..clear()
+      ..add(e.key);
+    notifyListeners();
+  }
+
+  Entry? get focusedEntry {
+    final k = focusedKey;
+    if (k == null) return null;
+    return entries.where((e) => e.key == k).firstOrNull;
+  }
+
+  int collectionCount(Collection c) => _collectionEntries(c).length;
+
+  List<Entry> _collectionEntries(Collection c) {
+    final items = allItems.where(_passes);
+    int byOpened(MediaItem a, MediaItem b) =>
+        (b.lastOpened?.millisecondsSinceEpoch ?? 0).compareTo(a.lastOpened?.millisecondsSinceEpoch ?? 0);
+    switch (c) {
+      case Collection.none:
+        return [];
+      case Collection.favorites:
+        return items.where((e) => e.favorite).map<Entry>(ItemEntry.new).toList();
+      case Collection.recent:
+        return (items.where((e) => e.lastOpened != null).toList()..sort(byOpened)).take(100).map<Entry>(ItemEntry.new).toList();
+      case Collection.reading:
+        return (items.where((e) => e.progress > 0 && e.progress < 0.98).toList()..sort(byOpened)).map<Entry>(ItemEntry.new).toList();
+      case Collection.finished:
+        return (items.where((e) => e.progress >= 0.98).toList()..sort(byOpened)).map<Entry>(ItemEntry.new).toList();
+      case Collection.recentAdded:
+        return (items.toList()..sort((a, b) => b.addedAt.compareTo(a.addedAt))).take(200).map<Entry>(ItemEntry.new).toList();
+      case Collection.missing:
+        // 전체 권수를 아는데 다 갖고 있지 않은 묶음
+        return _series.values
+            .where(canSeeSeries)
+            .where((s) => s.total != null && statsOf(s).direct < s.total!)
+            .map<Entry>((s) => SeriesEntry(s, statsOf(s)))
+            .toList()
+          ..sort((a, b) => (a as SeriesEntry).series.title.compareTo((b as SeriesEntry).series.title));
+    }
+  }
+
+  /// 현재 묶음 아래 모든 권 (하위 묶음 포함)
+  List<MediaItem> _itemsBelowVisible(int? seriesId) {
+    final t = tree;
+    final out = <MediaItem>[];
+    void walk(int? id) {
+      out.addAll(t.items[id] ?? const <MediaItem>[]);
+      for (final c in t.children[id] ?? const <Series>[]) {
+        walk(c.id);
+      }
+    }
+
+    walk(seriesId);
+    return out;
+  }
+
+  // ---------------- 쪽수 / 평점 ----------------
+
+  /// 쪽수를 모르면 파일을 열어 세고 저장 (만화 zip, PDF)
+  Future<void> ensurePages(MediaItem e) async {
+    if (e.pages != null) return;
+    final n = await covers.pageCount(e);
+    if (n == null) return;
+    e.pages = n;
+    await db.update(e);
+    notifyListeners();
+  }
+
+  /// 평점 0~10 (별 반 개 = 1점)
+  Future<void> setRating(MediaItem e, int r) async {
+    e.rating = r.clamp(0, 10);
+    await db.update(e);
+    notifyListeners();
+  }
+
+  Future<void> markFinished(MediaItem e, bool finished) async {
+    await saveProgress(e, finished ? (e.position ?? '0') : '0', finished ? 1 : 0);
+    notifyListeners();
+  }
 
   /// 다중 선택 ('s:묶음id' / 'i:항목id')
   final Set<String> selected = {};
@@ -295,7 +458,10 @@ class AppState extends ChangeNotifier {
   }
 
   void enterSeries(int? id) {
+    if (id != currentSeriesId || collection != Collection.none) _push();
     currentSeriesId = id;
+    collection = Collection.none;
+    focusedKey = null;
     if (id != null) landing = false;
     selected.clear();
     notifyListeners();
@@ -325,6 +491,15 @@ class AppState extends ChangeNotifier {
 
   /// 그리드에 보일 칸들
   List<Entry> get entries {
+    if (collection != Collection.none) return _collectionEntries(collection);
+    if (recursive && !flatMode) {
+      final items = _itemsBelowVisible(currentSeriesId).where(_passes).toList()
+        ..sort((a, b) {
+          final c = seriesPath(a.seriesId).compareTo(seriesPath(b.seriesId));
+          return c != 0 ? c : _byVolume(a, b);
+        });
+      return items.map<Entry>(ItemEntry.new).toList();
+    }
     if (flatMode) {
       final q = query.toLowerCase();
       final series = q.isEmpty
@@ -722,6 +897,9 @@ class AppState extends ChangeNotifier {
 
   /// 첫 화면으로
   void showLanding() {
+    _push();
+    collection = Collection.none;
+    focusedKey = null;
     landing = true;
     currentSeriesId = null;
     kindFilter = null;
@@ -733,6 +911,8 @@ class AppState extends ChangeNotifier {
   }
 
   void setFilter({MediaKind? kind, bool clearKind = false, bool? favorites, String? tag, bool clearTag = false}) {
+    if (kind != kindFilter || clearKind || landing) _push();
+    if (kind != null || clearKind) collection = Collection.none;
     landing = false;
     if (clearKind) kindFilter = null;
     if (kind != null) kindFilter = kind;
@@ -855,6 +1035,7 @@ class AppState extends ChangeNotifier {
       }
     }
     item.coverPath = await covers.generate(item);
+    item.pages = await covers.pageCount(item);
 
     if (mode == StorageMode.managed && settings.libraryRoot != null) {
       item.path = await Organizer.apply(item, settings.libraryRoot!, settings.organizePattern, move: settings.moveFiles);
