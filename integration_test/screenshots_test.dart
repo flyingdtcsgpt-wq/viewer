@@ -33,6 +33,7 @@ import 'package:media_shelf/ui/tools/tools_page.dart';
 import 'package:media_shelf/ui/viewers/comic_reader_page.dart';
 import 'package:media_shelf/ui/viewers/text_reader_page.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 const pcSize = Size(1600, 960);
@@ -111,8 +112,11 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('주요 화면 캡처', (tester) async {
-    final out = Directory(Platform.environment['SHOTS_DIR'] ?? p.join(Directory.current.path, 'build', 'screenshots'))
-      ..createSync(recursive: true);
+    // 안드로이드: 앱 내부 files/shots 에 저장 → CI 가 adb run-as 로 꺼낸다
+    final out = Platform.isAndroid
+        ? Directory(p.join((await tester.runAsync(getApplicationSupportDirectory))!.path, 'shots'))
+        : Directory(Platform.environment['SHOTS_DIR'] ?? p.join(Directory.current.path, 'build', 'screenshots'));
+    out.createSync(recursive: true);
     final tmp = Directory.systemTemp.createTempSync('arari_shots');
     final libDir = await tester.runAsync(() => _makeSamples(tmp.path)) as String;
 
@@ -418,7 +422,7 @@ void main() {
     });
 
     // 자연 음성: 모델을 받아 한국어를 합성해 보고, 소리가 실제로 나는지 숫자로 확인한다
-    if (Platform.environment['TTS_CHECK'] == '1') {
+    if (Platform.environment['TTS_CHECK'] == '1' || const bool.fromEnvironment('TTS_CHECK')) {
       await step('natural tts', () async {
         final tts = NaturalTts.instance;
         await tester.runAsync(() async {

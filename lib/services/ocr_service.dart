@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 
@@ -13,7 +14,7 @@ import 'package:path/path.dart' as p;
 class OcrService {
   OcrService._();
 
-  static bool get supported => Platform.isWindows;
+  static bool get supported => Platform.isWindows || Platform.isAndroid;
 
   /// Windows OCR 이 안전하게 다루는 크기 (넘으면 줄이거나 자른다)
   static const _maxSide = 2600;
@@ -79,6 +80,7 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
   /// 쓸 수 있는 인식 언어 ("ko", "en-US" …)
   static Future<List<String>> languages() async {
     if (!supported) return [];
+    if (Platform.isAndroid) return const ['ko', 'en']; // ML Kit 한국어 모델(라틴 문자 포함)을 앱에 넣었다
     try {
       final s = await _scriptFile();
       final r = await Process.run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', s.path, '-lang', '?', '-list', ''],
@@ -93,6 +95,7 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
   /// 결과: 파일 경로 → 글. 인식기가 없으면 [OcrUnavailable].
   static Future<Map<String, String>> recognizeFiles(List<String> paths, {String lang = 'ko'}) async {
     if (!supported) throw const OcrUnavailable('이 기기에서는 글자 인식을 쓸 수 없습니다');
+    if (Platform.isAndroid) return _recognizeAndroid(paths);
     final tmp = await Directory.systemTemp.createTemp('arari_ocr');
     try {
       // 모든 그림을 OCR 이 확실히 다루는 PNG 로: 넓으면 줄이고, 긴 웹툰은 여러 조각으로 자른다
@@ -178,6 +181,45 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
         await f.delete();
       } catch (_) {}
     }
+  }
+
+  /// 안드로이드: Google ML Kit (기기 안에서 처리, 한국어 모델 포함)
+  static TextRecognizer? _mlkit;
+  static Future<Map<String, String>> _recognizeAndroid(List<String> paths) async {
+    final rec = _mlkit ??= TextRecognizer(script: TextRecognitionScript.korean);
+    usedLang = 'ko';
+    final tmp = await Directory.systemTemp.createTemp('arari_ocr');
+    final out = <String, String>{};
+    try {
+      for (var i = 0; i < paths.length; i++) {
+        final List<Uint8List> tiles;
+        try {
+          final bytes = await File(paths[i]).readAsBytes();
+          tiles = await Isolate.run(() => _tiles(bytes));
+        } catch (_) {
+          continue;
+        }
+        final texts = <String>[];
+        for (var t = 0; t < tiles.length; t++) {
+          final f = File(p.join(tmp.path, '${i}_$t.png'));
+          await f.writeAsBytes(tiles[t]);
+          final r = await rec.processImage(InputImage.fromFilePath(f.path));
+          // 블록 순서: 위에서 아래, 같은 줄이면 왼쪽부터
+          final blocks = [...r.blocks]..sort((a, b) {
+              final dy = a.boundingBox.top - b.boundingBox.top;
+              if (dy.abs() > 20) return dy.sign.toInt();
+              return (a.boundingBox.left - b.boundingBox.left).sign.toInt();
+            });
+          texts.addAll(blocks.map((b) => b.text));
+        }
+        out[paths[i]] = texts.join('\n');
+      }
+    } finally {
+      try {
+        await tmp.delete(recursive: true);
+      } catch (_) {}
+    }
+    return out;
   }
 
   static List<Uint8List> _tiles(Uint8List bytes) {

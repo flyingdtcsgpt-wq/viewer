@@ -14,6 +14,13 @@ perms = [
 lines = "".join(f'    <uses-permission android:name="{p}"{extra}/>\n' for p, extra in perms if p not in xml)
 xml = re.sub(r"(<manifest[^>]*>\n)", r"\1" + lines, xml, count=1)
 xml = xml.replace('android:label="media_shelf"', 'android:label="ARARIFlex"')
+# 안드로이드 11+ 에서 음성 엔진(TTS)을 찾으려면 queries 에 적어야 한다
+if "android.intent.action.TTS_SERVICE" not in xml:
+    tts_q = '        <intent>\n            <action android:name="android.intent.action.TTS_SERVICE"/>\n        </intent>\n'
+    if "<queries>" in xml:
+        xml = xml.replace("<queries>\n", "<queries>\n" + tts_q, 1)
+    else:
+        xml = xml.replace("</manifest>", "    <queries>\n" + tts_q + "    </queries>\n</manifest>", 1)
 path.write_text(xml, encoding="utf-8")
 print(xml[:1500])
 
@@ -33,9 +40,57 @@ import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.util.Locale
+import java.util.UUID
 
 class MainActivity : FlutterActivity() {{
     private var pending: MethodChannel.Result? = null
+
+    // ---- 기기 음성(TTS): 소리 내어 읽기 ----
+    private var tts: TextToSpeech? = null
+    private var ttsReady: Boolean? = null
+    private val ttsWaiting = mutableListOf<(Boolean) -> Unit>()
+    private val ttsPending = mutableMapOf<String, MethodChannel.Result>()
+
+    private fun finishUtterance(id: String?, ok: Boolean) = runOnUiThread {{ if (id != null) ttsPending.remove(id)?.success(ok) }}
+
+    private fun withTts(f: (Boolean) -> Unit) {{
+        val r = ttsReady
+        if (r != null) {{ f(r); return }}
+        ttsWaiting.add(f)
+        if (tts != null) return
+        tts = TextToSpeech(this) {{ status ->
+            ttsReady = status == TextToSpeech.SUCCESS
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {{
+                override fun onStart(id: String?) {{}}
+                override fun onDone(id: String?) = finishUtterance(id, true)
+                @Deprecated("Deprecated in Java")
+                override fun onError(id: String?) = finishUtterance(id, false)
+                override fun onError(id: String?, code: Int) = finishUtterance(id, false)
+                override fun onStop(id: String?, interrupted: Boolean) = finishUtterance(id, false)
+            }})
+            runOnUiThread {{
+                val ok = ttsReady == true
+                ttsWaiting.toList().forEach {{ it(ok) }}
+                ttsWaiting.clear()
+            }}
+        }}
+    }}
+
+    private fun ttsStopAll() {{
+        tts?.stop()
+        ttsPending.values.toList().forEach {{ it.success(false) }}
+        ttsPending.clear()
+    }}
+
+    override fun onDestroy() {{
+        ttsStopAll()
+        tts?.shutdown()
+        tts = null
+        super.onDestroy()
+    }}
 
     private fun hasAccess(): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Environment.isExternalStorageManager()
@@ -43,6 +98,35 @@ class MainActivity : FlutterActivity() {{
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/tts").setMethodCallHandler {{ call, result ->
+            when (call.method) {{
+                "voices" -> withTts {{ ok ->
+                    if (!ok) {{ result.success(listOf<String>()); return@withTts }}
+                    val list = try {{ tts?.voices?.toList() ?: listOf() }} catch (e: Exception) {{ listOf() }}
+                    // 한국어 · 영어 음성만 (기기에 따라 수백 개라서), 인터넷이 필요한 것은 뒤로
+                    val wanted = list.filter {{ it.locale.language == "ko" || it.locale.language == "en" }}
+                        .sortedWith(compareBy({{ it.locale.language != "ko" }}, {{ it.isNetworkConnectionRequired }}, {{ it.name }}))
+                    result.success(wanted.map {{ it.name + "|" + it.locale.toLanguageTag() + "|" + (if (it.isNetworkConnectionRequired) "net" else "local") }})
+                }}
+                "speak" -> withTts {{ ok ->
+                    val t = tts
+                    if (!ok || t == null) {{ result.success(false); return@withTts }}
+                    ttsStopAll()
+                    val name = call.argument<String>("voice") ?: ""
+                    val v = if (name.isEmpty()) null else try {{ t.voices?.firstOrNull {{ it.name == name }} }} catch (e: Exception) {{ null }}
+                    if (v != null) t.setVoice(v) else t.setLanguage(Locale.KOREAN)
+                    t.setSpeechRate((call.argument<Double>("rate") ?: 1.0).toFloat())
+                    val id = UUID.randomUUID().toString()
+                    ttsPending[id] = result
+                    if (t.speak(call.argument<String>("text") ?: "", TextToSpeech.QUEUE_FLUSH, null, id) != TextToSpeech.SUCCESS) {{
+                        ttsPending.remove(id)
+                        result.success(false)
+                    }}
+                }}
+                "stop" -> {{ ttsStopAll(); result.success(null) }}
+                else -> result.notImplemented()
+            }}
+        }}
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/storage").setMethodCallHandler {{ call, result ->
             when (call.method) {{
                 "hasAllFilesAccess" -> result.success(hasAccess())
@@ -107,3 +191,14 @@ android {
     assert 'getByName("release")' in g
     gradle.write_text(g, encoding="utf-8")
 print("gradle signing patched")
+
+# ---- 글자 인식(ML Kit): 한국어 인식 모델을 앱에 넣는다 (플러그인은 compileOnly 로만 둠) ----
+g = gradle.read_text(encoding="utf-8")
+if "text-recognition-korean" not in g:
+    g += """
+dependencies {
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+}
+"""
+    gradle.write_text(g, encoding="utf-8")
+print("mlkit korean added")

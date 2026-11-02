@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'natural_tts.dart';
@@ -21,7 +22,11 @@ class TtsService {
   Completer<bool>? _playing;
   final Map<String, Future<String>> _ready = {}; // 미리 만들어 둔 자연 음성
 
-  static bool get supported => Platform.isWindows || Platform.isMacOS || NaturalTts.supported;
+  static bool get supported => Platform.isWindows || Platform.isMacOS || Platform.isAndroid || NaturalTts.supported;
+
+  /// 안드로이드 기기 음성 (MainActivity 의 TextToSpeech)
+  static const _android = MethodChannel('mediashelf/tts');
+  static const _andPrefix = 'and:';
 
   /// 설치된 음성 이름들 (자연 음성이 있으면 맨 앞에)
   static Future<List<String>> voices() async {
@@ -30,7 +35,17 @@ class TtsService {
   }
 
   /// 목록에 보여 줄 이름
-  static String label(String voice) => NaturalTts.isNatural(voice) ? NaturalTts.label(voice) : voice;
+  static String label(String voice) {
+    if (NaturalTts.isNatural(voice)) return NaturalTts.label(voice);
+    if (voice.startsWith(_andPrefix)) {
+      // "and:ko-kr-x-kod-local|ko-KR|local" → "기기 음성 · 한국어 kod"
+      final parts = voice.substring(_andPrefix.length).split('|');
+      final lang = parts.length > 1 && parts[1].startsWith('ko') ? '한국어' : '영어';
+      final name = parts.first.split('-').where((x) => x.length == 3 && x != 'kor' && x != 'eng').firstOrNull ?? parts.first;
+      return '기기 음성 · $lang $name${parts.length > 2 && parts[2] == 'net' ? ' (인터넷)' : ''}';
+    }
+    return voice;
+  }
 
   static double _speed(int rate) => (1.05 * (1 + rate.clamp(-10, 10) * 0.06)).clamp(0.6, 1.8);
   static String _key(String text, String voice, int rate) => '$voice|$rate|$text';
@@ -125,6 +140,10 @@ class TtsService {
 
   static Future<List<String>> _systemVoices() async {
     try {
+      if (Platform.isAndroid) {
+        final v = await _android.invokeListMethod<String>('voices');
+        return [for (final x in v ?? const <String>[]) '$_andPrefix$x'];
+      }
       if (Platform.isWindows) {
         final r = await Process.run('powershell', [
           '-NoProfile',
@@ -152,6 +171,18 @@ class TtsService {
     final t = text.trim();
     if (t.isEmpty) return true;
     if (voice != null && NaturalTts.isNatural(voice)) return _speakNatural(t, voice, rate, gen);
+    if (Platform.isAndroid) {
+      try {
+        final name = voice != null && voice.startsWith(_andPrefix) ? voice.substring(_andPrefix.length).split('|').first : '';
+        final ok = await _android.invokeMethod<bool>('speak', {'text': t, 'voice': name, 'rate': (1 + rate.clamp(-10, 10) * 0.1).clamp(0.3, 3.0)});
+        if (gen != _gen) return false;
+        if (ok != true) failed = true;
+        return ok == true;
+      } catch (_) {
+        failed = gen == _gen;
+        return false;
+      }
+    }
     try {
       if (Platform.isWindows) {
         // 글은 표준입력으로 넘긴다 (따옴표·특수문자 걱정 없음)
@@ -203,6 +234,11 @@ class TtsService {
     final pl = _playing;
     if (pl != null && !pl.isCompleted) pl.complete(false);
     await _player?.stop();
+    if (Platform.isAndroid) {
+      try {
+        await _android.invokeMethod('stop');
+      } catch (_) {}
+    }
     final p = _proc;
     _proc = null;
     if (p != null) {
