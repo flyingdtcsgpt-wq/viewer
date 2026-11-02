@@ -1,7 +1,7 @@
 name: media_shelf
 description: 책·만화·이미지·영상 로컬 라이브러리 관리 앱 (Windows → Android → iOS/macOS)
 publish_to: 'none'
-version: 0.4.0+4
+version: 0.5.0+5
 
 environment:
   sdk: ^3.13.0
