@@ -64,6 +64,8 @@ jobs:
           files: dist/*
 
   android:
+    # 지금은 PC 버전 집중: 안드로이드는 태그(릴리스)나 수동 실행 때만 빌드
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
