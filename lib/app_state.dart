@@ -33,7 +33,7 @@ String collectionLabel(Collection c) => switch (c) {
 /// 목록 보기 방식 (아래 상태 막대)
 enum ViewMode { table, grid, cards }
 
-typedef NavState = ({int? series, Collection col, MediaKind? kind, bool landing});
+typedef NavState = ({int? series, Collection col, MediaKind? kind, bool landing, String? lib});
 
 class AppState extends ChangeNotifier {
   final LibraryDb db;
@@ -59,13 +59,42 @@ class AppState extends ChangeNotifier {
   /// 하위 묶음까지 펼쳐서 모든 권 보기
   bool recursive = false;
 
+  /// 라이브러리 폴더 하나만 보기 (사이드바 "라이브러리")
+  String? libraryPath;
+
+  void setLibrary(String path) {
+    _push();
+    libraryPath = path;
+    collection = Collection.none;
+    currentSeriesId = null;
+    landing = false;
+    selected.clear();
+    focusedKey = null;
+    notifyListeners();
+  }
+
+  /// 폴더 안 (하위 폴더 수, 파일 수)
+  (int, int) libraryCounts(String root) {
+    final dirs = <String>{};
+    var files = 0;
+    final sep = Platform.pathSeparator;
+    final prefix = root.endsWith(sep) ? root : '$root$sep';
+    for (final e in allItems) {
+      if (!e.path.startsWith(prefix)) continue;
+      files++;
+      final d = p.dirname(e.path);
+      if (d != root) dirs.add(d);
+    }
+    return (dirs.length, files);
+  }
+
   /// 한 번 눌러 고른 칸 (아래 상세 패널에 표시)
   String? focusedKey;
 
   // ---------------- 뒤로 / 앞으로 ----------------
   final _back = <NavState>[];
   final _fwd = <NavState>[];
-  NavState get _nav => (series: currentSeriesId, col: collection, kind: kindFilter, landing: landing);
+  NavState get _nav => (series: currentSeriesId, col: collection, kind: kindFilter, landing: landing, lib: libraryPath);
   void _push() {
     final n = _nav;
     if (_back.isNotEmpty && _back.last == n) return;
@@ -79,6 +108,7 @@ class AppState extends ChangeNotifier {
     collection = n.col;
     kindFilter = n.kind;
     landing = n.landing;
+    libraryPath = n.lib;
     selected.clear();
     focusedKey = null;
   }
@@ -102,6 +132,7 @@ class AppState extends ChangeNotifier {
   void setCollection(Collection c) {
     _push();
     collection = c;
+    libraryPath = null;
     currentSeriesId = null;
     landing = false;
     selected.clear();
@@ -461,6 +492,7 @@ class AppState extends ChangeNotifier {
     if (id != currentSeriesId || collection != Collection.none) _push();
     currentSeriesId = id;
     collection = Collection.none;
+    libraryPath = null;
     focusedKey = null;
     if (id != null) landing = false;
     selected.clear();
@@ -492,6 +524,19 @@ class AppState extends ChangeNotifier {
   /// 그리드에 보일 칸들
   List<Entry> get entries {
     if (collection != Collection.none) return _collectionEntries(collection);
+    final lib = libraryPath;
+    if (lib != null) {
+      final sep = Platform.pathSeparator;
+      final prefix = lib.endsWith(sep) ? lib : '$lib$sep';
+      final q = query.toLowerCase();
+      return (allItems
+              .where((e) => e.path.startsWith(prefix) && _passes(e))
+              .where((e) => q.isEmpty || e.title.toLowerCase().contains(q) || e.fileName.toLowerCase().contains(q))
+              .toList()
+            ..sort((a, b) => a.path.compareTo(b.path)))
+          .map<Entry>(ItemEntry.new)
+          .toList();
+    }
     if (recursive && !flatMode) {
       final items = _itemsBelowVisible(currentSeriesId).where(_passes).toList()
         ..sort((a, b) {
@@ -899,6 +944,7 @@ class AppState extends ChangeNotifier {
   void showLanding() {
     _push();
     collection = Collection.none;
+    libraryPath = null;
     focusedKey = null;
     landing = true;
     currentSeriesId = null;
@@ -912,7 +958,10 @@ class AppState extends ChangeNotifier {
 
   void setFilter({MediaKind? kind, bool clearKind = false, bool? favorites, String? tag, bool clearTag = false}) {
     if (kind != kindFilter || clearKind || landing) _push();
-    if (kind != null || clearKind) collection = Collection.none;
+    if (kind != null || clearKind) {
+      collection = Collection.none;
+      libraryPath = null;
+    }
     landing = false;
     if (clearKind) kindFilter = null;
     if (kind != null) kindFilter = kind;

@@ -19,10 +19,12 @@ class MetadataService {
     final isbn = q.replaceAll(RegExp(r'[^0-9Xx]'), '');
     final isIsbn = (isbn.length == 10 || isbn.length == 13) && isbn.length >= q.length - 4;
 
+    final s = settings;
     final results = await Future.wait([
-      _safe(() => _kakao(isIsbn ? isbn : q, isIsbn)),
-      _safe(() => _google(isIsbn ? 'isbn:$isbn' : q)),
-      _safe(() => _openLibrary(isIsbn ? isbn : q, isIsbn)),
+      if (s.sourceEnabled('kakao')) _safe(() => _kakao(isIsbn ? isbn : q, isIsbn)),
+      if (s.sourceEnabled('naver')) _safe(() => _naver(isIsbn ? isbn : q, isIsbn)),
+      if (s.sourceEnabled('google')) _safe(() => _google(isIsbn ? 'isbn:$isbn' : q)),
+      if (s.sourceEnabled('openlibrary')) _safe(() => _openLibrary(isIsbn ? isbn : q, isIsbn)),
     ]);
     return results.expand((e) => e).toList();
   }
@@ -53,6 +55,33 @@ class MetadataService {
         year: int.tryParse((d['datetime'] as String? ?? '').split('-').first),
         description: d['contents'],
         coverUrl: (d['thumbnail'] as String?)?.isEmpty ?? true ? null : d['thumbnail'],
+      );
+    }).toList();
+  }
+
+  /// 네이버 책 검색 (developers.naver.com 에서 Client ID / Secret 발급)
+  Future<List<BookMetadata>> _naver(String q, bool isIsbn) async {
+    if (settings.naverId.isEmpty || settings.naverSecret.isEmpty) return [];
+    final uri = Uri.https('openapi.naver.com', '/v1/search/book.json', {'query': q, 'display': '20'});
+    final res = await http.get(uri, headers: {
+      'X-Naver-Client-Id': settings.naverId,
+      'X-Naver-Client-Secret': settings.naverSecret,
+    });
+    if (res.statusCode != 200) return [];
+    String clean(dynamic v) => (v as String? ?? '').replaceAll(RegExp(r'<[^>]+>'), '').trim();
+    final items = (jsonDecode(utf8.decode(res.bodyBytes))['items'] as List?) ?? [];
+    return items.map((d) {
+      final isbns = clean(d['isbn']).split(' ');
+      final date = clean(d['pubdate']);
+      return BookMetadata(
+        source: 'Naver',
+        title: clean(d['title']),
+        author: clean(d['author']).replaceAll('^', ', '),
+        publisher: clean(d['publisher']),
+        isbn: isbns.where((s) => s.length == 13).firstOrNull ?? isbns.first,
+        year: date.length >= 4 ? int.tryParse(date.substring(0, 4)) : null,
+        description: clean(d['description']),
+        coverUrl: clean(d['image']).isEmpty ? null : clean(d['image']),
       );
     }).toList();
   }

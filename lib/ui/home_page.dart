@@ -245,7 +245,38 @@ class _Sidebar extends StatelessWidget {
         ),
       item(Icons.history, '내 열람 기록', act(() => push(const HistoryPage()))),
 
-      section('라이브러리'),
+      // 라이브러리 폴더 (설정에서 정한 순서 · 그룹 · 별칭)
+      if (state.settings.libraryFolders.isNotEmpty) ...[
+        section('라이브러리'),
+        for (final (i, f) in state.settings.libraryFolders.indexed) ...[
+          if (f.group.isNotEmpty && (i == 0 || state.settings.libraryFolders[i - 1].group != f.group))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 8, 16, 2),
+              child: Text(f.group, style: text.labelSmall?.copyWith(color: Colors.grey)),
+            ),
+          Builder(builder: (_) {
+            final (dirs, files) = state.libraryCounts(f.path);
+            return ListTile(
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              contentPadding: EdgeInsets.only(left: f.group.isEmpty ? 16 : 28, right: 12),
+              selected: state.libraryPath == f.path,
+              selectedTileColor: scheme.secondaryContainer,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.folder, size: 13, color: Color(0xFFFFC107)),
+                Text(' $dirs  ', style: text.bodySmall),
+                const Icon(Icons.description, size: 13, color: Colors.grey),
+                Text(' $files', style: text.bodySmall),
+              ]),
+              onTap: act(() => state.setLibrary(f.path)),
+            );
+          }),
+        ],
+      ],
+
+      section('종류'),
       for (var i = 0; i < _kinds.length; i++)
         item(
           _kindIcons[i],
@@ -254,7 +285,7 @@ class _Sidebar extends StatelessWidget {
             state.enterSeries(null);
             i == 0 ? state.setFilter(clearKind: true) : state.setFilter(kind: _kinds[i]);
           }),
-          selected: !state.landing && state.collection == Collection.none && state.kindFilter == _kinds[i] && state.currentSeriesId == null,
+          selected: !state.landing && state.collection == Collection.none && state.libraryPath == null && state.kindFilter == _kinds[i] && state.currentSeriesId == null,
           trailing: '${state.count(_kinds[i])}',
         ),
 
@@ -303,7 +334,7 @@ class _Sidebar extends StatelessWidget {
 
       section('도구'),
       item(Icons.auto_awesome, 'AI 도우미', act(() => showAiChat(context))),
-      item(Icons.settings, '설정', act(() => push(const SettingsPage()))),
+      item(Icons.settings, '설정', act(() => showSettings(rootContext))),
       if (admin) item(Icons.manage_accounts, '관리자 (사용자·권한·숨김)', act(() => push(const AdminPage()))),
       if (state.hiddenUnlocked) item(Icons.lock, '숨김 목록 다시 잠그기', act(state.lockHidden)),
 
@@ -321,14 +352,7 @@ class _Sidebar extends StatelessWidget {
           ]),
         ),
       ],
-      if (admin && state.settings.watchFolders.isNotEmpty) ...[
-        section('스캔 폴더'),
-        for (final f in state.settings.watchFolders)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 2, 16, 2),
-            child: Text(f, style: text.bodySmall, overflow: TextOverflow.ellipsis),
-          ),
-      ],
+
     ]);
   }
 
@@ -455,7 +479,7 @@ class _TopActionBar extends StatelessWidget {
         IconButton(tooltip: '내 열람 기록', icon: const Icon(Icons.history), onPressed: () => push(const HistoryPage())),
         IconButton(tooltip: 'AI 도우미', icon: const Icon(Icons.auto_awesome), onPressed: () => showAiChat(context)),
         if (admin) IconButton(tooltip: '관리자', icon: const Icon(Icons.manage_accounts), onPressed: () => push(const AdminPage())),
-        IconButton(tooltip: '설정', icon: const Icon(Icons.settings), onPressed: () => push(const SettingsPage())),
+        IconButton(tooltip: '설정', icon: const Icon(Icons.settings), onPressed: () => showSettings(context)),
       ]),
     );
   }

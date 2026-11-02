@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,9 +10,32 @@ class Settings extends ChangeNotifier {
 
   Future<void> load() async => _p = await SharedPreferences.getInstance();
 
-  /// 등록한 스캔 폴더들
-  List<String> get watchFolders => _p.getStringList('watchFolders') ?? [];
-  set watchFolders(List<String> v) => _set(() => _p.setStringList('watchFolders', v));
+  /// 등록한 라이브러리 폴더들 (경로 · 별칭 · 그룹, 순서 유지)
+  List<LibraryFolder> get libraryFolders {
+    final raw = _p.getString('libraryFolders');
+    if (raw == null) {
+      // 예전 버전: 경로 목록만 있었음
+      return (_p.getStringList('watchFolders') ?? []).map((e) => LibraryFolder(e)).toList();
+    }
+    return (jsonDecode(raw) as List).map((e) => LibraryFolder.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  set libraryFolders(List<LibraryFolder> v) => _set(() => _p.setString('libraryFolders', jsonEncode(v.map((e) => e.toJson()).toList())));
+
+  List<String> get watchFolders => libraryFolders.map((e) => e.path).toList();
+  set watchFolders(List<String> v) {
+    final old = {for (final f in libraryFolders) f.path: f};
+    libraryFolders = [for (final p in v) old[p] ?? LibraryFolder(p)];
+  }
+
+  // ---------- 메타데이터 검색 소스 ----------
+  /// 소스 이름: kakao, naver, google, openlibrary
+  bool sourceEnabled(String name) => _p.getBool('src_$name') ?? true;
+  void setSourceEnabled(String name, bool v) => _set(() => _p.setBool('src_$name', v));
+  String get naverId => _p.getString('naverId') ?? '';
+  set naverId(String v) => _set(() => _p.setString('naverId', v));
+  String get naverSecret => _p.getString('naverSecret') ?? '';
+  set naverSecret(String v) => _set(() => _p.setString('naverSecret', v));
 
   /// 이동/복사 대상 라이브러리 폴더 (managed 모드)
   String? get libraryRoot => _p.getString('libraryRoot');
@@ -162,4 +187,22 @@ class Settings extends ChangeNotifier {
     f();
     notifyListeners();
   }
+}
+
+/// 라이브러리 폴더 하나: 실제 경로 + 화면에 보일 이름 + 묶을 그룹
+class LibraryFolder {
+  final String path;
+  String alias;
+  String group;
+  LibraryFolder(this.path, {this.alias = '', this.group = ''});
+
+  String get name {
+    if (alias.isNotEmpty) return alias;
+    final parts = path.split(RegExp(r'[\\/]')).where((e) => e.isNotEmpty);
+    return parts.isEmpty ? path : parts.last;
+  }
+
+  Map<String, dynamic> toJson() => {'path': path, 'alias': alias, 'group': group};
+  factory LibraryFolder.fromJson(Map<String, dynamic> m) =>
+      LibraryFolder(m['path'] as String, alias: m['alias'] as String? ?? '', group: m['group'] as String? ?? '');
 }

@@ -985,11 +985,20 @@ class PathBar extends StatelessWidget {
         icon: const Icon(Icons.home, size: 18),
         label: Text(state.kindFilter == null ? '전체' : kindLabel(state.kindFilter!)),
       ),
+      if (state.libraryPath != null) ...[
+        const Icon(Icons.chevron_right, size: 18),
+        const Icon(Icons.folder, size: 16, color: Color(0xFFFFC107)),
+        const SizedBox(width: 4),
+        Text(state.settings.libraryFolders.where((f) => f.path == state.libraryPath).firstOrNull?.name ?? state.libraryPath!,
+            style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(width: 8),
+        Text(state.libraryPath!, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+      ],
       if (state.collection != Collection.none) ...[
         const Icon(Icons.chevron_right, size: 18),
         Text(collectionLabel(state.collection), style: const TextStyle(fontWeight: FontWeight.w700)),
       ],
-      if (state.collection == Collection.none)
+      if (state.collection == Collection.none && state.libraryPath == null)
         for (final b in state.breadcrumb) ...[
           const Icon(Icons.chevron_right, size: 18),
           TextButton(
