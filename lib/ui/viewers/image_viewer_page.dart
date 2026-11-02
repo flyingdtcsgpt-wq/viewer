@@ -47,7 +47,8 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
       z.dispose();
     }
     _pages.dispose();
-    _app.refresh();
+    // 화면을 닫는 중에는 알림을 보낼 수 없어서 다음 순간에
+    Future.microtask(_app.refresh);
     super.dispose();
   }
 

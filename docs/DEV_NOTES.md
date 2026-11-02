@@ -166,5 +166,18 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - UI 자동 캡처 도입 후 개선: 작업 줄 정리, 만든 표지, 카드 크기, 뷰어 색, 계정별 폴더/종류 권한, 휴대폰 탭
 - v0.5: 자연 음성(Supertonic), PDF/그림/만화 읽어주기(OCR), 인물별 목소리, 공유 서버 계정 권한, 리뷰 2회분 버그 수정
 
-## 8. Android 작업 메모 (진행 중)
-(아래에 계속 추가)
+## 8. Android 작업 메모
+- CI: `android` 잡이 push 마다 APK 빌드 (안드로이드 다듬는 동안). `android-screens` 잡이 에뮬레이터(API 34, x86_64)에서
+  `flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart` 실행
+  → 앱이 `binding.reportData` 로 PNG/WAV 를 base64 로 보내고 드라이버가 `shots-android/shots` 에 저장 → `screenshots-android` 브랜치
+  (flutter test 는 끝나면 앱을 지워서 기기 안 파일을 못 꺼냄)
+- 에뮬레이터 확인 결과: 자연 음성(Supertonic) 정상(7.9초 음성 7.5초), ML Kit 한국어 OCR 정확("언덕 위에는 오래된 풍차가 하나 서 있었다."),
+  숨김 · 계정 권한 · 공유 서버 검사 모두 통과
+- 기기 음성: `tool/patch_android.py` 가 MainActivity 에 `mediashelf/tts` 채널(TextToSpeech) 추가. 음성 이름은 `and:<name>|<locale>|local/net`
+  (flutter_tts 는 Windows 빌드에 nuget 이 필요해서 쓰지 않음). 매니페스트 `<queries>` 에 TTS_SERVICE 필요(Android 11+)
+- OCR: google_mlkit_text_recognition + 앱 gradle 에 `text-recognition-korean` 추가. R8 이 안 쓰는 중국어/일본어/데바나가리 클래스를
+  찾지 못해 실패 → `proguard-rules.pro` 에 -dontwarn
+- "ARARIFlex 로 열기": VIEW 인텐트 필터 + `mediashelf/open` 채널(`takeFile`, `opened`). content:// 는 files/opened 로 복사.
+  Dart 는 `AppState.requestOpen` → HomePage 의 `_ExternalOpener` 가 라이브러리에 원본 연결로 넣고 연다
+- RAR/7Z 는 안드로이드에서 아직 못 엶(7-Zip 실행 파일이 없음) → 뷰어가 안내 문구를 보여 줌
+- 모든 파일 접근: `mediashelf/storage` 채널 (폴더 추가 때만 요청)
