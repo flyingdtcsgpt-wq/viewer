@@ -24,7 +24,9 @@ import 'viewer_chrome.dart';
 /// 특정 위치로 이동할 때는 "기준 블록(anchor)"을 바꿔서 그 블록부터 그리는 방식(center sliver).
 class TextReaderPage extends StatefulWidget {
   final MediaItem item;
-  const TextReaderPage({super.key, required this.item});
+  /// 읽어주기 막대를 연 채로 시작
+  final bool readAloud;
+  const TextReaderPage({super.key, required this.item, this.readAloud = false});
 
   @override
   State<TextReaderPage> createState() => _TextReaderPageState();
@@ -74,7 +76,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
 
   // 소리 내어 읽기
   final _tts = TtsService();
-  bool _ttsPanel = false;
+  late bool _ttsPanel = widget.readAloud;
   bool _speaking = false;
   int? _ttsBlock;
   List<String> _voices = [];
@@ -440,7 +442,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
       child: Padding(
         padding: const EdgeInsets.all(10),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(mainAxisSize: MainAxisSize.min, children: [
+          Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, runSpacing: 4, children: [
             ToolGroup([
               ToolBtn(icon: Icons.skip_previous, tooltip: '이전 문단', onTap: () => _ttsSkip(-1)),
               ToolBtn(
@@ -466,12 +468,12 @@ class _TextReaderPageState extends State<TextReaderPage> {
             voicePick(s.ttsVoice, (v) => s.ttsVoice = v, '기본 음성'),
             IconButton(onPressed: () => setState(() => _ttsPanel = false), icon: const Icon(Icons.close, color: Colors.white54)),
           ]),
-          Row(mainAxisSize: MainAxisSize.min, children: [
+          Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, runSpacing: 4, children: [
             Checkbox(value: s.ttsSplit, onChanged: (v) => s.ttsSplit = v ?? false),
             const Text('큰따옴표=대사, 작은따옴표=속마음 다른 음성으로', style: TextStyle(color: Colors.white70, fontSize: 12)),
           ]),
           if (s.ttsSplit)
-            Row(mainAxisSize: MainAxisSize.min, children: [
+            Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, runSpacing: 4, children: [
               const Text('대사  ', style: TextStyle(color: Colors.white70)),
               voicePick(s.ttsDialogueVoice, (v) => s.ttsDialogueVoice = v, '기본과 같음'),
               const SizedBox(width: 12),
@@ -526,7 +528,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
         Expanded(
           child: Stack(children: [
             Positioned.fill(child: body),
-            if (_ttsPanel) Positioned(top: 8, left: 0, right: 0, child: Center(child: _ttsBar(s))),
+            if (_ttsPanel) Positioned(top: 8, left: 8, right: 8, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 720), child: _ttsBar(s)))),
           ]),
         ),
         if (_chrome && s.viewerSlider && (_doc?.toc.isNotEmpty ?? false)) _chapterStrip(),

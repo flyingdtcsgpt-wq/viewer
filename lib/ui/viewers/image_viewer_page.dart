@@ -16,7 +16,8 @@ import 'read_aloud.dart';
 class ImageViewerPage extends StatefulWidget {
   final List<MediaItem> images;
   final int initialIndex;
-  const ImageViewerPage({super.key, required this.images, required this.initialIndex});
+  final bool readAloud;
+  const ImageViewerPage({super.key, required this.images, required this.initialIndex, this.readAloud = false});
 
   @override
   State<ImageViewerPage> createState() => _ImageViewerPageState();
@@ -29,7 +30,7 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
   final _zoom = <int, TransformationController>{};
   bool _zoomed = false;
   bool _showUi = true;
-  bool _readAloud = false;
+  late bool _readAloud = widget.readAloud;
   Timer? _slideshow;
 
   MediaItem get _item => widget.images[_index];

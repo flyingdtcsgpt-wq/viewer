@@ -16,6 +16,7 @@ import 'detail_page.dart';
 import 'landing_view.dart' show HoverZoom;
 import 'series_widgets.dart';
 import 'viewers/open_item.dart';
+import 'viewers/text_reader_page.dart';
 
 // =====================================================================
 //  공통: 칸을 눌렀을 때 동작 (PC: 한 번 = 고르기, 두 번 = 열기 / 휴대폰: 한 번 = 열기)
@@ -926,6 +927,8 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
       item('hide', Icons.visibility_off, '숨기기'),
       item('access', Icons.lock_person, '사용자 접근'),
     ],
+    if (e is ItemEntry && !multi && (e.item.extension == '.txt' || e.item.extension == '.epub'))
+      item('listen', Icons.record_voice_over, '소리 내어 읽기로 열기'),
     if (e is ItemEntry && !multi && Platform.isWindows) item('explorer', Icons.folder_open, '탐색기에서 열기'),
     if (admin) ...[
       const PopupMenuDivider(),
@@ -972,6 +975,11 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
       }
     case 'access':
       await showAccessForSelection(context);
+    case 'listen':
+      if (e is ItemEntry) {
+        await state.beginView(e.item);
+        if (context.mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => TextReaderPage(item: e.item, readAloud: true)));
+      }
     case 'explorer':
       if (e is ItemEntry) Process.run('explorer.exe', ['/select,${e.item.path}']);
     case 'delete':

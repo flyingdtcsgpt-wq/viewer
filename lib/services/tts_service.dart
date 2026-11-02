@@ -41,7 +41,9 @@ class TtsService {
       // "and:ko-kr-x-kod-local|ko-KR|local" → "기기 음성 · 한국어 kod"
       final parts = voice.substring(_andPrefix.length).split('|');
       final lang = parts.length > 1 && parts[1].startsWith('ko') ? '한국어' : '영어';
-      final name = parts.first.split('-').where((x) => x.length == 3 && x != 'kor' && x != 'eng').firstOrNull ?? parts.first;
+      final name = parts.first.contains('language')
+          ? '기본'
+          : (parts.first.split('-').where((x) => x.length == 3 && x != 'kor' && x != 'eng').firstOrNull ?? parts.first);
       return '기기 음성 · $lang $name${parts.length > 2 && parts[2] == 'net' ? ' (인터넷)' : ''}';
     }
     return voice;

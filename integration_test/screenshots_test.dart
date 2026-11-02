@@ -350,25 +350,15 @@ void main() {
       }
       // 휴대폰 화면에서 읽어주기 막대가 넘치지 않는지
       if (book != null) {
-        await push(TextReaderPage(item: book!));
+        await push(TextReaderPage(item: book!, readAloud: true));
         await wait(1500);
-        final ttsBtn = find.byIcon(Icons.record_voice_over);
-        if (ttsBtn.evaluate().isNotEmpty) {
-          await tester.tap(ttsBtn.first);
-          await wait(800);
-        }
         await shot('17b_휴대폰_텍스트_읽어주기', 1500);
         await popAll();
       }
       final pics = state.allItems.where((e) => e.kind == MediaKind.image).toList();
       if (pics.isNotEmpty) {
-        await push(ImageViewerPage(images: pics, initialIndex: 0));
+        await push(ImageViewerPage(images: pics, initialIndex: 0, readAloud: true));
         await wait(1000);
-        final ra = find.byIcon(Icons.record_voice_over);
-        if (ra.evaluate().isNotEmpty) {
-          await tester.tap(ra.first);
-          await wait(800);
-        }
         await shot('17c_휴대폰_그림_읽어주기', 1500);
         await popAll();
       }
