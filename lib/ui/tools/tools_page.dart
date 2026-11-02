@@ -34,10 +34,11 @@ class ToolsPage extends StatelessWidget {
         _Tool(Icons.translate, '텍스트 인코딩 변환', '${txts.length}개', Colors.indigo, txts.isEmpty ? null : () => go(TxtCleanPage(items: txts)),
             sub: 'CP949 → UTF-8'),
       ]),
-      ('문서 변환', const [
-        _Tool(Icons.article, 'TXT → EPUB', '', Colors.blueGrey, null),
-        _Tool(Icons.picture_as_pdf, 'TXT → PDF', '', Colors.red, null),
-        _Tool(Icons.image, '이미지 → PDF', '', Colors.orange, null),
+      ('문서 변환', [
+        _Tool(Icons.article, 'TXT → EPUB', '${txts.length}개', Colors.blueGrey, txts.isEmpty ? null : () => go(TxtToEpubPage(items: txts)),
+            sub: '자동 목차 · 표지'),
+        const _Tool(Icons.picture_as_pdf, 'TXT → PDF', '', Colors.red, null),
+        const _Tool(Icons.image, '이미지 → PDF', '', Colors.orange, null),
       ]),
       ('압축 파일 · 이미지', [
         _Tool(Icons.inventory_2, '압축 파일 구조 정리', '${zips.length}개', Colors.deepPurple, zips.isEmpty ? null : () => go(FlattenToolPage(items: zips)),

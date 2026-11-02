@@ -11,6 +11,7 @@ import 'cover_tile.dart';
 import 'metadata_search_dialog.dart';
 import 'browser.dart' show showRatingDialog;
 import 'series_widgets.dart';
+import 'tools/image_editor.dart';
 import 'viewers/open_item.dart';
 
 /// 기본 앱으로 열기 (open_filex 는 모바일 전용이라 데스크톱은 OS 명령 사용)
@@ -127,6 +128,19 @@ class _DetailPageState extends State<DetailPage> {
     });
   }
 
+  /// 지금 표지를 자르기·회전·밝기 조절 (원본 파일은 그대로, 앱 표지만 바뀜)
+  Future<void> _editCover() async {
+    final bytes = await File(item.coverPath!).readAsBytes();
+    if (!mounted) return;
+    final out = await showImageEditor(context, bytes);
+    if (out == null) return;
+    await _run(() async {
+      item.coverPath = await state.covers.importBytes(out, item.path);
+      await state.save(item);
+      setState(() {});
+    });
+  }
+
   Future<void> _organize() async {
     final move = await showDialog<bool>(
       context: context,
@@ -189,6 +203,8 @@ class _DetailPageState extends State<DetailPage> {
           label: const Text('다른 앱으로'),
         ),
         OutlinedButton.icon(onPressed: _pickCover, icon: const Icon(Icons.image), label: const Text('커버 변경')),
+        if (item.coverPath != null)
+          OutlinedButton.icon(onPressed: _editCover, icon: const Icon(Icons.crop), label: const Text('표지 편집')),
         if (Platform.isWindows)
           OutlinedButton.icon(
             onPressed: () => Process.run('explorer.exe', ['/select,${item.path}']),

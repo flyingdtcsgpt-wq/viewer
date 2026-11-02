@@ -70,7 +70,7 @@ String _utf16(Uint8List b, {required bool little}) {
 }
 
 /// "제 1 장", "1화", "Chapter 3", "프롤로그" 같은 줄을 목차로 인식
-final _chapterRe = RegExp(
+final chapterRe = RegExp(
   r'^\s*(제\s*[0-9一二三四五六七八九十百]+\s*[장화권부편]|[0-9]+\s*[장화]\b|[0-9]+\.\s|chapter\s*[0-9]+|prologue|epilogue|프롤로그|에필로그|서장|종장|외전)',
   caseSensitive: false,
 );
@@ -88,7 +88,7 @@ TextDocument _loadTxt(String path) {
       blocks.add(TextBlock.text(line.substring(0, at)));
       line = line.substring(at);
     }
-    if (line.trim().isNotEmpty && line.trim().length <= 40 && _chapterRe.hasMatch(line)) {
+    if (line.trim().isNotEmpty && line.trim().length <= 40 && chapterRe.hasMatch(line)) {
       toc.add(TocEntry(line.trim(), blocks.length));
       blocks.add(TextBlock.text(line.trim(), heading: 3));
     } else {

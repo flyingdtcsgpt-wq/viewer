@@ -99,6 +99,13 @@ class CoverService {
     return out;
   }
 
+  /// 편집한 그림(바이트)을 커버로 저장
+  Future<String> importBytes(List<int> bytes, String key) async {
+    final out = _target('$key|edit|${DateTime.now().millisecondsSinceEpoch}', '.jpg');
+    await File(out).writeAsBytes(bytes);
+    return out;
+  }
+
   /// 사용자가 고른 이미지 파일을 커버로 복사
   Future<String> importLocal(String imagePath, String key) async {
     final out = _target('$key|$imagePath', p.extension(imagePath));

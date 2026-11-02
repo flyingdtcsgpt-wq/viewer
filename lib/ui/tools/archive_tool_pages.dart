@@ -10,9 +10,11 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/archive_tools.dart';
+import '../../services/epub_writer.dart';
 import '../browser.dart' show fileSize;
 import '../cover_tile.dart';
 import '../metadata_search_dialog.dart';
+import 'image_editor.dart';
 
 /// 도구 공통: 대상 표 + 실행 버튼 + 진행 표시
 mixin _Runner<T extends StatefulWidget> on State<T> {
@@ -491,6 +493,20 @@ class _CoverToolPageState extends State<CoverToolPage> with _Runner {
                           )
                         : Image.memory(_newCover!, fit: BoxFit.contain),
                   ),
+                  if (_newCover != null)
+                    TextButton.icon(
+                      onPressed: () async {
+                        final out = await showImageEditor(context, _newCover!);
+                        if (out != null) {
+                          setState(() {
+                            _newCover = out;
+                            _newExt = '.jpg';
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.crop),
+                      label: const Text('이미지 편집 (자르기 · 회전)'),
+                    ),
                 ]),
               ),
             ),
@@ -628,6 +644,67 @@ class _TxtCleanPageState extends State<TxtCleanPage> with _Runner {
               return '$enc → UTF-8, ${fileSize(before)} → ${fileSize(after)}';
             });
           }),
+        ]),
+      );
+}
+
+// =====================================================================
+//  TXT → EPUB
+// =====================================================================
+class TxtToEpubPage extends StatefulWidget {
+  final List<MediaItem> items;
+  const TxtToEpubPage({super.key, required this.items});
+  @override
+  State<TxtToEpubPage> createState() => _TxtToEpubPageState();
+}
+
+class _TxtToEpubPageState extends State<TxtToEpubPage> with _Runner {
+  late final Set<MediaItem> _checked = {...widget.items};
+  bool _auto = true;
+  bool _cover = true;
+  bool _addToLibrary = true;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('TXT → EPUB 변환')),
+        body: Column(children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('텍본을 목차가 있는 EPUB 전자책으로 만듭니다. 같은 폴더에 같은 이름의 .epub 파일이 생기고, 원본 TXT 는 그대로 둡니다.'),
+          ),
+          SwitchListTile(
+            title: const Text('자동 목차'),
+            subtitle: const Text('"제1장", "1화", "프롤로그" 같은 줄에서 장을 나눕니다'),
+            value: _auto,
+            onChanged: (v) => setState(() => _auto = v),
+          ),
+          SwitchListTile(title: const Text('표지 넣기 (앱에 표지가 있으면)'), value: _cover, onChanged: (v) => setState(() => _cover = v)),
+          SwitchListTile(title: const Text('만든 EPUB 을 라이브러리에 추가'), value: _addToLibrary, onChanged: (v) => setState(() => _addToLibrary = v)),
+          const Divider(),
+          Expanded(
+            child: ListView(children: [
+              for (final e in widget.items)
+                CheckboxListTile(
+                  value: _checked.contains(e),
+                  onChanged: (v) => setState(() => v! ? _checked.add(e) : _checked.remove(e)),
+                  secondary: SizedBox(width: 36, height: 50, child: CoverImage(item: e)),
+                  title: Text(e.title),
+                  subtitle: Text('${e.fileName} · ${fileSize(e.size)}'),
+                ),
+            ]),
+          ),
+          bottomBar('EPUB 만들기 (${_checked.length}개)', () {
+            final app = context.read<AppState>();
+            final made = <String>[];
+            runAll(_checked.toList(), (e) async {
+              final cover = _cover && e.coverPath != null && await File(e.coverPath!).exists() ? await File(e.coverPath!).readAsBytes() : null;
+              final out = await EpubWriter.fromTxt(e.path, title: e.title, author: e.author, cover: cover, autoChapters: _auto);
+              made.add(out);
+              return '→ ${p.basename(out)}';
+            }).then((_) {
+              if (_addToLibrary && made.isNotEmpty) app.importFiles(made);
+            });
+          }, extra: const [Text('  (원본은 바뀌지 않음)')]),
         ]),
       );
 }
