@@ -188,7 +188,7 @@ void main() {
       }
     }
 
-    NavigatorState nav() => Navigator.of(tester.element(find.byType(HomePage)));
+    NavigatorState nav() => Navigator.of(tester.element(find.byType(HomePage, skipOffstage: false)));
     Future<void> push(Widget page) async {
       nav().push(MaterialPageRoute(builder: (_) => page));
       await wait(600);
@@ -256,7 +256,7 @@ void main() {
       }
       File(p.join(extra.path, 'cover.jpg')).writeAsBytesSync(_page('NEW'));
       File(p.join(extra.path, '메모.txt')).writeAsStringSync(_story);
-      final ctx = tester.element(find.byType(HomePage));
+      final ctx = tester.element(find.byType(HomePage, skipOffstage: false));
       showImportDialog(ctx, folder: extra.path);
       await shot('07_폴더추가_항목선택', 4000);
       await popAll();
