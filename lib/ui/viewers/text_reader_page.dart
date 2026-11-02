@@ -222,7 +222,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   List<(int, String)> _segments(String text, bool split) {
     if (!split) return [(0, text)];
     final out = <(int, String)>[];
-    final re = RegExp(r'([“"「『][^”"」』]+[”"」』])|([‘'][^’']+[’'])');
+    final re = RegExp(r'''([“"「『][^”"」』]+[”"」』])|([‘'][^’']+[’'])''');
     var pos = 0;
     for (final m in re.allMatches(text)) {
       if (m.start > pos) out.add((0, text.substring(pos, m.start)));

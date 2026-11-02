@@ -82,15 +82,15 @@ class ShareServer {
       final seg = req.uri.pathSegments;
       _log('${req.connectionInfo?.remoteAddress.address ?? '?'} ${req.method} $path');
 
-      if (path == '/' || path.isEmpty) return _html(res, _webPage(null, req.uri.queryParameters['q']));
-      if (seg.length == 2 && seg[0] == 's') return _html(res, _webPage(int.tryParse(seg[1]), null));
-      if (seg.length == 2 && seg[0] == 'file') return _file(res, int.tryParse(seg[1]), download: true);
-      if (seg.length == 2 && seg[0] == 'cover') return _cover(res, int.tryParse(seg[1]), series: false);
-      if (seg.length == 2 && seg[0] == 'scover') return _cover(res, int.tryParse(seg[1]), series: true);
+      if (path == '/' || path.isEmpty) return await _html(res, _webPage(null, req.uri.queryParameters['q']));
+      if (seg.length == 2 && seg[0] == 's') return await _html(res, _webPage(int.tryParse(seg[1]), null));
+      if (seg.length == 2 && seg[0] == 'file') return await _file(res, int.tryParse(seg[1]), download: true);
+      if (seg.length == 2 && seg[0] == 'cover') return await _cover(res, int.tryParse(seg[1]), series: false);
+      if (seg.length == 2 && seg[0] == 'scover') return await _cover(res, int.tryParse(seg[1]), series: true);
       if (seg.isNotEmpty && seg[0] == 'opds') {
-        if (seg.length == 1) return _atom(res, _opdsFeed(null, req.uri.queryParameters['q']));
-        if (seg.length == 3 && seg[1] == 's') return _atom(res, _opdsFeed(int.tryParse(seg[2]), null));
-        if (seg.length == 2 && seg[1] == 'search.xml') return _atom(res, _openSearch(), type: 'application/opensearchdescription+xml');
+        if (seg.length == 1) return await _atom(res, _opdsFeed(null, req.uri.queryParameters['q']));
+        if (seg.length == 3 && seg[1] == 's') return await _atom(res, _opdsFeed(int.tryParse(seg[2]), null));
+        if (seg.length == 2 && seg[1] == 'search.xml') return await _atom(res, _openSearch(), type: 'application/opensearchdescription+xml');
       }
       res.statusCode = HttpStatus.notFound;
       res.write('Not found');

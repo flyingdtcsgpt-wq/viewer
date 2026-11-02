@@ -275,7 +275,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                 overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
           ),
           const SizedBox(width: 8),
-          Text('${_page + 1} / ${_n} · $pct', style: const TextStyle(color: Colors.white60, fontSize: 12)),
+          Text('${_page + 1} / $_n · $pct', style: const TextStyle(color: Colors.white60, fontSize: 12)),
           NextVolumeButton(item: item),
         ]),
         const SizedBox(height: 4),
