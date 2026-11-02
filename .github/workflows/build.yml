@@ -105,6 +105,15 @@ jobs:
       - name: Analyze screenshot test
         run: flutter analyze --no-fatal-infos --no-fatal-warnings integration_test
 
+      # 한국어 글자 인식기 설치 (서버 Windows 에는 없을 수 있음, 실패해도 계속)
+      - name: Korean OCR language
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Get-WindowsCapability -Online -Name 'Language.OCR*ko-KR*' | Format-Table Name, State
+          Add-WindowsCapability -Online -Name 'Language.OCR~~~ko-KR~0.0.1.0' | Out-Null
+          Get-WindowsCapability -Online -Name 'Language.OCR*ko-KR*' | Format-Table Name, State
+
       - name: Capture screens
         shell: pwsh
         env:

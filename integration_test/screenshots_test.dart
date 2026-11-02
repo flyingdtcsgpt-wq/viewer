@@ -21,6 +21,7 @@ import 'package:media_shelf/services/auth.dart';
 import 'package:media_shelf/services/cover_service.dart';
 import 'package:media_shelf/services/epub_writer.dart';
 import 'package:media_shelf/services/natural_tts.dart';
+import 'package:media_shelf/services/ocr_service.dart';
 import 'package:media_shelf/services/settings.dart';
 import 'package:media_shelf/ui/admin_page.dart';
 import 'package:media_shelf/ui/detail_page.dart';
@@ -416,6 +417,41 @@ void main() {
         });
       });
     }
+
+    // 글자 인식: 글을 그림으로 그려 Windows OCR 이 다시 읽어 내는지
+    await step('ocr', () async {
+      await tester.runAsync(() async {
+        final langs = await OcrService.languages();
+        debugPrint('CHECK ocr languages=$langs');
+        Future<String> render(String name, String text) async {
+          final rec = ui.PictureRecorder();
+          final c = Canvas(rec);
+          c.drawRect(const Rect.fromLTWH(0, 0, 1400, 200), Paint()..color = Colors.white);
+          final tp = TextPainter(
+            text: TextSpan(text: text, style: const TextStyle(color: Colors.black, fontSize: 44)),
+            textDirection: TextDirection.ltr,
+          )..layout(maxWidth: 1340);
+          tp.paint(c, const Offset(30, 60));
+          final im = await rec.endRecording().toImage(1400, 200);
+          final bd = await im.toByteData(format: ui.ImageByteFormat.png);
+          final path = p.join(tmp.path, '$name.png');
+          File(path).writeAsBytesSync(bd!.buffer.asUint8List());
+          return path;
+        }
+
+        final en = await render('ocr_en', 'The quick brown fox jumps over the lazy dog');
+        final ko = await render('ocr_ko', '언덕 위에는 오래된 풍차가 하나 서 있었다');
+        final rEn = await OcrService.recognizeFiles([en], lang: 'en');
+        debugPrint('CHECK ocr en="${rEn[en]}"');
+        try {
+          final rKo = await OcrService.recognizeFiles([ko], lang: 'ko');
+          debugPrint('CHECK ocr ko="${rKo[ko]}"');
+        } catch (e) {
+          debugPrint('CHECK ocr ko unavailable: $e');
+        }
+        expect((rEn[en] ?? '').toLowerCase(), contains('fox'));
+      });
+    });
 
     debugPrint('SHOTS DONE ${done.length}: ${done.join(', ')}');
     expect(done, isNotEmpty);

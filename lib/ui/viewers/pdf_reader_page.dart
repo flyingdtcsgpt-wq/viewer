@@ -1,4 +1,9 @@
+import 'dart:isolate';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:provider/provider.dart';
@@ -6,7 +11,9 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
+import '../../services/ocr_service.dart';
 import 'open_item.dart';
+import 'read_aloud.dart';
 import 'viewer_chrome.dart';
 
 /// PDF 뷰어 — 만화/텍스트 뷰어와 같은 도구줄 + 아래 썸네일 줄
@@ -27,6 +34,29 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   int _pages = 0;
   bool _chrome = true;
   bool _fullscreen = false;
+  bool _readAloud = false;
+
+  /// 쪽의 글: PDF 안의 글자를 쓰고, 없으면(스캔본) 그림으로 그려서 글자 인식
+  Future<String> _pageText(int i) async {
+    final doc = _doc;
+    if (doc == null || i < 0 || i >= doc.pages.length) return '';
+    final page = doc.pages[i];
+    final raw = (await page.loadText())?.fullText ?? '';
+    if (raw.replaceAll(RegExp(r'\s'), '').length >= 15 || !OcrService.supported) return OcrService.tidy(raw);
+    final scale = 2600 / math.max(page.width, page.height);
+    final im = await page.render(fullWidth: page.width * scale, fullHeight: page.height * scale, backgroundColor: 0xffffffff);
+    if (im == null) return OcrService.tidy(raw);
+    try {
+      final w = im.width, h = im.height;
+      final px = Uint8List.fromList(im.pixels);
+      final png = await Isolate.run(() => img.encodePng(
+          img.Image.fromBytes(width: w, height: h, bytes: px.buffer, numChannels: 4, order: img.ChannelOrder.bgra),
+          level: 1));
+      return OcrService.tidy(await OcrService.recognizeBytes(png));
+    } finally {
+      im.dispose();
+    }
+  }
 
   MediaItem get item => widget.item;
   double get _progress => _pages <= 1 ? 1 : (_page - 1) / (_pages - 1);
@@ -152,6 +182,14 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                             onTap: () => s.toggleBookmark(item.id!, _page),
                           ),
                         ]),
+                        ToolGroup([
+                          ToolBtn(
+                            icon: Icons.record_voice_over,
+                            tooltip: '소리 내어 읽기 (스캔본은 글자 인식)',
+                            active: _readAloud,
+                            onTap: () => setState(() => _readAloud = !_readAloud),
+                          ),
+                        ]),
                         ToolGroup([ToolBtn(icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen, tooltip: '전체화면 (F)', onTap: _toggleFullscreen)]),
                         ToolGroup([
                           ToolBtn(
@@ -171,7 +209,9 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                   ]),
                 ),
               Expanded(
-                child: PdfViewer.file(
+                child: Stack(children: [
+                  Positioned.fill(
+                    child: PdfViewer.file(
                   item.path,
                   controller: _ctrl,
                   initialPageNumber: _page,
@@ -189,6 +229,23 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                     },
                   ),
                 ),
+                  ),
+                  if (_readAloud && _doc != null)
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 12,
+                      child: Center(
+                        child: ReadAloudBar(
+                          pageCount: _pages,
+                          currentPage: () => _page - 1,
+                          textOf: _pageText,
+                          goTo: (i) => _go(i + 1),
+                          onClose: () => setState(() => _readAloud = false),
+                        ),
+                      ),
+                    ),
+                ]),
               ),
               if (_chrome && s.viewerSlider && _doc != null)
                 Container(
