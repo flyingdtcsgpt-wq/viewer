@@ -24,6 +24,7 @@ import 'package:media_shelf/services/epub_writer.dart';
 import 'package:media_shelf/services/natural_tts.dart';
 import 'package:media_shelf/services/ocr_service.dart';
 import 'package:media_shelf/services/settings.dart';
+import 'package:media_shelf/services/tts_service.dart';
 import 'package:media_shelf/ui/admin_page.dart';
 import 'package:media_shelf/ui/detail_page.dart';
 import 'package:media_shelf/ui/home_page.dart';
@@ -485,6 +486,19 @@ void main() {
         });
       });
     }
+
+    // 기기(시스템) 음성: 목록을 읽고 한 문장 읽어 본다 (소리 장치가 없으면 실패할 수 있어 기록만)
+    await step('system tts', () async {
+      await tester.runAsync(() async {
+        final v = await TtsService.voices();
+        debugPrint('CHECK voices ${v.length}: ${v.take(8).map(TtsService.label).join(', ')}');
+        final sys = v.where((x) => !NaturalTts.isNatural(x)).firstOrNull;
+        if (sys != null) {
+          final ok = await TtsService().speak('안녕하세요. 테스트입니다.', voice: sys).timeout(const Duration(seconds: 40), onTimeout: () => false);
+          debugPrint('CHECK system tts voice=${TtsService.label(sys)} ok=$ok');
+        }
+      });
+    });
 
     // 글자 인식: 글을 그림으로 그려 Windows OCR 이 다시 읽어 내는지
     await step('ocr', () async {
