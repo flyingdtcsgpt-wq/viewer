@@ -68,6 +68,39 @@ class Settings extends ChangeNotifier {
   bool get comicRtl => _p.getBool('pageRtl') ?? false;
   set comicRtl(bool v) => _set(() => _p.setBool('pageRtl', v));
 
+  // ---------- 뷰어 설정 (BookManager 스타일) ----------
+  /// 페이지 맞춤: 0 가로, 1 높이, 2 전체(기본), 3 원본 크기
+  int get viewerFit => _p.getInt('viewerFit') ?? 2;
+  set viewerFit(int v) => _set(() => _p.setInt('viewerFit', v));
+  /// 아래 슬라이드 탐색 바(썸네일 줄) 표시
+  bool get viewerSlider => _p.getBool('viewerSlider') ?? true;
+  set viewerSlider(bool v) => _set(() => _p.setBool('viewerSlider', v));
+  /// 배경: false 단색, true 몰입형(현재 쪽 색으로 흐리게)
+  bool get viewerImmersive => _p.getBool('viewerImmersive') ?? true;
+  set viewerImmersive(bool v) => _set(() => _p.setBool('viewerImmersive', v));
+  /// 좌/우 방향키: true 읽기방향에 자연스럽게, false 항상 왼쪽=이전
+  bool get viewerArrowNatural => _p.getBool('viewerArrowNatural') ?? true;
+  set viewerArrowNatural(bool v) => _set(() => _p.setBool('viewerArrowNatural', v));
+  /// 넘김효과: 0 없음, 1 슬라이드, 2 페이드, 3 책 넘김
+  int get viewerEffect => _p.getInt('viewerEffect') ?? 1;
+  set viewerEffect(int v) => _set(() => _p.setInt('viewerEffect', v));
+
+  void resetViewer() {
+    for (final k in ['viewerFit', 'viewerSlider', 'viewerImmersive', 'viewerArrowNatural', 'viewerEffect', 'comicMode', 'comicCoverAlone', 'pageRtl']) {
+      _p.remove(k);
+    }
+    notifyListeners();
+  }
+
+  /// 책갈피 (항목별 쪽 번호 목록)
+  List<int> bookmarks(int itemId) => (_p.getStringList('bm_$itemId') ?? []).map(int.parse).toList();
+  void toggleBookmark(int itemId, int page) {
+    final b = bookmarks(itemId);
+    b.contains(page) ? b.remove(page) : b.add(page);
+    b.sort();
+    _set(() => _p.setStringList('bm_$itemId', b.map((e) => '$e').toList()));
+  }
+
   /// 화면 왼쪽/오른쪽을 눌러 쪽 넘기기
   bool get tapToTurn => _p.getBool('tapToTurn') ?? true;
   set tapToTurn(bool v) => _set(() => _p.setBool('tapToTurn', v));
