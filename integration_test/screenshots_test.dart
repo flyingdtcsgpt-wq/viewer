@@ -31,6 +31,7 @@ import 'package:media_shelf/ui/import_dialog.dart';
 import 'package:media_shelf/ui/settings_page.dart';
 import 'package:media_shelf/ui/tools/tools_page.dart';
 import 'package:media_shelf/ui/viewers/comic_reader_page.dart';
+import 'package:media_shelf/ui/viewers/image_viewer_page.dart';
 import 'package:media_shelf/ui/viewers/text_reader_page.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -340,6 +341,30 @@ void main() {
       if (comic != null) {
         await push(ComicReaderPage(item: comic!));
         await shot('17_휴대폰_만화뷰어', 2500);
+        await popAll();
+      }
+      // 휴대폰 화면에서 읽어주기 막대가 넘치지 않는지
+      if (book != null) {
+        await push(TextReaderPage(item: book!));
+        await wait(1500);
+        final ttsBtn = find.text('TTS');
+        if (ttsBtn.evaluate().isNotEmpty) {
+          await tester.tap(ttsBtn.first);
+          await wait(800);
+        }
+        await shot('17b_휴대폰_텍스트_읽어주기', 1500);
+        await popAll();
+      }
+      final pics = state.allItems.where((e) => e.kind == MediaKind.image).toList();
+      if (pics.isNotEmpty) {
+        await push(ImageViewerPage(images: pics, initialIndex: 0));
+        await wait(1000);
+        final ra = find.byIcon(Icons.record_voice_over);
+        if (ra.evaluate().isNotEmpty) {
+          await tester.tap(ra.first);
+          await wait(800);
+        }
+        await shot('17c_휴대폰_그림_읽어주기', 1500);
         await popAll();
       }
     });
