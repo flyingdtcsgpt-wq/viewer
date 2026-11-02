@@ -20,6 +20,7 @@ import 'package:media_shelf/models/media_item.dart';
 import 'package:media_shelf/services/auth.dart';
 import 'package:media_shelf/services/cover_service.dart';
 import 'package:media_shelf/services/epub_writer.dart';
+import 'package:media_shelf/services/natural_tts.dart';
 import 'package:media_shelf/services/settings.dart';
 import 'package:media_shelf/ui/admin_page.dart';
 import 'package:media_shelf/ui/detail_page.dart';
@@ -379,6 +380,42 @@ void main() {
       debugPrint('CHECK restricted leaked=$leaked');
       expect(leaked, 0);
     });
+
+    // 자연 음성: 모델을 받아 한국어를 합성해 보고, 소리가 실제로 나는지 숫자로 확인한다
+    if (Platform.environment['TTS_CHECK'] == '1') {
+      await step('natural tts', () async {
+        final tts = NaturalTts.instance;
+        await tester.runAsync(() async {
+          final sw = Stopwatch()..start();
+          await tts.download(onProgress: (f, got, total) {
+            if (got == total) debugPrint('TTS downloaded $f ${(total / 1048576).toStringAsFixed(1)}MB');
+          });
+          debugPrint('TTS download ${sw.elapsed.inSeconds}s installed=${await tts.installed()}');
+          for (final (name, voice, text) in [
+            ('tts_여성1_나레이션', 'st:F1', '언덕 위에는 오래된 풍차가 하나 서 있었다. 아이들은 그 풍차가 밤마다 노래를 부른다고 믿었다.'),
+            ('tts_남성1_대사', 'st:M1', '"정말이야. 어젯밤에도 들었어." 민호가 속삭였다.'),
+          ]) {
+            sw.reset();
+            final wav = await tts.synthesize(text, voice);
+            final bytes = await File(wav).readAsBytes();
+            final bd = ByteData.sublistView(bytes);
+            final n = (bytes.length - 44) ~/ 2;
+            var sq = 0.0, peak = 0;
+            for (var i = 0; i < n; i++) {
+              final v = bd.getInt16(44 + i * 2, Endian.little);
+              sq += v * v.toDouble();
+              if (v.abs() > peak) peak = v.abs();
+            }
+            final rms = n == 0 ? 0 : sqrt(sq / n);
+            final sec = n / 44100;
+            debugPrint('CHECK tts $name voice=$voice sec=${sec.toStringAsFixed(2)} rms=${rms.toStringAsFixed(0)} peak=$peak took=${sw.elapsedMilliseconds}ms');
+            File(wav).copySync(p.join(out.path, '$name.wav'));
+            expect(sec, greaterThan(1.0));
+            expect(rms, greaterThan(300));
+          }
+        });
+      });
+    }
 
     debugPrint('SHOTS DONE ${done.length}: ${done.join(', ')}');
     expect(done, isNotEmpty);

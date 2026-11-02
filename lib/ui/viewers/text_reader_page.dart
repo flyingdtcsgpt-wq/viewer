@@ -9,6 +9,7 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
 import '../../services/text_document.dart';
+import '../../services/natural_tts.dart';
 import '../../services/tts_service.dart';
 import '../cover_tile.dart';
 import 'epub_original_page.dart';
@@ -116,7 +117,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
     }
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _speaking = false;
-    _tts.stop();
+    _tts.dispose();
     _ctrl.dispose();
     _focus.dispose();
     _searchCtrl.dispose();
@@ -246,21 +247,51 @@ class _TextReaderPageState extends State<TextReaderPage> {
       final b = _doc!.blocks[i];
       _showBlock(i);
       if (!b.isImage && (b.text ?? '').trim().isNotEmpty) {
-        for (final (kind, seg) in _segments(b.text!, s.ttsSplit)) {
-          final voice = switch (kind) {
-            1 when s.ttsDialogueVoice.isNotEmpty => s.ttsDialogueVoice,
-            2 when s.ttsThoughtVoice.isNotEmpty => s.ttsThoughtVoice,
-            _ => s.ttsVoice,
-          };
-          final rate = s.ttsRate + (kind == 2 ? -2 : 0); // 속마음은 조금 느리게
+        final plan = [
+          for (final (kind, seg) in _segments(b.text!, s.ttsSplit))
+            (
+              seg,
+              switch (kind) {
+                1 when s.ttsDialogueVoice.isNotEmpty => s.ttsDialogueVoice,
+                2 when s.ttsThoughtVoice.isNotEmpty => s.ttsThoughtVoice,
+                _ => s.ttsVoice,
+              },
+              s.ttsRate + (kind == 2 ? -2 : 0), // 속마음은 조금 느리게
+            ),
+        ];
+        // 다음 문단 첫 덩어리도 미리 만들어 두면 문단 사이가 덜 끊긴다
+        final nextBlock = i + 1 < _count ? _doc!.blocks[i + 1] : null;
+        final nextText = nextBlock == null || nextBlock.isImage ? null : _segments(nextBlock.text ?? '', s.ttsSplit).firstOrNull;
+        for (var k = 0; k < plan.length; k++) {
+          final (seg, voice, rate) = plan[k];
+          if (k + 1 < plan.length) {
+            final (ns, nv, nr) = plan[k + 1];
+            _tts.prefetch(ns, voice: nv, rate: nr);
+          } else if (nextText != null) {
+            final nv = switch (nextText.$1) {
+              1 when s.ttsDialogueVoice.isNotEmpty => s.ttsDialogueVoice,
+              2 when s.ttsThoughtVoice.isNotEmpty => s.ttsThoughtVoice,
+              _ => s.ttsVoice,
+            };
+            _tts.prefetch(nextText.$2, voice: nv, rate: s.ttsRate + (nextText.$1 == 2 ? -2 : 0));
+          }
           final done = await _tts.speak(seg, voice: voice, rate: rate);
-          if (!done || !_speaking || !mounted) return;
+          if (!done || !_speaking || !mounted) {
+            if (mounted && _speaking && !done) _ttsFailed();
+            return;
+          }
         }
       }
       if (!_speaking || !mounted) return;
       setState(() => _ttsBlock = i + 1);
     }
     if (mounted) setState(() => _speaking = false);
+  }
+
+  void _ttsFailed() {
+    setState(() => _speaking = false);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('음성을 만들지 못했습니다. 설정 › 읽어주기 음성에서 음성 파일을 확인하거나 다른 음성을 고르세요.')));
   }
 
   Future<void> _ttsStop({bool reset = false}) async {
@@ -309,7 +340,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
           value: _voices.contains(value) ? value : null,
           hint: Text(hint, style: const TextStyle(color: Colors.white70)),
           style: const TextStyle(color: Colors.white),
-          items: [for (final v in _voices) DropdownMenuItem(value: v, child: Text(v))],
+          items: [for (final v in _voices) DropdownMenuItem(value: v, child: Text(TtsService.label(v)))],
           onChanged: (v) => onChanged(v ?? ''),
         );
     const speeds = [-4, -2, 0, 2, 4, 6];
@@ -360,7 +391,10 @@ class _TextReaderPageState extends State<TextReaderPage> {
             ]),
           if (_voices.isEmpty)
             const Text('음성 목록을 읽는 중… (Windows 설정 → 시간 및 언어 → 음성 에서 한국어 음성을 추가할 수 있습니다)',
-                style: TextStyle(color: Colors.white38, fontSize: 11)),
+                style: TextStyle(color: Colors.white38, fontSize: 11))
+          else if (!_voices.any(NaturalTts.isNatural))
+            const Text('사람 같은 자연스러운 음성(무료 · 오프라인)은 설정 › 읽어주기 음성에서 받을 수 있습니다',
+                style: TextStyle(color: Colors.white54, fontSize: 11)),
         ]),
       ),
     );

@@ -7,7 +7,9 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../models/media_item.dart';
+import '../services/natural_tts.dart';
 import '../services/settings.dart';
+import '../services/tts_service.dart';
 import '../version.dart';
 import 'admin_page.dart';
 import 'import_dialog.dart';
@@ -50,6 +52,7 @@ const _cats = [
   _Cat(Icons.search, '메타데이터 검색 및 API', '검색 서비스 · 인증 정보', adminOnly: true),
   _Cat(Icons.auto_awesome, 'AI 도우미', 'Claude API', adminOnly: true),
   _Cat(Icons.person, '계정 · 보안', '사용자 · 권한 · 숨김'),
+  _Cat(Icons.record_voice_over, '읽어주기 음성', '자연스러운 음성 받기 · 듣기'),
   _Cat(Icons.info_outline, '정보', '버전 · 데이터 위치'),
 ];
 
@@ -120,6 +123,7 @@ class _SettingsViewState extends State<_SettingsView> {
       4 => const _Sources(),
       5 => const _Ai(),
       6 => const _Account(),
+      7 => const _Voice(),
       _ => const _About(),
     };
 
@@ -610,4 +614,219 @@ class _About extends StatelessWidget {
           ),
         ])),
       ]);
+}
+
+// =====================================================================
+//  읽어주기 음성: 자연 음성(Supertonic) 받기 · 가져오기 · 들어 보기
+// =====================================================================
+class _Voice extends StatefulWidget {
+  const _Voice();
+  @override
+  State<_Voice> createState() => _VoiceState();
+}
+
+class _VoiceState extends State<_Voice> {
+  final _tts = TtsService();
+  final _sample = TextEditingController(text: '언덕 위에는 오래된 풍차가 하나 서 있었다. "정말이야. 어젯밤에도 들었어." 민호가 속삭였다.');
+  List<String> _voices = [];
+  bool? _installed;
+  bool _busy = false, _cancel = false, _playing = false;
+  String _status = '';
+  double? _progress;
+  String _test = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    _tts.dispose();
+    _sample.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    final ok = await NaturalTts.instance.installed();
+    final v = await TtsService.voices();
+    if (!mounted) return;
+    setState(() {
+      _installed = ok;
+      _voices = v;
+      if (_test.isEmpty || !v.contains(_test)) _test = v.firstOrNull ?? '';
+    });
+  }
+
+  void _useAsDefault(Settings s) {
+    if (s.ttsVoice.isEmpty || !NaturalTts.isNatural(s.ttsVoice)) s.ttsVoice = '${NaturalTts.prefix}F1';
+  }
+
+  Future<void> _download(Settings s) async {
+    setState(() {
+      _busy = true;
+      _cancel = false;
+      _status = '내려받는 중…';
+      _progress = null;
+    });
+    try {
+      await NaturalTts.instance.download(
+        cancelled: () => _cancel,
+        onProgress: (file, got, total) {
+          if (!mounted) return;
+          setState(() {
+            _status = '$file  ${(got / 1048576).toStringAsFixed(1)} MB${total > 0 ? ' / ${(total / 1048576).toStringAsFixed(1)} MB' : ''}';
+            _progress = total > 0 ? got / total : null;
+          });
+        },
+      );
+      _useAsDefault(s);
+      _status = '설치했습니다. 이제 책 읽어주기에서 자연 음성을 고를 수 있습니다.';
+    } catch (e) {
+      _status = '받지 못했습니다: $e\n인터넷이 없으면 다른 PC 에서 받은 폴더를 "폴더에서 가져오기"로 넣을 수 있습니다.';
+    }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _progress = null;
+    });
+    await _refresh();
+  }
+
+  Future<void> _import(Settings s) async {
+    final d = await FilePicker.getDirectoryPath(dialogTitle: 'supertonic-3 폴더 선택');
+    if (d == null) return;
+    setState(() {
+      _busy = true;
+      _status = '가져오는 중…';
+    });
+    try {
+      final n = await NaturalTts.instance.importFrom(d);
+      final ok = await NaturalTts.instance.installed();
+      if (ok) _useAsDefault(s);
+      _status = ok ? '$n개 파일을 가져왔습니다. 설치 완료.' : '$n개 파일을 가져왔지만 아직 빠진 파일이 있습니다. onnx 폴더와 voice_styles 폴더가 모두 있어야 합니다.';
+    } catch (e) {
+      _status = '가져오지 못했습니다: $e';
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _refresh();
+  }
+
+  Future<void> _play() async {
+    if (_test.isEmpty) return;
+    setState(() {
+      _playing = true;
+      _status = NaturalTts.isNatural(_test) ? '음성을 만드는 중… (처음 한 번은 모델을 읽느라 몇 초 걸립니다)' : '';
+    });
+    final sw = Stopwatch()..start();
+    final ok = await _tts.speak(_sample.text, voice: _test, rate: context.read<Settings>().ttsRate);
+    if (!mounted) return;
+    setState(() {
+      _playing = false;
+      _status = ok ? (NaturalTts.isNatural(_test) ? '재생 끝 (${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)}초)' : '') : '재생하지 못했습니다';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<Settings>();
+    final admin = context.watch<AppState>().isAdmin;
+    final text = Theme.of(context).textTheme;
+    final installed = _installed;
+    return _Page('읽어주기 음성', desc: 'TXT · EPUB 를 소리 내어 읽을 때 쓰는 목소리입니다.', [
+      _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.auto_awesome, color: Colors.amber),
+          const SizedBox(width: 8),
+          Text('자연스러운 음성 (무료 · 오프라인)', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+          const Spacer(),
+          if (installed == true) const Chip(avatar: Icon(Icons.check, size: 16, color: Colors.green), label: Text('설치됨')),
+        ]),
+        const SizedBox(height: 6),
+        Text(
+          'Supertone 이 공개한 Supertonic 3 모델로 PC 안에서 직접 사람 같은 목소리를 만듭니다. '
+          '인터넷 · 사용료가 필요 없고, 남녀 목소리 10가지가 있습니다. 처음 한 번 모델 파일(수백 MB)을 받아야 합니다.',
+          style: text.bodySmall,
+        ),
+        if (!NaturalTts.supported) const Text('이 기기에서는 아직 지원하지 않습니다.'),
+        const SizedBox(height: 12),
+        if (_busy) ...[
+          LinearProgressIndicator(value: _progress),
+          const SizedBox(height: 6),
+        ],
+        if (_status.isNotEmpty) Text(_status, style: text.bodySmall),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          if (installed != true)
+            FilledButton.icon(
+              onPressed: _busy || !NaturalTts.supported ? null : () => _download(s),
+              icon: const Icon(Icons.download),
+              label: const Text('인터넷에서 받기'),
+            ),
+          if (_busy && installed != true)
+            OutlinedButton(onPressed: () => setState(() => _cancel = true), child: const Text('취소')),
+          OutlinedButton.icon(
+            onPressed: _busy || !NaturalTts.supported ? null : () => _import(s),
+            icon: const Icon(Icons.folder_open),
+            label: const Text('폴더에서 가져오기 (오프라인 PC)'),
+          ),
+          if (installed == true && admin)
+            TextButton.icon(
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      await NaturalTts.instance.remove();
+                      if (NaturalTts.isNatural(s.ttsVoice)) s.ttsVoice = '';
+                      if (NaturalTts.isNatural(s.ttsDialogueVoice)) s.ttsDialogueVoice = '';
+                      if (NaturalTts.isNatural(s.ttsThoughtVoice)) s.ttsThoughtVoice = '';
+                      await _refresh();
+                    },
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('지우기'),
+            ),
+        ]),
+        const SizedBox(height: 8),
+        Text(
+          '오프라인 PC: 인터넷 되는 곳에서 huggingface.co/${NaturalTts.repo} 의 onnx 폴더와 voice_styles 폴더를 받아 '
+          'USB 로 옮긴 뒤 "폴더에서 가져오기"로 그 폴더를 고르세요.',
+          style: text.bodySmall?.copyWith(color: Colors.grey),
+        ),
+      ])),
+      _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('들어 보기 · 기본 음성', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 10),
+        TextField(controller: _sample, maxLines: 3, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '읽을 글')),
+        const SizedBox(height: 10),
+        Wrap(spacing: 10, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          DropdownButton<String>(
+            value: _voices.contains(_test) ? _test : null,
+            hint: const Text('음성 고르기'),
+            items: [for (final v in _voices) DropdownMenuItem(value: v, child: Text(TtsService.label(v)))],
+            onChanged: (v) => setState(() => _test = v ?? ''),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: _test.isEmpty
+                ? null
+                : _playing
+                    ? () async {
+                        await _tts.stop();
+                        if (mounted) setState(() => _playing = false);
+                      }
+                    : _play,
+            icon: Icon(_playing ? Icons.stop : Icons.play_arrow),
+            label: Text(_playing ? '멈춤' : '들어 보기'),
+          ),
+          OutlinedButton(
+            onPressed: _test.isEmpty ? null : () => s.ttsVoice = _test,
+            child: Text(s.ttsVoice == _test ? '기본 음성으로 쓰는 중' : '기본 음성으로'),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        Text('기본 음성: ${s.ttsVoice.isEmpty ? 'Windows 기본' : TtsService.label(s.ttsVoice)}', style: text.bodySmall),
+        Text('대사 · 속마음 음성과 속도는 책을 읽을 때 아래쪽 읽어주기 막대에서 고릅니다.', style: text.bodySmall?.copyWith(color: Colors.grey)),
+      ])),
+    ]);
+  }
 }

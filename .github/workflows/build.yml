@@ -109,13 +109,16 @@ jobs:
         shell: pwsh
         env:
           SHOTS_DIR: ${{ github.workspace }}\screenshots
+          TTS_CHECK: '1'
         run: flutter test integration_test/screenshots_test.dart -d windows
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ARARIFlex-screenshots
-          path: screenshots/*.png
+          path: |
+            screenshots/*.png
+            screenshots/*.wav
 
       # 브라우저로 바로 보도록 screenshots 브랜치에 올린다 (README 에 전부 나열)
       - name: Publish to screenshots branch
@@ -125,6 +128,11 @@ jobs:
           if (-not (Test-Path screenshots)) { exit 0 }
           cd screenshots
           $md = "# ARARIFlex 화면 캡처`n`n커밋 ${{ github.sha }}`n`n"
+          foreach ($f in Get-ChildItem *.wav | Sort-Object Name) {
+            $u = [uri]::EscapeDataString($f.Name)
+            $md += "- 음성 샘플: [$($f.Name)]($u)`n"
+          }
+          $md += "`n"
           foreach ($f in Get-ChildItem *.png | Sort-Object Name) {
             $u = [uri]::EscapeDataString($f.Name)
             $md += "## $($f.BaseName)`n`n![]($u)`n`n"

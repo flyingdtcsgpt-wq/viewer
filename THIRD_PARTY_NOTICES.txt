@@ -34,3 +34,17 @@
 8. 그 밖의 Dart 패키지 (provider, sqflite, archive, xml, http, file_picker, path_provider,
    shared_preferences, crypto, cp949_codec, fc_native_video_thumbnail, open_filex 등)
    각 패키지의 라이선스(MIT / BSD / Apache 2.0 등) — 앱 안 "오픈소스 라이선스" 화면 참고
+
+9. ONNX Runtime (Microsoft) — MIT License
+   자연스러운 음성 합성에 사용. https://github.com/microsoft/onnxruntime
+
+10. flutter_onnxruntime (MASIC AI) — MIT License
+
+11. Supertonic (Supertone Inc.) — 예제 코드 MIT License, Copyright (c) 2025 Supertone Inc.
+    자연 음성 합성 코드는 Supertonic 공식 Flutter 예제를 바탕으로 했습니다.
+    https://github.com/supertone-oss-archive/supertonic
+
+12. Supertonic 3 음성 모델 — OpenRAIL-M License (앱에 들어 있지 않음)
+    사용자가 설정 › 읽어주기 음성에서 직접 내려받거나 가져올 때만 PC 에 저장됩니다.
+    모델 라이선스의 사용 제한(타인 사칭, 허위 정보, 불법 목적 등 금지)을 지켜 주세요.
+    https://huggingface.co/supertone-oss-archive/supertonic-3
