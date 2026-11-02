@@ -261,6 +261,19 @@ class _AccessPageState extends State<AccessPage> {
           ));
         }
       }
+      // 폴더를 합치면서 목록에서 사라졌지만 아직 막혀 있는 폴더 (풀 수 있게 보여 줌)
+      final known = {for (final lf in state.settings.libraryFolders) lf.path};
+      for (final d in denied.where((d) => d.startsWith('f:') && !known.contains(d.substring(2)))) {
+        rows.add(_row(
+          depth: 0,
+          icon: Icons.folder_off,
+          title: d.substring(2).split(RegExp(r'[\\/]')).lastWhere((x) => x.isNotEmpty, orElse: () => d.substring(2)),
+          subtitle: '다른 폴더에 합쳐진 폴더 · ${d.substring(2)}',
+          allowed: false,
+          enabled: true,
+          onChanged: (v) => _set([d], v),
+        ));
+      }
       // 2) 종류 단위
       rows.add(const _Section('종류', '예) 아이 계정에서 영상만 막기'));
       for (final k in MediaKind.values) {

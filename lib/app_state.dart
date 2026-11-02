@@ -1119,6 +1119,7 @@ class AppState extends ChangeNotifier {
 
   /// 개별 파일 가져오기 (드래그/파일선택). 설정이 managed 면 라이브러리 폴더로 이동/복사.
   Future<void> importFiles(List<String> paths) async {
+    if (scanning) return;
     scanning = true;
     notifyListeners();
     var added = 0;
@@ -1147,7 +1148,7 @@ class AppState extends ChangeNotifier {
       null;
 
   /// 파일 하나 등록. 이미 있으면 null
-  Future<MediaItem?> _addFile(String path, ImportMode mode, {String? root}) async {
+  Future<MediaItem?> _addFile(String path, ImportMode mode, {String? root, bool hidden = false}) async {
     if (await db.exists(path)) return null;
     final kind = kindForPath(path)!;
     final stat = await File(path).stat();
@@ -1157,7 +1158,7 @@ class AppState extends ChangeNotifier {
       storage: StorageMode.reference,
       title: _titleFromFileName(path),
       size: stat.size,
-    );
+    )..hidden = hidden; // 숨김으로 추가: 목록에 들어가는 순간부터 숨김
     if (item.extension == '.epub') {
       final info = await covers.readEpubInfo(path);
       if (info != null) {
@@ -1172,13 +1173,34 @@ class AppState extends ChangeNotifier {
     item.coverPath = await covers.generate(item);
     item.pages = await covers.pageCount(item);
 
+    String? placed; // 복사/이동해서 새로 생긴 파일 (실패하면 되돌림)
     if (mode != ImportMode.reference && root != null) {
-      item.path = await Organizer.apply(item, root, settings.organizePattern, move: mode == ImportMode.move);
+      final dest = await Organizer.apply(item, root, settings.organizePattern, move: mode == ImportMode.move);
+      if (!p.equals(dest, path)) placed = dest;
+      item.path = dest;
       item.storage = StorageMode.managed;
       if (item.kind == MediaKind.image) item.coverPath = item.path;
     }
-    if (await db.exists(item.path)) return null;
-    item.id = await db.insert(item);
+    try {
+      if (await db.exists(item.path)) {
+        throw StateError('이미 등록된 경로');
+      }
+      item.id = await db.insert(item);
+    } catch (e) {
+      // 등록에 실패하면 파일을 원래대로: 이동은 제자리로, 복사본은 지움
+      if (placed != null) {
+        try {
+          if (mode == ImportMode.move) {
+            await Organizer.moveFile(placed, path);
+          } else {
+            await File(placed).delete();
+          }
+        } catch (_) {}
+      }
+      if (e is StateError) return null;
+      rethrow;
+    }
+    if (hidden) await _syncOsHidden([item]);
     _items.insert(0, item);
     return item;
   }
@@ -1196,8 +1218,12 @@ class AppState extends ChangeNotifier {
     try {
       final f = File(path);
       final raf = await f.open();
-      final head = await raf.read(256 * 1024);
-      await raf.close();
+      final List<int> head;
+      try {
+        head = await raf.read(256 * 1024);
+      } finally {
+        await raf.close();
+      }
       final h = '${await f.length()}:${sha1.convert(head)}';
       _quickHashCache[path] = h;
       return h;
@@ -1273,8 +1299,9 @@ class AppState extends ChangeNotifier {
 
   /// 고른 항목 추가
   Future<int> importCandidates(List<ImportCandidate> picked, ImportOptions opt) async {
+    if (scanning) throw StateError('다른 추가/스캔 작업이 끝난 뒤 다시 시도하세요');
     scanning = true;
-    var added = 0;
+    var added = 0, failed = 0;
     final made = <MediaItem, String>{}; // 새 항목 → 원래 경로
     try {
       for (var i = 0; i < picked.length; i++) {
@@ -1282,19 +1309,34 @@ class AppState extends ChangeNotifier {
         scanStatus = '추가 중 (${i + 1}/${picked.length}): ${p.basename(c.path)}';
         notifyListeners();
         try {
-          final item = await _addFile(c.path, opt.mode, root: opt.targetRoot);
+          final item = await _addFile(c.path, opt.mode, root: opt.targetRoot, hidden: opt.hidden);
           if (item != null) {
             made[item] = c.path;
             added++;
           }
-        } catch (_) {}
+        } catch (e) {
+          failed++;
+          debugPrint('import failed ${c.path}: $e');
+        }
       }
 
       // ---- 묶기 ----
       final base = opt.baseDir;
       switch (opt.group) {
         case GroupMode.auto:
-          if (made.isNotEmpty) await autoGroup();
+          if (made.isNotEmpty) {
+            final before = _series.keys.toSet();
+            await autoGroup();
+            // 숨김으로 추가했다면, 이번에 새로 생긴 묶음 중 숨긴 항목만 든 묶음도 숨긴다 (제목 노출 방지)
+            if (opt.hidden) {
+              final fresh = _series.values.where((s) => !before.contains(s.id)).toList();
+              final hide = fresh.where((s) {
+                final under = _itemsUnder(s.id!);
+                return under.isNotEmpty && under.every((e) => e.hidden);
+              }).toList();
+              if (hide.isNotEmpty) await setHidden(series: hide, hidden: true);
+            }
+          }
         case GroupMode.wholeFolder:
           if (made.isNotEmpty) {
             final s = await createSeries(opt.bundleName ?? (base != null ? p.basename(base) : '새 묶음'));
@@ -1330,7 +1372,7 @@ class AppState extends ChangeNotifier {
       if (opt.watch && base != null && opt.mode == ImportMode.reference) {
         registerWatchFolder(base);
       }
-      scanStatus = '완료: $added개 추가';
+      scanStatus = failed == 0 ? '완료: $added개 추가' : '완료: $added개 추가, $failed개 실패 (파일이 사용 중이거나 권한이 없음)';
     } finally {
       scanning = false;
       notifyListeners();
@@ -1340,10 +1382,10 @@ class AppState extends ChangeNotifier {
 
   /// 겹치는 라이브러리 폴더 정리: (이미 감싸는 폴더, 이 폴더 안에 이미 등록된 폴더들)
   (String?, List<String>) folderOverlap(String dir) {
-    final sep = Platform.pathSeparator;
-    bool inside(String a, String b) => a == b || a.startsWith(b.endsWith(sep) ? b : '$b$sep');
+    // Windows 는 대소문자 · 끝의 \ 차이를 같은 경로로 본다
+    bool inside(String a, String b) => p.equals(a, b) || p.isWithin(b, a);
     final parent = settings.watchFolders.where((w) => inside(dir, w)).firstOrNull;
-    final children = settings.watchFolders.where((w) => w != dir && inside(w, dir)).toList();
+    final children = settings.watchFolders.where((w) => !p.equals(w, dir) && inside(w, dir)).toList();
     return (parent, children);
   }
 

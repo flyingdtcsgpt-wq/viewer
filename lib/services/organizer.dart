@@ -42,17 +42,29 @@ class Organizer {
       n++;
     }
 
-    final src = File(item.path);
     if (!move) {
-      await src.copy(dest);
+      await File(item.path).copy(dest);
     } else {
-      try {
-        await src.rename(dest); // 같은 드라이브면 즉시 이동
-      } on FileSystemException {
-        await src.copy(dest); // 다른 드라이브면 복사 후 삭제
-        await src.delete();
-      }
+      await moveFile(item.path, dest);
     }
     return dest;
+  }
+
+  /// 파일 이동. 다른 드라이브면 복사 후 삭제하고, 원본을 못 지우면 사본을 지워 원래 상태로 둔다
+  static Future<void> moveFile(String from, String to) async {
+    final src = File(from);
+    try {
+      await src.rename(to); // 같은 드라이브면 즉시 이동
+    } on FileSystemException {
+      await src.copy(to);
+      try {
+        await src.delete();
+      } catch (_) {
+        try {
+          await File(to).delete();
+        } catch (_) {}
+        rethrow;
+      }
+    }
   }
 }

@@ -71,7 +71,7 @@ class _ImportDialogState extends State<_ImportDialog> {
       } else if (children.isNotEmpty) {
         _overlap = '이 폴더 안에 이미 등록된 라이브러리 폴더 ${children.length}개가 있습니다:\n'
             '${children.map((c) => '  · $c').join('\n')}\n'
-            '등록하면 이 폴더 하나로 합쳐집니다. 이미 등록된 파일은 다시 추가되지 않습니다.';
+            '"원본 위치에 연결"로 라이브러리 폴더에 등록하면 이 폴더 하나로 합쳐집니다. 이미 등록된 파일은 다시 추가되지 않습니다.';
       }
     }
     final list = dir != null
@@ -96,7 +96,8 @@ class _ImportDialogState extends State<_ImportDialog> {
     final text = Theme.of(context).textTheme;
     final list = _list;
     final shown = _shown;
-    final picked = (list ?? const <ImportCandidate>[]).where((c) => c.selected && c.status != ImportStatus.registered).toList();
+    // 필터로 가린 항목은 추가하지 않는다 (보이는 것 중 체크한 것만)
+    final picked = shown.where((c) => c.selected && c.status != ImportStatus.registered).toList();
     final counts = <MediaKind, int>{};
     for (final c in list ?? const <ImportCandidate>[]) {
       counts[c.kind] = (counts[c.kind] ?? 0) + 1;
@@ -239,10 +240,7 @@ class _ImportDialogState extends State<_ImportDialog> {
             trailing: const Icon(Icons.edit),
             onTap: () async {
               final d = await FilePicker.getDirectoryPath(dialogTitle: '정리 폴더 선택');
-              if (d != null) {
-                _app.settings.libraryRoot = d;
-                setState(() => _opt.targetRoot = d);
-              }
+              if (d != null) setState(() => _opt.targetRoot = d);
             },
           ),
       ]),
@@ -331,10 +329,19 @@ class _ImportDialogState extends State<_ImportDialog> {
                     : () async {
                         setState(() => _running = true);
                         _opt.bundleName = _bundleName.text.trim().isEmpty ? null : _bundleName.text.trim();
-                        final n = await _app.importCandidates(picked, _opt);
-                        if (!context.mounted) return;
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$n개를 추가했습니다')));
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          final n = await _app.importCandidates(picked, _opt);
+                          if (!context.mounted) return;
+                          Navigator.pop(context);
+                          final fail = picked.length - n;
+                          messenger.showSnackBar(SnackBar(
+                              content: Text(fail > 0 && _opt.mode != ImportMode.reference ? '$n개를 추가했습니다 (${_app.scanStatus})' : '$n개를 추가했습니다')));
+                        } catch (e) {
+                          if (!mounted) return;
+                          setState(() => _running = false);
+                          messenger.showSnackBar(SnackBar(content: Text('추가하지 못했습니다: ${e is StateError ? e.message : e}')));
+                        }
                       },
                 icon: const Icon(Icons.add),
                 label: Text('${picked.length}개 추가'),
