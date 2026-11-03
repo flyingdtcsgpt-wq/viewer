@@ -453,6 +453,24 @@ void main() {
           File(wav).copySync(p.join(out.path, 'tts_kokoro_영어_af_heart.wav'));
           expect(n / 24000, greaterThan(2.0));
           expect(rms, greaterThan(300));
+          // 두 번째부터는 모델을 이미 읽었으니 순수 합성 시간
+          for (var round = 0; round < 2; round++) {
+            sw.reset();
+            final w2 = await k.synthesize('The quick brown fox jumps over the lazy dog, and then it runs away.', 'kk:am_adam');
+            final n2 = ((await File(w2).length()) - 44) ~/ 2;
+            debugPrint('CHECK kokoro int8 again sec=${(n2 / 24000).toStringAsFixed(2)} took=${sw.elapsedMilliseconds}ms');
+          }
+          // 원본(fp32) 모델과 속도 비교
+          sw.reset();
+          await k.download(full: true);
+          await k.unload();
+          debugPrint('CHECK kokoro full download ${sw.elapsed.inSeconds}s');
+          for (var round = 0; round < 2; round++) {
+            sw.reset();
+            final w3 = await k.synthesize('The quick brown fox jumps over the lazy dog, and then it runs away.', 'kk:am_adam');
+            final n3 = ((await File(w3).length()) - 44) ~/ 2;
+            debugPrint('CHECK kokoro full sec=${(n3 / 24000).toStringAsFixed(2)} took=${sw.elapsedMilliseconds}ms');
+          }
         });
       });
     }
