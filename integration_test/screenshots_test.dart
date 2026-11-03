@@ -32,7 +32,6 @@ import 'package:media_shelf/ui/import_dialog.dart';
 import 'package:media_shelf/ui/settings_page.dart';
 import 'package:media_shelf/ui/tools/tools_page.dart';
 import 'package:media_shelf/ui/viewers/comic_reader_page.dart';
-import 'package:media_shelf/ui/viewers/image_viewer_page.dart';
 import 'package:media_shelf/ui/viewers/text_reader_page.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -353,13 +352,6 @@ void main() {
         await push(TextReaderPage(item: book!, readAloud: true));
         await wait(1500);
         await shot('17b_휴대폰_텍스트_읽어주기', 1500);
-        await popAll();
-      }
-      final pics = state.allItems.where((e) => e.kind == MediaKind.image).toList();
-      if (pics.isNotEmpty) {
-        await push(ImageViewerPage(images: pics, initialIndex: 0, readAloud: true));
-        await wait(1000);
-        await shot('17c_휴대폰_그림_읽어주기', 1500);
         await popAll();
       }
     });

@@ -7,17 +7,14 @@ import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../models/media_item.dart';
-import '../../services/ocr_service.dart';
 import '../../services/settings.dart';
 import '../detail_page.dart';
-import 'read_aloud.dart';
 
 /// 그림 뷰어: 좌우 넘기기, 확대/이동(두 손가락·휠·더블탭), 슬라이드쇼
 class ImageViewerPage extends StatefulWidget {
   final List<MediaItem> images;
   final int initialIndex;
-  final bool readAloud;
-  const ImageViewerPage({super.key, required this.images, required this.initialIndex, this.readAloud = false});
+  const ImageViewerPage({super.key, required this.images, required this.initialIndex});
 
   @override
   State<ImageViewerPage> createState() => _ImageViewerPageState();
@@ -30,7 +27,6 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
   final _zoom = <int, TransformationController>{};
   bool _zoomed = false;
   bool _showUi = true;
-  late bool _readAloud = widget.readAloud;
   Timer? _slideshow;
 
   MediaItem get _item => widget.images[_index];
@@ -145,22 +141,6 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
                 ),
               ),
             ),
-            if (_readAloud)
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 12,
-                child: Center(
-                  child: ReadAloudBar(
-                    pageCount: widget.images.length,
-                    currentPage: () => _index,
-                    textOf: (i) async => OcrService.tidy(
-                        (await OcrService.recognizeFiles([widget.images[i].path])).values.firstOrNull ?? ''),
-                    goTo: (i) => _go(i - _index),
-                    onClose: () => setState(() => _readAloud = false),
-                  ),
-                ),
-              ),
             if (_showUi) ...[
               Positioned(
                 top: 0,
@@ -171,12 +151,6 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
                   foregroundColor: Colors.white,
                   title: Text('${_item.title}  (${_index + 1}/${widget.images.length})', overflow: TextOverflow.ellipsis),
                   actions: [
-                    if (OcrService.supported)
-                      IconButton(
-                        tooltip: '그림 속 글자 소리 내어 읽기',
-                        icon: Icon(Icons.record_voice_over, color: _readAloud ? Colors.redAccent : null),
-                        onPressed: () => setState(() => _readAloud = !_readAloud),
-                      ),
                     IconButton(
                       tooltip: _slideshow == null ? '슬라이드쇼 (Space)' : '멈춤',
                       icon: Icon(_slideshow == null ? Icons.slideshow : Icons.pause),

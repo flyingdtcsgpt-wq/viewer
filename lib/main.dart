@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'app_state.dart';
 import 'db/library_db.dart';
 import 'services/cover_service.dart';
+import 'services/portable.dart';
 import 'services/settings.dart';
 import 'ui/home_page.dart';
 import 'ui/login_page.dart';
@@ -17,6 +18,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized(); // 영상 플레이어(libmpv)
   _registerNativeLicenses();
+  await Portable.init(); // 앱 옆 arariflex_data 가 있으면 모든 데이터를 거기에
   final settings = Settings();
   await settings.load();
   final db = await LibraryDb.open();

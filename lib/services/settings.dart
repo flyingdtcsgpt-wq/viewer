@@ -1,20 +1,22 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../models/media_item.dart';
+import 'portable.dart';
 
 class Settings extends ChangeNotifier {
-  late SharedPreferences _p;
+  late Prefs _p;
 
   /// 위젯 밖(뷰어 고르기 등)에서 설정을 읽을 때
   static late Settings instance;
 
   Future<void> load() async {
-    _p = await SharedPreferences.getInstance();
+    _p = await Prefs.open();
     instance = this;
   }
+
+  /// 지금 설정 값 전부 (휴대용으로 옮길 때)
+  Map<String, Object?> exportAll() => _p.all();
 
   /// EPUB 표시 방식: true = 원본 스타일(출판사 CSS 그대로, Windows), false = 읽기 최적화
   bool get epubOriginal => _p.getBool('epubOriginal') ?? false;

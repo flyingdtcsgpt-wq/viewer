@@ -12,10 +12,8 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/ext_archive.dart';
-import '../../services/ocr_service.dart';
 import '../../services/settings.dart';
 import 'open_item.dart';
-import 'read_aloud.dart';
 import 'viewer_chrome.dart';
 
 /// 만화(CBZ/ZIP) 뷰어 — BookManager 스타일
@@ -47,7 +45,6 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   bool _panel = false; // 오른쪽 설정 패널
   bool _chrome = true; // 위/아래 막대
   bool _fullscreen = false;
-  bool _readAloud = false;
   final _zoom = TransformationController();
   final _strip = ScrollController();
   final _scroll = ScrollController(); // 세로 스크롤(웹툰) 모드
@@ -118,26 +115,6 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     _cache[i] = b;
     _trim();
     return b;
-  }
-
-  /// 쪽 그림 데이터 (RAR/7Z 는 꺼내질 때까지 기다림)
-  Future<Uint8List?> _bytesAsync(int i) async {
-    if (i < 0 || i >= _n) return null;
-    if (_loader == null) return _bytes(i);
-    _loader!.want(i, urgent: true);
-    for (var t = 0; t < 150 && mounted; t++) {
-      final hit = _cache[i];
-      if (hit != null) return hit;
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
-    return _cache[i];
-  }
-
-  /// 만화 쪽의 글자 인식 (말풍선 순서는 정확하지 않을 수 있음)
-  Future<String> _pageText(int i) async {
-    final b = await _bytesAsync(i);
-    if (b == null) return '';
-    return OcrService.tidy(await OcrService.recognizeBytes(b));
   }
 
   /// 메모리 제한: 지금 쪽에서 먼 것부터 버린다
@@ -298,26 +275,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                 child: Row(children: [
                   Expanded(
                     child: Column(children: [
-                      Expanded(
-                        child: Stack(children: [
-                          Positioned.fill(child: _stage(s, rtl)),
-                          if (_readAloud && _n > 0)
-                            Positioned(
-                              left: 12,
-                              right: 12,
-                              bottom: 12,
-                              child: Center(
-                                child: ReadAloudBar(
-                                  pageCount: _n,
-                                  currentPage: () => _page,
-                                  textOf: _pageText,
-                                  goTo: (i) => _goSpread(_spreads.indexWhere((g) => g.contains(i))),
-                                  onClose: () => setState(() => _readAloud = false),
-                                ),
-                              ),
-                            ),
-                        ]),
-                      ),
+                      Expanded(child: _stage(s, rtl)),
                       if (_chrome && s.viewerSlider && s.comicMode != 2) _thumbStrip(s, rtl),
                     ]),
                   ),
@@ -355,13 +313,6 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           const SizedBox(width: 8),
           Text('${_page + 1} / $_n · $pct', style: const TextStyle(color: Colors.white60, fontSize: 12)),
           NextVolumeButton(item: item),
-          if (!wide && OcrService.supported) ...[
-            IconButton(
-              tooltip: '소리 내어 읽기',
-              icon: Icon(Icons.record_voice_over, color: _readAloud ? toolActive : Colors.white),
-              onPressed: () => setState(() => _readAloud = !_readAloud),
-            ),
-          ],
         ]),
         const SizedBox(height: 4),
         SingleChildScrollView(
@@ -420,15 +371,6 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                 ),
               ]),
             ),
-            if (OcrService.supported)
-              ToolGroup([
-                ToolBtn(
-                  icon: Icons.record_voice_over,
-                  tooltip: '소리 내어 읽기 (글자 인식 · 시험 기능)',
-                  active: _readAloud,
-                  onTap: () => setState(() => _readAloud = !_readAloud),
-                ),
-              ]),
             ToolGroup([ToolBtn(icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen, tooltip: '전체화면 (F)', onTap: _toggleFullscreen)]),
             ToolGroup([
               ToolBtn(

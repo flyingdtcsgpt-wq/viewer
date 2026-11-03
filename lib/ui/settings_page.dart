@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models/media_item.dart';
 import '../services/natural_tts.dart';
+import '../services/portable.dart';
 import '../services/settings.dart';
 import '../services/tts_service.dart';
 import '../version.dart';
@@ -610,10 +611,57 @@ class _About extends StatelessWidget {
           const SizedBox(height: 12),
           FutureBuilder<Directory>(
             future: getApplicationSupportDirectory(),
-            builder: (_, snap) => Text('데이터 위치 (라이브러리 DB · 표지 캐시): ${snap.data?.path ?? '…'}', style: Theme.of(context).textTheme.bodySmall),
+            builder: (_, snap) => Text('데이터 위치 (라이브러리 DB · 설정 · 표지 · 음성/글자 인식 모델): ${snap.data?.path ?? '…'}',
+                style: Theme.of(context).textTheme.bodySmall),
           ),
         ])),
+        if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) const _PortableCard(),
       ]);
+}
+
+/// 휴대용 모드: 앱 폴더째 USB 로 옮겨 인터넷 없는 PC 에서 그대로
+class _PortableCard extends StatelessWidget {
+  const _PortableCard();
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        const Icon(Icons.usb),
+        const SizedBox(width: 8),
+        Text('휴대용 모드', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const Spacer(),
+        Chip(label: Text(Portable.enabled ? '켜짐' : '꺼짐')),
+      ]),
+      const SizedBox(height: 6),
+      Text(
+        Portable.enabled
+            ? '모든 데이터가 앱 옆 ${Portable.folderName} 폴더에 있습니다. 앱 폴더를 통째로 USB 에 담아 다른 PC 로 옮기면 '
+                '라이브러리 · 설정 · 자연 음성 · 글자 인식 모델까지 그대로, 인터넷 없이 쓸 수 있습니다.'
+            : '켜면 라이브러리 · 설정 · 표지 · 자연 음성 · 글자 인식 모델을 앱 옆 ${Portable.folderName} 폴더에 둡니다. '
+                '그 뒤 앱 폴더를 통째로 USB 에 담아 인터넷 없는 PC 로 옮겨 그대로 쓸 수 있습니다. (포터블 zip 판에서 쓰세요)',
+        style: text.bodySmall,
+      ),
+      const SizedBox(height: 4),
+      Text('위치: ${Portable.root ?? Portable.candidate}', style: text.bodySmall?.copyWith(color: Colors.grey)),
+      if (!Portable.enabled) ...[
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          icon: const Icon(Icons.drive_file_move),
+          label: const Text('지금 데이터를 옮겨 휴대용으로 만들기'),
+          onPressed: () async {
+            final messenger = ScaffoldMessenger.of(context);
+            try {
+              final at = await Portable.makePortable(context.read<Settings>().exportAll());
+              messenger.showSnackBar(SnackBar(content: Text('$at 에 복사했습니다. 앱을 다시 켜면 휴대용 모드로 열립니다.')));
+            } catch (e) {
+              messenger.showSnackBar(SnackBar(content: Text('$e')));
+            }
+          },
+        ),
+      ],
+    ]));
+  }
 }
 
 // =====================================================================
