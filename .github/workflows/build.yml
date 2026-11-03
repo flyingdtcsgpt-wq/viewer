@@ -313,7 +313,7 @@ jobs:
         run: python3 tool/patch_apple.py macos
 
       - name: App icon
-        run: dart run flutter_launcher_icons -f tool/icons_apple.yaml
+        run: dart run flutter_launcher_icons -f tool/icons_macos.yaml
 
       - name: Build
         run: flutter build macos --release
@@ -381,7 +381,7 @@ jobs:
         run: python3 tool/patch_apple.py ios
 
       - name: App icon
-        run: dart run flutter_launcher_icons -f tool/icons_apple.yaml
+        run: dart run flutter_launcher_icons -f tool/icons_ios.yaml
 
       # 서명 없이 빌드 → 사용자가 Sideloadly · AltStore 로 자기 Apple ID 로 서명해 설치
       - name: Build (no codesign)
