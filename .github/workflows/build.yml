@@ -291,3 +291,155 @@ jobs:
           git add -A
           git commit -qm "Android screenshots for ${{ github.sha }}"
           git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots-android
+
+  # ---------------- macOS (맥북 · 아이맥) ----------------
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate platform folders
+        run: flutter create --platforms=macos --org com.mediashelf --project-name media_shelf .
+
+      - run: flutter pub get
+
+      - name: macOS patches
+        run: python3 tool/patch_apple.py macos
+
+      - name: App icon
+        run: dart run flutter_launcher_icons -f tool/icons_apple.yaml
+
+      - name: Build
+        run: flutter build macos --release
+
+      - name: Package
+        run: |
+          ver=$(grep -E '^version:' pubspec.yaml | sed -E 's/version: *([0-9.]+).*/\1/')
+          app=$(ls -d build/macos/Build/Products/Release/*.app | head -1)
+          echo "app: $app"
+          mkdir -p dist
+          cp THIRD_PARTY_NOTICES.txt "$app/Contents/Resources/" || true
+          ditto -c -k --keepParent "$app" "dist/ARARIFlex-$ver-macos.zip"
+          hdiutil create -volname ARARIFlex -srcfolder "$app" -ov -format UDZO "dist/ARARIFlex-$ver-macos.dmg"
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARARIFlex-macos
+          path: dist/*
+
+      - name: Capture screens (macOS)
+        continue-on-error: true
+        env:
+          SHOTS_DIR: ${{ github.workspace }}/shots-macos
+          TTS_CHECK: '1'
+        run: flutter test integration_test/screenshots_test.dart -d macos 2>&1 | tee macos-test.log
+
+      - name: Show checks
+        if: always()
+        run: grep -E "CHECK|STEP FAILED|EXCEPTION|error:|tests passed|failed" macos-test.log | head -60 || true
+
+      - name: Publish to screenshots-macos branch
+        if: always() && github.event_name == 'push'
+        run: |
+          [ -d shots-macos ] || exit 0
+          cd shots-macos
+          {
+            echo "# ARARIFlex macOS 화면"; echo; echo "커밋 ${{ github.sha }}"; echo
+            for f in $(ls *.png | sort); do echo "## ${f%.png}"; echo; echo "![]($(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$f"))"; echo; done
+          } > README.md
+          git init -q && git checkout -q -b screenshots-macos
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -qm "macOS screenshots for ${{ github.sha }}"
+          git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots-macos
+
+  # ---------------- iOS (아이폰 · 아이패드) ----------------
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate platform folders
+        run: flutter create --platforms=ios --org com.mediashelf --project-name media_shelf .
+
+      - run: flutter pub get
+
+      - name: iOS patches
+        run: python3 tool/patch_apple.py ios
+
+      - name: App icon
+        run: dart run flutter_launcher_icons -f tool/icons_apple.yaml
+
+      # 서명 없이 빌드 → 사용자가 Sideloadly · AltStore 로 자기 Apple ID 로 서명해 설치
+      - name: Build (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        run: |
+          ver=$(grep -E '^version:' pubspec.yaml | sed -E 's/version: *([0-9.]+).*/\1/')
+          mkdir -p dist Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry "dist/ARARIFlex-$ver-ios-unsigned.ipa" Payload
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARARIFlex-ios
+          path: dist/*
+
+      # 시뮬레이터에서 실제 앱 화면 (아이폰 · 아이패드)
+      - name: Capture on simulators
+        continue-on-error: true
+        run: |
+          mkdir -p shots-ios
+          for kind in iPhone iPad; do
+            udid=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          c=[x for k,v in d.items() if 'iOS' in k for x in v if x['name'].startswith('$kind')]
+          print(c[-1]['udid'] if c else '')")
+            [ -n "$udid" ] || { echo "no $kind simulator"; continue; }
+            echo "== $kind $udid"
+            xcrun simctl boot "$udid" || true
+            xcrun simctl bootstatus "$udid" -b || true
+            flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshots_test.dart -d "$udid" --dart-define=TTS_CHECK=true 2>&1 | tee "ios-$kind.log" || true
+            mkdir -p "shots-ios/$kind"
+            [ -d shots-android/shots ] && mv shots-android/shots/* "shots-ios/$kind/" || true
+            xcrun simctl shutdown "$udid" || true
+          done
+
+      - name: Show checks
+        if: always()
+        run: grep -hE "CHECK|STEP FAILED|EXCEPTION|DRIVER|error:|tests passed|Some tests failed" ios-*.log | head -80 || true
+
+      - name: Publish to screenshots-ios branch
+        if: always() && github.event_name == 'push'
+        run: |
+          [ -d shots-ios ] || exit 0
+          cd shots-ios
+          {
+            echo "# ARARIFlex iPhone · iPad 화면 (시뮬레이터)"; echo; echo "커밋 ${{ github.sha }}"; echo
+            for d in iPhone iPad; do
+              [ -d "$d" ] || continue
+              echo "# $d"; echo
+              for f in $(ls "$d" | grep png | sort); do echo "## $d ${f%.png}"; echo; echo "![]($d/$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$f"))"; echo; done
+            done
+          } > README.md
+          git init -q && git checkout -q -b screenshots-ios
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -qm "iOS screenshots for ${{ github.sha }}"
+          git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots-ios

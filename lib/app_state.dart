@@ -273,7 +273,36 @@ class AppState extends ChangeNotifier {
     _series
       ..clear()
       ..addEntries((await db.allSeries()).map((s) => MapEntry(s.id!, s)));
+    if (Platform.isIOS) await _setupIosLibrary();
     notifyListeners();
+  }
+
+  // ---- iPhone · iPad: 파일 앱의 "ARARIFlex" 폴더(앱 Documents)가 라이브러리 ----
+  String? iosDocs;
+
+  Future<void> _setupIosLibrary() async {
+    final docs = (await getApplicationDocumentsDirectory()).path;
+    iosDocs = docs;
+    // 앱을 업데이트하면 앱 폴더 경로가 바뀐다 → 저장된 경로를 새 경로로 옮긴다
+    final old = settings.iosDocs;
+    if (old != null && old != docs) {
+      for (final e in _items) {
+        if (e.path.startsWith(old)) {
+          e.path = docs + e.path.substring(old.length);
+          if (e.coverPath != null && e.coverPath!.startsWith(old)) e.coverPath = docs + e.coverPath!.substring(old.length);
+          await db.update(e);
+        }
+      }
+      settings.libraryFolders = [
+        for (final f in settings.libraryFolders)
+          f.path.startsWith(old) ? LibraryFolder(docs + f.path.substring(old.length), alias: f.alias, group: f.group) : f,
+      ];
+    }
+    settings.iosDocs = docs;
+    settings.libraryRoot = docs; // 파일 추가는 여기로 복사
+    if (!settings.watchFolders.any((w) => p.equals(w, docs))) {
+      settings.libraryFolders = [...settings.libraryFolders, LibraryFolder(docs, alias: '나의 iPhone · ARARIFlex')];
+    }
   }
 
   /// "완료: …" 같은 알림은 잠깐 보였다가 사라진다

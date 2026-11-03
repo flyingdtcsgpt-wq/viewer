@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -10,6 +12,7 @@ import 'browser.dart' show fileSize;
 
 /// 폴더 추가: 폴더 고르기 → 겹침 확인 → 발견된 항목 목록에서 골라 추가
 Future<void> addFolderFlow(BuildContext context) async {
+  if (Platform.isIOS) return _iosFolderHelp(context);
   if (!await ensureStorageAccess(context)) return;
   final dir = await FilePicker.getDirectoryPath(dialogTitle: '추가할 폴더 선택');
   if (dir == null || !context.mounted) return;
@@ -22,6 +25,27 @@ Future<void> addFilesFlow(BuildContext context) async {
   final paths = files.map((f) => f.path).whereType<String>().toList();
   if (paths.isEmpty || !context.mounted) return;
   await showImportDialog(context, files: paths);
+}
+
+/// iPhone · iPad 는 다른 앱의 폴더를 계속 읽을 수 없어서, 파일 앱의 ARARIFlex 폴더를 라이브러리로 쓴다
+Future<void> _iosFolderHelp(BuildContext context) async {
+  final app = context.read<AppState>();
+  final again = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('책 넣는 방법 (iPhone · iPad)'),
+      content: const Text('1. "파일" 앱을 엽니다.\n'
+          '2. 나의 iPhone(또는 iPad) › ARARIFlex 폴더에 책 · 만화 · 그림 · 영상을 복사합니다. 폴더째 넣어도 됩니다.\n'
+          '3. ARARIFlex 로 돌아오면 자동으로 찾아 넣습니다.\n\n'
+          '컴퓨터에서는 Finder(맥) 또는 iTunes/Apple 기기(윈도우)의 파일 공유로도 넣을 수 있습니다.\n'
+          '"파일 추가"로 고른 파일은 이 폴더로 복사됩니다.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('닫기')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('지금 다시 찾기')),
+      ],
+    ),
+  );
+  if (again == true && !app.scanning) await app.rescanAll();
 }
 
 Future<void> showImportDialog(BuildContext context, {String? folder, List<String>? files}) => showDialog(
@@ -51,6 +75,8 @@ class _ImportDialogState extends State<_ImportDialog> {
     targetRoot: _app.settings.libraryRoot,
     group: widget.folder != null ? GroupMode.auto : GroupMode.auto,
     watch: widget.folder != null,
+    // iOS: 고른 파일은 임시 사본이라 앱 폴더로 복사해야 남는다
+    mode: Platform.isIOS ? ImportMode.copy : ImportMode.reference,
   );
   late final _bundleName = TextEditingController(text: widget.folder != null ? p.basename(widget.folder!) : '새 묶음');
   bool _running = false;

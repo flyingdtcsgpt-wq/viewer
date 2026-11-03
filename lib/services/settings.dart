@@ -50,6 +50,9 @@ class Settings extends ChangeNotifier {
   set naverSecret(String v) => _set(() => _p.setString('naverSecret', v));
 
   /// 이동/복사 대상 라이브러리 폴더 (managed 모드)
+  /// iOS 앱 Documents 경로 (업데이트로 바뀌었는지 알려고)
+  String? get iosDocs => _p.getString('iosDocs');
+  set iosDocs(String? v) => _set(() => v == null ? _p.remove('iosDocs') : _p.setString('iosDocs', v));
   String? get libraryRoot => _p.getString('libraryRoot');
   set libraryRoot(String? v) =>
       _set(() => v == null ? _p.remove('libraryRoot') : _p.setString('libraryRoot', v));

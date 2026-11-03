@@ -22,11 +22,16 @@ class TtsService {
   Completer<bool>? _playing;
   final Map<String, Future<String>> _ready = {}; // 미리 만들어 둔 자연 음성
 
-  static bool get supported => Platform.isWindows || Platform.isMacOS || Platform.isAndroid || NaturalTts.supported;
+  static bool get supported => Platform.isWindows || Platform.isMacOS || _mobile || NaturalTts.supported;
+
+  /// 기기 음성을 네이티브 채널로 쓰는 곳 (안드로이드 TextToSpeech, iOS AVSpeechSynthesizer)
+  static bool get _mobile => Platform.isAndroid || Platform.isIOS;
 
   /// 안드로이드 기기 음성 (MainActivity 의 TextToSpeech)
   static const _android = MethodChannel('mediashelf/tts');
   static const _andPrefix = 'and:';
+  static const _iosPrefix = 'ios:';
+  static String get _prefix => Platform.isIOS ? _iosPrefix : _andPrefix;
 
   /// 설치된 음성 이름들 (자연 음성이 있으면 맨 앞에)
   static Future<List<String>> voices() async {
@@ -37,6 +42,12 @@ class TtsService {
   /// 목록에 보여 줄 이름
   static String label(String voice) {
     if (NaturalTts.isNatural(voice)) return NaturalTts.label(voice);
+    if (voice.startsWith(_iosPrefix)) {
+      // "ios:<id>|ko-KR|local|유나" → "기기 음성 · 한국어 유나"
+      final parts = voice.substring(_iosPrefix.length).split('|');
+      final lang = parts.length > 1 && parts[1].startsWith('ko') ? '한국어' : '영어';
+      return '기기 음성 · $lang ${parts.length > 3 ? parts[3] : parts.first}';
+    }
     if (voice.startsWith(_andPrefix)) {
       // "and:ko-kr-x-kod-local|ko-KR|local" → "기기 음성 · 한국어 kod"
       final parts = voice.substring(_andPrefix.length).split('|');
@@ -142,9 +153,9 @@ class TtsService {
 
   static Future<List<String>> _systemVoices() async {
     try {
-      if (Platform.isAndroid) {
+      if (_mobile) {
         final v = await _android.invokeListMethod<String>('voices').timeout(const Duration(seconds: 10), onTimeout: () => null);
-        return [for (final x in v ?? const <String>[]) '$_andPrefix$x'];
+        return [for (final x in v ?? const <String>[]) '$_prefix$x'];
       }
       if (Platform.isWindows) {
         final r = await Process.run('powershell', [
@@ -173,9 +184,9 @@ class TtsService {
     final t = text.trim();
     if (t.isEmpty) return true;
     if (voice != null && NaturalTts.isNatural(voice)) return _speakNatural(t, voice, rate, gen);
-    if (Platform.isAndroid) {
+    if (_mobile) {
       try {
-        final name = voice != null && voice.startsWith(_andPrefix) ? voice.substring(_andPrefix.length).split('|').first : '';
+        final name = voice != null && voice.startsWith(_prefix) ? voice.substring(_prefix.length).split('|').first : '';
         // 안드로이드 음성 엔진은 한 번에 약 4000자까지
         for (final part in t.length > 3500 ? chunkText(t, maxLen: 3500) : [t]) {
           final ok = await _android
@@ -245,7 +256,7 @@ class TtsService {
     final pl = _playing;
     if (pl != null && !pl.isCompleted) pl.complete(false);
     await _player?.stop();
-    if (Platform.isAndroid) {
+    if (_mobile) {
       try {
         await _android.invokeMethod('stop');
       } catch (_) {}

@@ -364,6 +364,30 @@ void main() {
       }
     });
 
+    // 태블릿 (iPad 11인치 · 안드로이드 태블릿 크기): 가로는 PC 배치, 세로는 휴대폰 배치
+    await step('tablet', () async {
+      size.value = const Size(1194, 834);
+      state.showLanding();
+      await shot('20_태블릿_가로_홈');
+      state.setFilter(kind: MediaKind.comic);
+      await shot('21_태블릿_가로_라이브러리');
+      size.value = const Size(834, 1194);
+      state.showLanding();
+      await shot('22_태블릿_세로_홈');
+      if (comic != null) {
+        await push(ComicReaderPage(item: comic!));
+        await shot('23_태블릿_세로_만화뷰어', 2500);
+        await popAll();
+      }
+      if (book != null) {
+        await push(TextReaderPage(item: book!, readAloud: true));
+        await shot('24_태블릿_세로_텍스트_읽어주기', 2000);
+        await popAll();
+      }
+      size.value = phoneSize;
+      state.setFilter(clearKind: true);
+    });
+
     // 숨김으로 추가: 항목도, 새로 생긴 묶음 제목도 보이면 안 된다
     await step('hidden import', () async {
       state.setHiddenPassword('9999');

@@ -1,0 +1,22 @@
+name: arari_native
+description: ARARIFlex 의 애플(iOS · macOS) 네이티브 기능 — Vision 글자 인식, AVSpeech 음성
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: ArariNativePlugin
+        sharedDarwinSource: true
+      macos:
+        pluginClass: ArariNativePlugin
+        sharedDarwinSource: true

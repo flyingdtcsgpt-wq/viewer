@@ -59,6 +59,9 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 import java.util.UUID
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 
 class MainActivity : FlutterActivity() {{
     private var pending: MethodChannel.Result? = null
@@ -116,6 +119,8 @@ class MainActivity : FlutterActivity() {{
             newIntent.action = Intent.ACTION_MAIN
         }}
     }}
+
+    private val recognizer by lazy {{ TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build()) }}
 
     // ---- 기기 음성(TTS): 소리 내어 읽기 ----
     private var tts: TextToSpeech? = null
@@ -191,6 +196,24 @@ class MainActivity : FlutterActivity() {{
                     }}
                 }}
                 else -> result.notImplemented()
+            }}
+        }}
+        // 글자 인식: ML Kit 한국어 (기기 안에서 처리)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/ocr").setMethodCallHandler {{ call, result ->
+            if (call.method != "recognize") {{ result.notImplemented(); return@setMethodCallHandler }}
+            val path = call.argument<String>("path")
+            if (path == null) {{ result.success(""); return@setMethodCallHandler }}
+            try {{
+                val image = InputImage.fromFilePath(this, Uri.fromFile(java.io.File(path)))
+                recognizer.process(image)
+                    .addOnSuccessListener {{ r ->
+                        // 위에서 아래, 같은 줄이면 왼쪽부터
+                        val blocks = r.textBlocks.sortedWith(compareBy({{ (it.boundingBox?.top ?: 0) / 20 }}, {{ it.boundingBox?.left ?: 0 }}))
+                        result.success(blocks.joinToString("\\n") {{ it.text }})
+                    }}
+                    .addOnFailureListener {{ e -> result.error("ocr", e.message, null) }}
+            }} catch (e: Exception) {{
+                result.error("ocr", e.message, null)
             }}
         }}
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/tts").setMethodCallHandler {{ call, result ->
@@ -293,6 +316,7 @@ if "text-recognition-korean" not in g:
     g += """
 dependencies {
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }
 """
     gradle.write_text(g, encoding="utf-8")

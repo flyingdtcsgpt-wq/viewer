@@ -33,6 +33,14 @@ Future<void> main() async {
     child: const MediaShelfApp(),
   ));
 
+  // iPhone · iPad: 파일 앱에서 ARARIFlex 폴더에 넣은 책을 켤 때 · 돌아올 때 찾는다
+  if (Platform.isIOS) {
+    state.rescanAll();
+    AppLifecycleListener(onResume: () {
+      if (!state.scanning) state.rescanAll();
+    });
+  }
+
   // 안드로이드: 파일 관리자에서 "ARARIFlex 로 열기" 한 파일 (복사가 오래 걸릴 수 있어 화면을 먼저 띄운 뒤)
   if (Platform.isAndroid) {
     const ch = MethodChannel('mediashelf/open');
