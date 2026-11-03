@@ -189,3 +189,20 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   (`TextReaderPage(readAloud: true)`, `ImageViewerPage(readAloud: true)`)으로 연다
 - 확인됨(에뮬레이터): 기기 음성 72개, 한국어 기기 음성 읽기 성공, 자연 음성, ML Kit 한국어 OCR, 권한 · 숨김 · 공유 서버
 - APK 크기: arm64 약 88MB (libmpv · ONNX Runtime · ML Kit 한국어 모델 · PDFium 포함)
+
+## 9. macOS · iOS · 태블릿 메모
+- 최소 버전: **macOS 14 / iOS 16** (flutter_onnxruntime podspec 요구). `tool/patch_apple.py macos|ios` 가 Podfile · pbxproj 최소 버전,
+  Info.plist / 엔타이틀먼트를 고친다. 아이콘: `tool/icons_macos.yaml`, `tool/icons_ios.yaml`
+- macOS: 샌드박스 끔(아무 폴더 읽기 · tar · say 실행). 창 1440×900. 서명 없음 → 첫 실행 Control+클릭 열기. 산출물 zip + dmg
+- iOS: 서명 없는 IPA(`flutter build ios --no-codesign` → Payload zip). 설치는 Sideloadly/AltStore.
+  라이브러리 = 앱 Documents(UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace 로 파일 앱에 "ARARIFlex" 폴더),
+  `AppState._setupIosLibrary` 가 라이브러리 폴더로 등록하고 앱 업데이트로 컨테이너 경로가 바뀌면 저장된 경로를 옮긴다.
+  켤 때 · 돌아올 때(AppLifecycleListener) 다시 스캔. "폴더 추가"는 안내 창, "파일 추가"는 Documents 로 복사
+- 네이티브: `packages/arari_native` (로컬 플러그인, sharedDarwinSource) — `mediashelf/ocr`(Vision, ko-KR/en-US),
+  `mediashelf/tts`(AVSpeechSynthesizer, iOS 에서 사용; macOS 는 기존 `say`). 음성 이름 `ios:<identifier>|<lang>|local|<name>`
+- 안드로이드 OCR 도 플러그인 대신 MainActivity 의 `mediashelf/ocr` 채널(ML Kit 한국어)로 통일 (ML Kit iOS pod 는 애플 실리콘 시뮬레이터에서 문제)
+- CI: `macos` 잡(빌드 + `flutter test -d macos` 캡처 → `screenshots-macos` 브랜치), `ios` 잡(빌드 + 아이폰 · 아이패드 시뮬레이터
+  `flutter drive` 캡처 → `screenshots-ios` 브랜치)
+- 확인됨(맥 러너): Vision 한국어 OCR 정확, macOS 음성 194개 · 읽기 성공, 권한 · 숨김 · 공유 서버 통과.
+  고친 버그: macOS 첫 자연 음성 때 임시 폴더가 없어 실패 → 만들고 쓰기
+- 태블릿: 캡처 크기 1194×834(가로, PC 배치) · 834×1194(세로, 휴대폰 배치). 세로 배너 높이를 화면 높이로 제한
