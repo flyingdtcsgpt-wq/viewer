@@ -102,9 +102,10 @@ class _Hero extends StatelessWidget {
     }
 
     // 표지가 없으면 배너를 낮추고, 만든 표지를 책처럼 세워 둔다
+    // 세로 화면은 폭에 비례하되, 태블릿처럼 큰 화면에서 배너가 화면을 다 차지하지 않게 높이로도 제한
     final height = cover == null
-        ? (wide ? (size.height * 0.46).clamp(320.0, 520.0) : size.width * 1.15)
-        : (wide ? (size.height * 0.62).clamp(360.0, 720.0) : size.width * 1.25);
+        ? (wide ? (size.height * 0.46).clamp(320.0, 520.0) : (size.width * 1.15).clamp(0.0, size.height * 0.55))
+        : (wide ? (size.height * 0.62).clamp(360.0, 720.0) : (size.width * 1.25).clamp(0.0, size.height * 0.62));
     final icon = switch (entry) {
       SeriesEntry e => e.stats.isVideo ? Icons.video_library : Icons.collections_bookmark,
       ItemEntry e => e.item.kind == MediaKind.video ? Icons.movie : Icons.menu_book,
@@ -187,7 +188,7 @@ class _Hero extends StatelessWidget {
           Align(
             alignment: wide ? const Alignment(0.75, 0) : const Alignment(0, -0.75),
             child: Builder(builder: (_) {
-              final h = wide ? (height - 80).clamp(200.0, 400.0) : size.width * 0.55;
+              final h = wide ? (height - 80).clamp(200.0, 400.0) : (size.width * 0.55).clamp(0.0, height * 0.6);
               return Container(
                 height: h,
                 width: h * 2 / 3,
