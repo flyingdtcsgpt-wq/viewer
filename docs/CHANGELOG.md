@@ -1,6 +1,6 @@
 # ARARIFlex 개발 내역서
 
-모든 변경을 날짜순으로 적었습니다. (git 커밋 기록에서 만듦, 총 71건)
+모든 변경을 날짜순으로 적었습니다. (git 커밋 기록에서 만듦, 총 73건)
 각 줄의 7자리 코드는 커밋 번호입니다. `git show <번호>` 로 그때 바뀐 코드를 볼 수 있습니다.
 
 ## 버전 요약
@@ -94,3 +94,4 @@
 - `d8fe029` 05:39 — Capture test: measure Kokoro int8 vs full speed
 - `c9f1bfe` 05:40 — Unit test: portable settings file
 - `65e672b` 05:48 — Kokoro: original model only (int8 is far slower on CPU); docs for portable mode, PaddleOCR, Kokoro, novel-only read-aloud
+- `7f8bb4f` 08:12 — Docs: development history, source guide, handoff guide; CI all-in-one package (installers + source + git bundle + docs)
