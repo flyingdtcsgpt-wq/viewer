@@ -23,6 +23,7 @@ import 'package:media_shelf/services/cover_service.dart';
 import 'package:media_shelf/services/epub_writer.dart';
 import 'package:media_shelf/services/natural_tts.dart';
 import 'package:media_shelf/services/ocr_service.dart';
+import 'package:media_shelf/services/paddle_ocr.dart';
 import 'package:media_shelf/services/settings.dart';
 import 'package:media_shelf/services/tts_service.dart';
 import 'package:media_shelf/ui/admin_page.dart';
@@ -539,6 +540,19 @@ void main() {
           debugPrint('CHECK ocr ko unavailable: $e');
         }
         expect((rEn[en] ?? '').toLowerCase(), contains('fox'));
+
+        // Windows: 한국어 딥러닝 글자 인식(PaddleOCR) 모델을 받아 같은 그림을 다시 읽는다
+        if (Platform.isWindows && (Platform.environment['TTS_CHECK'] == '1' || const bool.fromEnvironment('TTS_CHECK'))) {
+          final sw = Stopwatch()..start();
+          final picked = await PaddleOcr.instance.pickRemoteFiles();
+          debugPrint('CHECK paddle files $picked');
+          await PaddleOcr.instance.download();
+          debugPrint('CHECK paddle download ${sw.elapsed.inSeconds}s installed=${await PaddleOcr.instance.installed()}');
+          sw.reset();
+          final r = await OcrService.recognizeFiles([ko, en]);
+          debugPrint('CHECK paddle ko="${r[ko]}" en="${r[en]}" took=${sw.elapsedMilliseconds}ms');
+          expect(r[ko] ?? '', contains('풍차'));
+        }
       });
     });
 

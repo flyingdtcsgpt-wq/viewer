@@ -3,9 +3,12 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
+
+import 'paddle_ocr.dart';
 
 /// 그림 속 글자 읽기 (OCR)
 ///
@@ -96,6 +99,14 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
   static Future<Map<String, String>> recognizeFiles(List<String> paths, {String lang = 'ko'}) async {
     if (!supported) throw const OcrUnavailable('이 기기에서는 글자 인식을 쓸 수 없습니다');
     if (!Platform.isWindows) return _recognizeNative(paths);
+    // Windows: 한국어 딥러닝 모델(PaddleOCR)이 있으면 그것부터 (Windows 언어팩과 상관없이 한국어)
+    if (await PaddleOcr.instance.installed()) {
+      try {
+        return await _recognizePaddle(paths);
+      } catch (e) {
+        debugPrint('PaddleOCR 실패, Windows OCR 로: $e');
+      }
+    }
     final tmp = await Directory.systemTemp.createTemp('arari_ocr');
     try {
       // 모든 그림을 OCR 이 확실히 다루는 PNG 로: 넓으면 줄이고, 긴 웹툰은 여러 조각으로 자른다
@@ -184,6 +195,37 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
   }
 
   /// 안드로이드: Google ML Kit (기기 안에서 처리, 한국어 모델 포함)
+  /// PaddleOCR 한국어 (ONNX). 긴 그림은 조각내서 읽고 이어 붙인다
+  static Future<Map<String, String>> _recognizePaddle(List<String> paths) async {
+    usedLang = 'ko';
+    final tmp = await Directory.systemTemp.createTemp('arari_ocr');
+    final out = <String, String>{};
+    try {
+      for (var i = 0; i < paths.length; i++) {
+        final List<Uint8List> tiles;
+        try {
+          final bytes = await File(paths[i]).readAsBytes();
+          tiles = await Isolate.run(() => _tiles(bytes));
+        } catch (_) {
+          continue;
+        }
+        final texts = <String>[];
+        for (var t = 0; t < tiles.length; t++) {
+          final f = File(p.join(tmp.path, '${i}_$t.png'));
+          await f.writeAsBytes(tiles[t]);
+          final r = await PaddleOcr.instance.recognizeFile(f.path);
+          if (r.trim().isNotEmpty) texts.add(r.trim());
+        }
+        out[paths[i]] = texts.join('\n');
+      }
+    } finally {
+      try {
+        await tmp.delete(recursive: true);
+      } catch (_) {}
+    }
+    return out;
+  }
+
   /// 안드로이드(ML Kit) · 애플(Vision) 네이티브 글자 인식. 결과는 위→아래, 왼→오른 순서의 줄
   static const _native = MethodChannel('mediashelf/ocr');
   static Future<Map<String, String>> _recognizeNative(List<String> paths) async {

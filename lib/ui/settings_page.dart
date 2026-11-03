@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models/media_item.dart';
 import '../services/natural_tts.dart';
+import '../services/paddle_ocr.dart';
 import '../services/portable.dart';
 import '../services/settings.dart';
 import '../services/tts_service.dart';
@@ -53,7 +54,7 @@ const _cats = [
   _Cat(Icons.search, '메타데이터 검색 및 API', '검색 서비스 · 인증 정보', adminOnly: true),
   _Cat(Icons.auto_awesome, 'AI 도우미', 'Claude API', adminOnly: true),
   _Cat(Icons.person, '계정 · 보안', '사용자 · 권한 · 숨김'),
-  _Cat(Icons.record_voice_over, '읽어주기 음성', '자연스러운 음성 받기 · 듣기'),
+  _Cat(Icons.record_voice_over, '읽어주기 · 글자 인식', '자연스러운 음성 · 한국어 글자 인식 모델'),
   _Cat(Icons.info_outline, '정보', '버전 · 데이터 위치'),
 ];
 
@@ -875,6 +876,110 @@ class _VoiceState extends State<_Voice> {
         Text('기본 음성: ${s.ttsVoice.isEmpty ? 'Windows 기본' : TtsService.label(s.ttsVoice)}', style: text.bodySmall),
         Text('대사 · 속마음 음성과 속도는 책을 읽을 때 아래쪽 읽어주기 막대에서 고릅니다.', style: text.bodySmall?.copyWith(color: Colors.grey)),
       ])),
+      if (Platform.isWindows || Platform.isLinux) const _OcrModelCard(),
     ]);
+  }
+}
+
+/// 한국어 글자 인식 모델 (PaddleOCR) — 스캔한 소설 PDF 를 소리 내어 읽을 때
+class _OcrModelCard extends StatefulWidget {
+  const _OcrModelCard();
+  @override
+  State<_OcrModelCard> createState() => _OcrModelCardState();
+}
+
+class _OcrModelCardState extends State<_OcrModelCard> {
+  bool? _installed;
+  bool _busy = false;
+  String _status = '';
+  double? _progress;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final ok = await PaddleOcr.instance.installed();
+    if (mounted) setState(() => _installed = ok);
+  }
+
+  Future<void> _do(Future<void> Function() job) async {
+    setState(() {
+      _busy = true;
+      _progress = null;
+    });
+    try {
+      await job();
+    } catch (e) {
+      _status = '실패: $e';
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        const Icon(Icons.document_scanner),
+        const SizedBox(width: 8),
+        Text('한국어 글자 인식 모델 (PaddleOCR)', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const Spacer(),
+        if (_installed == true) const Chip(avatar: Icon(Icons.check, size: 16, color: Colors.green), label: Text('설치됨')),
+      ]),
+      const SizedBox(height: 6),
+      Text('스캔한 소설 PDF 를 소리 내어 읽을 때 글자를 읽어 냅니다. 약 20MB, 무료 · 오프라인. '
+          '없으면 Windows 내장 글자 인식을 쓰는데, 그건 Windows 에 한국어 언어팩이 있어야 합니다.',
+          style: text.bodySmall),
+      const SizedBox(height: 10),
+      if (_busy) ...[LinearProgressIndicator(value: _progress), const SizedBox(height: 6)],
+      if (_status.isNotEmpty) Text(_status, style: text.bodySmall),
+      const SizedBox(height: 6),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        if (_installed != true)
+          FilledButton.icon(
+            onPressed: _busy
+                ? null
+                : () => _do(() async {
+                      await PaddleOcr.instance.download(onProgress: (f, got, total) {
+                        if (!mounted) return;
+                        setState(() {
+                          _status = '$f  ${(got / 1048576).toStringAsFixed(1)} MB';
+                          _progress = total > 0 ? got / total : null;
+                        });
+                      });
+                      _status = '설치했습니다.';
+                    }),
+            icon: const Icon(Icons.download),
+            label: const Text('인터넷에서 받기'),
+          ),
+        OutlinedButton.icon(
+          onPressed: _busy
+              ? null
+              : () async {
+                  final d = await FilePicker.getDirectoryPath(dialogTitle: 'PaddleOCR 모델 폴더 선택');
+                  if (d == null) return;
+                  await _do(() async {
+                    final n = await PaddleOcr.instance.importFrom(d);
+                    _status = await PaddleOcr.instance.installed() ? '$n개 파일을 가져왔습니다. 설치 완료.' : '$n개 파일을 가져왔지만 빠진 파일이 있습니다 (det · rec onnx, dict txt).';
+                  });
+                },
+          icon: const Icon(Icons.folder_open),
+          label: const Text('폴더에서 가져오기 (오프라인 PC)'),
+        ),
+        if (_installed == true)
+          TextButton.icon(
+            onPressed: _busy ? null : () => _do(PaddleOcr.instance.remove),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('지우기'),
+          ),
+      ]),
+      const SizedBox(height: 6),
+      Text('출처: huggingface.co/${PaddleOcr.repo} (PP-OCRv5, Apache 2.0)', style: text.bodySmall?.copyWith(color: Colors.grey)),
+    ]));
   }
 }
