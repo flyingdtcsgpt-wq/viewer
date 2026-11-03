@@ -253,7 +253,11 @@ class KokoroTts {
       made.addAll([ids, st, sp]);
       final r = await _session!.run({_tokensInput!: ids, 'style': st, 'speed': sp});
       made.addAll(r.values);
-      final audio = await r.values.first.asFlattenedList();
+      // 출력이 여러 개(음성 · 길이)일 수 있어 이름으로 고른다
+      final names = _session!.outputNames;
+      final key = names.firstWhere((n) => n.toLowerCase().contains('wav') || n.toLowerCase().contains('audio'),
+          orElse: () => names.isNotEmpty ? names.first : r.keys.first);
+      final audio = await (r[key] ?? r.values.first).asFlattenedList();
       return Float32List.fromList([for (final v in audio) (v as num).toDouble()]);
     } finally {
       for (final v in made) {
