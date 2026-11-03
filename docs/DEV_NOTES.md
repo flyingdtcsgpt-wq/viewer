@@ -206,3 +206,18 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - 확인됨(맥 러너): Vision 한국어 OCR 정확, macOS 음성 194개 · 읽기 성공, 권한 · 숨김 · 공유 서버 통과.
   고친 버그: macOS 첫 자연 음성 때 임시 폴더가 없어 실패 → 만들고 쓰기
 - 태블릿: 캡처 크기 1194×834(가로, PC 배치) · 834×1194(세로, 휴대폰 배치). 세로 배너 높이를 화면 높이로 제한
+
+## 10. 휴대용 모드 · PaddleOCR · Kokoro (11-03)
+- 휴대용: `lib/services/portable.dart`. 앱 옆 `arariflex_data` 가 있으면 `PathProviderPlatform.instance` 를 바꿔 support/documents/cache 를
+  그 폴더로 (DB · 표지 · 모델 전부 자동으로 따라옴). 설정은 `Prefs` 추상화 → 휴대용이면 `arariflex_data/settings.json`(300ms 모아 쓰기, 깨지면 .broken).
+  `Portable.makePortable` 이 지금 데이터 + 설정을 복사. 포터블 zip 은 CI 에서 빈 `arariflex_data`(README.txt) 를 넣어 만든다(설치판엔 없음)
+- PaddleOCR: `lib/services/paddle_ocr.dart`. HF `monkt/paddleocr-onnx` 파일 목록에서 이름으로 고름 → 실제 경로
+  `detection/v5/det.onnx`, `languages/korean/rec.onnx`, `languages/korean/dict.txt` (models/paddleocr/{det,rec}.onnx, dict.txt).
+  DB 검출(긴 변 960, BGR, ImageNet 정규화, 임계 0.3/0.6, unclip 1.6, 연결요소 → 축정렬 상자) → 높이 48 인식 → CTC(0=blank, 끝 공백).
+  Windows 에서 설치돼 있으면 Windows OCR 보다 먼저. CI: 영어 Windows 에서 한국어 문장 정확, 1.8초
+- Kokoro: `lib/services/kokoro_tts.dart`. GitHub release `thewh1teagle/kokoro-onnx` model-files-v1.1 의 `kokoro-v1.0.onnx` + `voices-v1.0.bin`(npz).
+  **int8 은 CPU 에서 15배 느려서(4.7초 음성 14초) fp32 만 받는다** (0.9초). 입력 tokens/input_ids [1,n+2] (0 패딩), style = voice[n-1] [1,256], speed [1].
+  출력은 이름에 wav/audio 가 든 것 (길이 출력도 있음). 발음: eSpeak NG `--ipa -v en-us --stdin` → Kokoro 어휘(178)만 남김.
+  eSpeak NG 는 CI 가 GitHub release msi 를 풀어 `tools/espeak-ng` 에 동봉 (GPL-3, 별도 프로그램). `ESPEAK_NG_PATH` 환경변수로 덮어쓰기 가능.
+  음성 이름 `kk:af_heart`, 미국(a) · 영국(b) 28가지. 한글이 섞인 글에 Kokoro 를 고르면 `st:F1` 로 바꿔 읽음
+- 소리 내어 읽기 범위: 소설만 (TXT · EPUB · PDF). 만화 · 그림 뷰어에서는 뺐다 (사용자 요청)

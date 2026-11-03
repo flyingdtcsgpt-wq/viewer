@@ -25,8 +25,9 @@ class KokoroTts {
   static bool isKokoro(String v) => v.startsWith(prefix);
   static const _base = 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1';
   static const voicesFile = 'voices-v1.0.bin';
-  static const fastModel = 'kokoro-v1.0.int8.onnx'; // 약 90MB, 그래픽카드 없는 PC 에서 빠름
-  static const fullModel = 'kokoro-v1.0.onnx'; // 약 310MB, 원본 음질
+  // 측정 결과(일반 CPU): 원본 fp32 가 int8 보다 15배 빠르다 (4.7초 음성: fp32 0.9초, int8 14초) → 원본만 받는다
+  static const fastModel = 'kokoro-v1.0.int8.onnx'; // 예전에 받은 것도 쓸 수는 있게
+  static const fullModel = 'kokoro-v1.0.onnx'; // 약 310MB
 
   static bool get platformOk => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
@@ -107,7 +108,7 @@ class KokoroTts {
   }
 
   // ---- 받기 · 가져오기 ----
-  Future<void> download({bool full = false, void Function(String file, int got, int total)? onProgress}) async {
+  Future<void> download({bool full = true, void Function(String file, int got, int total)? onProgress}) async {
     final d = Directory(await dir());
     await d.create(recursive: true);
     final client = HttpClient()..userAgent = 'ARARIFlex';

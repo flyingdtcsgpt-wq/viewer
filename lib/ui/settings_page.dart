@@ -1071,16 +1071,12 @@ class _KokoroCardState extends State<_KokoroCard> {
       if (_status.isNotEmpty) Text(_status, style: text.bodySmall),
       const SizedBox(height: 6),
       Wrap(spacing: 8, runSpacing: 8, children: [
-        FilledButton.icon(
-          onPressed: _busy ? null : () => _get(false),
-          icon: const Icon(Icons.download),
-          label: const Text('빠른 판 받기 (약 120MB)'),
-        ),
-        OutlinedButton.icon(
-          onPressed: _busy ? null : () => _get(true),
-          icon: const Icon(Icons.high_quality),
-          label: const Text('원본 고음질 받기 (약 340MB)'),
-        ),
+        if (_installed != true)
+          FilledButton.icon(
+            onPressed: _busy ? null : () => _get(true),
+            icon: const Icon(Icons.download),
+            label: const Text('인터넷에서 받기 (약 340MB)'),
+          ),
         OutlinedButton.icon(
           onPressed: _busy
               ? null
