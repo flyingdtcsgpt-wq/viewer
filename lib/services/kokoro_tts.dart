@@ -177,7 +177,9 @@ class KokoroTts {
   Future<Map<String, Float32List>> _loadVoices() async {
     if (_voices != null) return _voices!;
     final bytes = await File(p.join(await dir(), voicesFile)).readAsBytes();
-    return _voices = await Isolate.run(() => _readNpz(bytes));
+    final v = await Isolate.run(() => _readNpz(bytes));
+    _voices = v;
+    return v;
   }
 
   Future<void> unload() {
