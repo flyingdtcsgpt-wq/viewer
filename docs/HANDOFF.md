@@ -108,6 +108,12 @@ flutter test integration_test/screenshots_test.dart -d windows   # 화면 캡처
 - 화면 캡처 브랜치: `screenshots`(Windows · 태블릿 크기), `screenshots-android`, `screenshots-macos`, `screenshots-ios`
 - 검사 로그: screenshots 잡의 "Capture screens" 단계에서 `CHECK` 로 시작하는 줄
 
+## 5-1. 배포 페이지(Releases)에 올리기 (로그인 없이 받기 · 영구 보관)
+1. 저장소 → 오른쪽 **Releases** → **Draft a new release**
+2. **Choose a tag** 에 `v0.5.0` 입력 → "Create new tag" → 제목 `ARARIFlex 0.5.0` → **Publish release**
+3. 약 40분 뒤 그 배포 페이지에 Windows · 안드로이드 · 맥 · 아이폰 설치파일, 소스, git 기록, 문서가 자동으로 올라옵니다.
+   (Actions 의 Artifacts 는 로그인해야 받을 수 있고 90일 뒤 지워집니다)
+
 ## 6. 다음 할 일 후보
 - 휴대폰에서 RAR · 7Z 만화 열기
 - PDF 나누기 · 합치기, EPUB 편집기, WebDAV, 휴대폰 연동(QR)

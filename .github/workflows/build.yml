@@ -8,6 +8,9 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+  # GitHub 웹의 Releases → "Draft a new release" 로 v0.5.0 같은 태그를 만들어 게시하면 모든 설치파일이 거기에 올라간다
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -534,4 +537,20 @@ jobs:
         with:
           name: ARARIFlex-all-in-one
           path: pack/
+
+      # 배포 페이지(Releases)에 전부 올리기: 로그인 없이 받을 수 있고 지워지지 않는다
+      - name: Zip docs
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          ver=$(grep -E '^version:' pubspec.yaml | sed -E 's/version: *([0-9.]+).*/\1/')
+          cd pack && zip -qr "ARARIFlex-$ver-docs.zip" 문서 처음_읽어주세요.txt
+
+      - name: Publish everything to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            pack/설치파일/*/*
+            pack/*.zip
+            pack/ARARIFlex-history.bundle
 
