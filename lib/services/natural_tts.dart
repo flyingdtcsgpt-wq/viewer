@@ -212,6 +212,7 @@ class NaturalTts {
         final style = await _style(id);
         final samples = await engine.speak(text, langOf(text), style, steps: steps, speed: speed);
         final tmp = await getTemporaryDirectory();
+        await tmp.create(recursive: true); // macOS 는 처음엔 이 폴더가 없을 수 있다
         final out = p.join(tmp.path, 'arari_tts_${DateTime.now().microsecondsSinceEpoch}.wav');
         await File(out).writeAsBytes(wavBytes(samples, engine.sampleRate));
         c.complete(out);

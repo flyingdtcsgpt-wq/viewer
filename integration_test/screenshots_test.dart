@@ -118,7 +118,7 @@ void main() {
 
   testWidgets('주요 화면 캡처', (tester) async {
     // 안드로이드: 앱 내부 files/shots 에 저장 → CI 가 adb run-as 로 꺼낸다
-    final out = Platform.isAndroid
+    final out = Platform.isAndroid || Platform.isIOS
         ? Directory(p.join((await tester.runAsync(getApplicationSupportDirectory))!.path, 'shots'))
         : Directory(Platform.environment['SHOTS_DIR'] ?? p.join(Directory.current.path, 'build', 'screenshots'));
     out.createSync(recursive: true);
@@ -184,7 +184,7 @@ void main() {
           return bd!.buffer.asUint8List();
         });
         File(p.join(out.path, '$name.png')).writeAsBytesSync(bytes!);
-        if (Platform.isAndroid) files['$name.png'] = base64.encode(bytes);
+        if (Platform.isAndroid || Platform.isIOS) files['$name.png'] = base64.encode(bytes);
         done.add(name);
         debugPrint('SHOT $name');
       } catch (e, st) {
@@ -494,7 +494,7 @@ void main() {
             final sec = n / 44100;
             debugPrint('CHECK tts $name voice=$voice sec=${sec.toStringAsFixed(2)} rms=${rms.toStringAsFixed(0)} peak=$peak took=${sw.elapsedMilliseconds}ms');
             File(wav).copySync(p.join(out.path, '$name.wav'));
-            if (Platform.isAndroid) files['$name.wav'] = base64.encode(bytes);
+            if (Platform.isAndroid || Platform.isIOS) files['$name.wav'] = base64.encode(bytes);
             expect(sec, greaterThan(1.0));
             expect(rms, greaterThan(300));
           }
