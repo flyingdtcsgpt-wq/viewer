@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
+import 'kokoro_tts.dart';
 import 'natural_tts.dart';
 
 /// 소리 내어 읽기 (PC)
@@ -36,12 +37,15 @@ class TtsService {
   /// 설치된 음성 이름들 (자연 음성이 있으면 맨 앞에)
   static Future<List<String>> voices() async {
     final natural = await NaturalTts.instance.voices().catchError((_) => <String>[]);
+    final kokoro = await KokoroTts.instance.voices().catchError((_) => <String>[]);
+    if (kokoro.isNotEmpty) return [...natural, ...kokoro, ...await _systemVoices()];
     return [...natural, ...await _systemVoices()];
   }
 
   /// 목록에 보여 줄 이름
   static String label(String voice) {
     if (NaturalTts.isNatural(voice)) return NaturalTts.label(voice);
+    if (KokoroTts.isKokoro(voice)) return KokoroTts.label(voice);
     if (voice.startsWith(_iosPrefix)) {
       // "ios:<id>|ko-KR|local|유나" → "기기 음성 · 한국어 유나"
       final parts = voice.substring(_iosPrefix.length).split('|');
@@ -63,14 +67,28 @@ class TtsService {
   static double _speed(int rate) => (1.05 * (1 + rate.clamp(-10, 10) * 0.06)).clamp(0.6, 1.8);
   static String _key(String text, String voice, int rate) => '$voice|$rate|$text';
 
+  /// 기기 안 AI 모델 음성 (Supertonic 자연 음성 · Kokoro 영어)
+  static bool _isModel(String v) => NaturalTts.isNatural(v) || KokoroTts.isKokoro(v);
+
+  /// Kokoro(영어 전용)에 한국어가 오면 한국어 자연 음성으로 바꿔 읽는다
+  static String _fit(String text, String voice) {
+    if (KokoroTts.isKokoro(voice) && RegExp(r'[가-힣]').hasMatch(text)) return '${NaturalTts.prefix}F1';
+    return voice;
+  }
+
+  static Future<String> _synth(String text, String voice, int rate, {bool Function()? wanted}) => KokoroTts.isKokoro(voice)
+      ? KokoroTts.instance.synthesize(text, voice, speed: (1 + rate.clamp(-10, 10) * 0.06).clamp(0.5, 2.0), wanted: wanted)
+      : NaturalTts.instance.synthesize(text, voice, speed: _speed(rate), wanted: wanted);
+
   /// 다음에 읽을 글을 미리 만들어 둔다 (자연 음성일 때 끊김 줄이기)
   void prefetch(String text, {String? voice, int rate = 0}) {
-    if (voice == null || !NaturalTts.isNatural(voice) || text.trim().isEmpty) return;
+    if (voice == null || !_isModel(voice) || text.trim().isEmpty) return;
+    voice = _fit(text, voice);
     final k = _key(text.trim(), voice, rate);
     if (_ready.containsKey(k)) return;
     if (_ready.length > 6) _discard(_ready.remove(_ready.keys.first));
     final epoch = _epoch;
-    final f = NaturalTts.instance.synthesize(text.trim(), voice, speed: _speed(rate), wanted: () => epoch == _epoch);
+    final f = _synth(text.trim(), voice, rate, wanted: () => epoch == _epoch);
     f.ignore(); // 실패는 실제로 읽을 때 처리
     _ready[k] = f;
   }
@@ -82,7 +100,7 @@ class TtsService {
     final k = _key(t, voice, rate);
     final String wav;
     try {
-      wav = await (_ready.remove(k) ?? NaturalTts.instance.synthesize(t, voice, speed: _speed(rate)));
+      wav = await (_ready.remove(k) ?? _synth(t, voice, rate));
     } catch (_) {
       failed = gen == _gen;
       return false;
@@ -111,7 +129,10 @@ class TtsService {
     ];
     try {
       // 재생이 끝났다는 알림이 오지 않아도 영원히 멈추지 않게: 소리 길이 + 여유
-      final seconds = ((await File(wav).length()) - 44) / 2 / 44100;
+      // WAV 머리에서 표본 수를 읽어 길이 계산 (Supertonic 44.1kHz, Kokoro 24kHz)
+      final head = await File(wav).openRead(0, 44).fold<List<int>>([], (a, b) => a..addAll(b));
+      final rateHz = head.length >= 28 ? head[24] | head[25] << 8 | head[26] << 16 | head[27] << 24 : 44100;
+      final seconds = ((await File(wav).length()) - 44) / 2 / (rateHz == 0 ? 44100 : rateHz);
       await player.open(Media(Uri.file(wav).toString()));
       return await done.future.timeout(Duration(milliseconds: (seconds * 1000).round() + 5000), onTimeout: () {
         if (!started) failed = true;
@@ -183,7 +204,7 @@ class TtsService {
     final gen = _gen;
     final t = text.trim();
     if (t.isEmpty) return true;
-    if (voice != null && NaturalTts.isNatural(voice)) return _speakNatural(t, voice, rate, gen);
+    if (voice != null && _isModel(voice)) return _speakNatural(t, _fit(t, voice), rate, gen);
     if (_mobile) {
       try {
         final name = voice != null && voice.startsWith(_prefix) ? voice.substring(_prefix.length).split('|').first : '';

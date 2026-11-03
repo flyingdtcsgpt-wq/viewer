@@ -48,3 +48,12 @@
     사용자가 설정 › 읽어주기 음성에서 직접 내려받거나 가져올 때만 PC 에 저장됩니다.
     모델 라이선스의 사용 제한(타인 사칭, 허위 정보, 불법 목적 등 금지)을 지켜 주세요.
     https://huggingface.co/supertone-oss-archive/supertonic-3
+
+13. Kokoro-82M (hexgrad) — Apache License 2.0 (앱에 들어 있지 않음, 설정에서 받을 때만)
+    ONNX 판: github.com/thewh1teagle/kokoro-onnx (MIT)
+
+14. eSpeak NG — GNU General Public License v3 (Windows 설치파일의 tools\espeak-ng 에 별도 프로그램으로 동봉)
+    영어 성우(Kokoro)의 발음 기호를 만드는 데만 실행합니다. 소스: https://github.com/espeak-ng/espeak-ng
+
+15. PaddleOCR PP-OCRv5 모델 (PaddlePaddle) — Apache License 2.0 (앱에 들어 있지 않음, 설정에서 받을 때만)
+    ONNX 판: huggingface.co/monkt/paddleocr-onnx

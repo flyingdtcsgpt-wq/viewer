@@ -44,6 +44,26 @@ jobs:
         run: flutter build windows --release
 
       # 오프라인 PC 에서도 되도록: 7-Zip(RAR/7Z), VC++ 런타임, 라이선스 고지를 함께 넣는다
+      # 영어 성우(Kokoro)용 발음 엔진 eSpeak NG (GPL-3, 별도 프로그램으로 동봉)
+      - name: Fetch eSpeak NG
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tmp = "$env:RUNNER_TEMP\espeak"
+          New-Item -ItemType Directory -Force $tmp | Out-Null
+          gh release download --repo espeak-ng/espeak-ng --pattern "*.msi" --dir $tmp
+          Get-ChildItem $tmp
+          $msi = Get-ChildItem "$tmp\*.msi" | Where-Object { $_.Name -match 'x64|X64' } | Select-Object -First 1
+          if (-not $msi) { $msi = Get-ChildItem "$tmp\*.msi" | Select-Object -First 1 }
+          Start-Process msiexec -ArgumentList "/a `"$($msi.FullName)`" /qn TARGETDIR=`"$tmp\x`"" -Wait
+          $exe = Get-ChildItem -Recurse "$tmp\x" -Filter espeak-ng.exe | Select-Object -First 1
+          New-Item -ItemType Directory -Force "C:\espeak-ng" | Out-Null
+          Copy-Item -Recurse "$($exe.DirectoryName)\*" "C:\espeak-ng\"
+          Get-ChildItem C:\espeak-ng | Select-Object Name
+          "hello world" | & C:\espeak-ng\espeak-ng.exe --path=C:\espeak-ng -q --ipa -v en-us --stdin
+
       - name: Bundle 7-Zip, VC++ runtime, notices
         shell: pwsh
         run: |
@@ -57,6 +77,10 @@ jobs:
             Copy-Item "$env:WINDIR\System32\$d" $rel -ErrorAction SilentlyContinue
           }
           Copy-Item THIRD_PARTY_NOTICES.txt $rel
+          if (Test-Path C:\espeak-ng\espeak-ng.exe) {
+            New-Item -ItemType Directory -Force "$rel\tools\espeak-ng" | Out-Null
+            Copy-Item -Recurse C:\espeak-ng\* "$rel\tools\espeak-ng\"
+          }
           Get-ChildItem -Recurse "$rel\tools" | Select-Object FullName, Length
 
       - name: Install Inno Setup if missing
@@ -110,10 +134,31 @@ jobs:
       - name: Analyze screenshot test
         run: flutter analyze --no-fatal-infos --no-fatal-warnings integration_test test_driver
 
+      # 영어 성우(Kokoro)용 발음 엔진 eSpeak NG (GPL-3, 별도 프로그램으로 동봉)
+      - name: Fetch eSpeak NG
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tmp = "$env:RUNNER_TEMP\espeak"
+          New-Item -ItemType Directory -Force $tmp | Out-Null
+          gh release download --repo espeak-ng/espeak-ng --pattern "*.msi" --dir $tmp
+          Get-ChildItem $tmp
+          $msi = Get-ChildItem "$tmp\*.msi" | Where-Object { $_.Name -match 'x64|X64' } | Select-Object -First 1
+          if (-not $msi) { $msi = Get-ChildItem "$tmp\*.msi" | Select-Object -First 1 }
+          Start-Process msiexec -ArgumentList "/a `"$($msi.FullName)`" /qn TARGETDIR=`"$tmp\x`"" -Wait
+          $exe = Get-ChildItem -Recurse "$tmp\x" -Filter espeak-ng.exe | Select-Object -First 1
+          New-Item -ItemType Directory -Force "C:\espeak-ng" | Out-Null
+          Copy-Item -Recurse "$($exe.DirectoryName)\*" "C:\espeak-ng\"
+          Get-ChildItem C:\espeak-ng | Select-Object Name
+          "hello world" | & C:\espeak-ng\espeak-ng.exe --path=C:\espeak-ng -q --ipa -v en-us --stdin
+
       - name: Capture screens
         shell: pwsh
         env:
           SHOTS_DIR: ${{ github.workspace }}\screenshots
+          ESPEAK_NG_PATH: C:\espeak-ng\espeak-ng.exe
           TTS_CHECK: '1'
         run: flutter test integration_test/screenshots_test.dart -d windows
 

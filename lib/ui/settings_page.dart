@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../models/media_item.dart';
+import '../services/kokoro_tts.dart';
 import '../services/natural_tts.dart';
 import '../services/paddle_ocr.dart';
 import '../services/portable.dart';
@@ -876,6 +877,7 @@ class _VoiceState extends State<_Voice> {
         Text('기본 음성: ${s.ttsVoice.isEmpty ? 'Windows 기본' : TtsService.label(s.ttsVoice)}', style: text.bodySmall),
         Text('대사 · 속마음 음성과 속도는 책을 읽을 때 아래쪽 읽어주기 막대에서 고릅니다.', style: text.bodySmall?.copyWith(color: Colors.grey)),
       ])),
+      if (KokoroTts.platformOk) const _KokoroCard(),
       if (Platform.isWindows || Platform.isLinux) const _OcrModelCard(),
     ]);
   }
@@ -980,6 +982,135 @@ class _OcrModelCardState extends State<_OcrModelCard> {
       ]),
       const SizedBox(height: 6),
       Text('출처: huggingface.co/${PaddleOcr.repo} (PP-OCRv5, Apache 2.0)', style: text.bodySmall?.copyWith(color: Colors.grey)),
+    ]));
+  }
+}
+
+/// 영어 원서용 AI 성우 (Kokoro)
+class _KokoroCard extends StatefulWidget {
+  const _KokoroCard();
+  @override
+  State<_KokoroCard> createState() => _KokoroCardState();
+}
+
+class _KokoroCardState extends State<_KokoroCard> {
+  bool? _installed, _espeak;
+  bool _busy = false;
+  String _status = '';
+  double? _progress;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final ok = await KokoroTts.instance.installed();
+    final es = await KokoroTts.instance.espeakReady();
+    if (mounted) {
+      setState(() {
+        _installed = ok;
+        _espeak = es;
+      });
+    }
+  }
+
+  Future<void> _get(bool full) async {
+    setState(() {
+      _busy = true;
+      _progress = null;
+    });
+    try {
+      await KokoroTts.instance.download(
+        full: full,
+        onProgress: (f, got, total) {
+          if (!mounted) return;
+          setState(() {
+            _status = '$f  ${(got / 1048576).toStringAsFixed(1)} MB${total > 0 ? ' / ${(total / 1048576).toStringAsFixed(1)} MB' : ''}';
+            _progress = total > 0 ? got / total : null;
+          });
+        },
+      );
+      _status = '설치했습니다. 영어 책에서 "Kokoro 영어" 목소리를 고르세요.';
+    } catch (e) {
+      _status = '받지 못했습니다: $e';
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        const Icon(Icons.translate),
+        const SizedBox(width: 8),
+        Text('영어 원서용 AI 성우 (Kokoro)', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const Spacer(),
+        if (_installed == true) const Chip(avatar: Icon(Icons.check, size: 16, color: Colors.green), label: Text('설치됨')),
+      ]),
+      const SizedBox(height: 6),
+      Text('영어 책을 미국 · 영국 영어 성우 목소리(남녀 약 28가지)로 읽습니다. 한국어는 읽지 못해서, 한국어 문장이 나오면 '
+          '자연스러운 음성(한국어)으로 바꿔 읽습니다. 무료 · 오프라인.',
+          style: text.bodySmall),
+      if (_espeak == false)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            Platform.isWindows
+                ? '발음 엔진(eSpeak NG)이 앱 폴더(tools\\espeak-ng)에 없습니다. 최신 설치파일로 다시 설치하세요.'
+                : '발음 엔진(eSpeak NG)이 필요합니다. 터미널에서: brew install espeak-ng',
+            style: text.bodySmall?.copyWith(color: Colors.amber),
+          ),
+        ),
+      const SizedBox(height: 10),
+      if (_busy) ...[LinearProgressIndicator(value: _progress), const SizedBox(height: 6)],
+      if (_status.isNotEmpty) Text(_status, style: text.bodySmall),
+      const SizedBox(height: 6),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        FilledButton.icon(
+          onPressed: _busy ? null : () => _get(false),
+          icon: const Icon(Icons.download),
+          label: const Text('빠른 판 받기 (약 120MB)'),
+        ),
+        OutlinedButton.icon(
+          onPressed: _busy ? null : () => _get(true),
+          icon: const Icon(Icons.high_quality),
+          label: const Text('원본 고음질 받기 (약 340MB)'),
+        ),
+        OutlinedButton.icon(
+          onPressed: _busy
+              ? null
+              : () async {
+                  final d = await FilePicker.getDirectoryPath(dialogTitle: 'Kokoro 모델 폴더 선택');
+                  if (d == null) return;
+                  final n = await KokoroTts.instance.importFrom(d);
+                  setState(() => _status = '$n개 파일을 가져왔습니다.');
+                  await _refresh();
+                },
+          icon: const Icon(Icons.folder_open),
+          label: const Text('폴더에서 가져오기'),
+        ),
+        if (_installed == true)
+          TextButton.icon(
+            onPressed: _busy
+                ? null
+                : () async {
+                    await KokoroTts.instance.remove();
+                    final s = context.read<Settings>();
+                    if (KokoroTts.isKokoro(s.ttsVoice)) s.ttsVoice = '';
+                    await _refresh();
+                  },
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('지우기'),
+          ),
+      ]),
+      const SizedBox(height: 6),
+      Text('모델: Kokoro-82M (Apache 2.0) · github.com/thewh1teagle/kokoro-onnx, 발음: eSpeak NG (GPL-3)',
+          style: text.bodySmall?.copyWith(color: Colors.grey)),
     ]));
   }
 }

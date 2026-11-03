@@ -21,6 +21,7 @@ import 'package:media_shelf/models/media_item.dart';
 import 'package:media_shelf/services/auth.dart';
 import 'package:media_shelf/services/cover_service.dart';
 import 'package:media_shelf/services/epub_writer.dart';
+import 'package:media_shelf/services/kokoro_tts.dart';
 import 'package:media_shelf/services/natural_tts.dart';
 import 'package:media_shelf/services/ocr_service.dart';
 import 'package:media_shelf/services/paddle_ocr.dart';
@@ -423,6 +424,38 @@ void main() {
       debugPrint('CHECK restricted leaked=$leaked');
       expect(leaked, 0);
     });
+
+    // 영어 원서용 Kokoro (Windows · 발음 엔진이 있을 때)
+    if (Platform.isWindows && (Platform.environment['TTS_CHECK'] == '1' || const bool.fromEnvironment('TTS_CHECK'))) {
+      await step('kokoro', () async {
+        await tester.runAsync(() async {
+          final k = KokoroTts.instance;
+          debugPrint('CHECK kokoro espeak=${await k.espeakReady()}');
+          final ph = await k.phonemize('The quick brown fox.');
+          debugPrint('CHECK kokoro phonemes="$ph"');
+          final sw = Stopwatch()..start();
+          await k.download();
+          debugPrint('CHECK kokoro download ${sw.elapsed.inSeconds}s installed=${await k.installed()}');
+          final voices = await k.voices();
+          debugPrint('CHECK kokoro voices ${voices.length}: ${voices.take(6).map(KokoroTts.label).join(', ')}');
+          sw.reset();
+          final wav = await k.synthesize('It was a bright cold day in April, and the clocks were striking thirteen.', 'kk:af_heart');
+          final bytes = await File(wav).readAsBytes();
+          final bd = ByteData.sublistView(bytes);
+          final n = (bytes.length - 44) ~/ 2;
+          var sq = 0.0;
+          for (var i = 0; i < n; i++) {
+            final v = bd.getInt16(44 + i * 2, Endian.little);
+            sq += v * v.toDouble();
+          }
+          final rms = n == 0 ? 0 : sqrt(sq / n);
+          debugPrint('CHECK kokoro sec=${(n / 24000).toStringAsFixed(2)} rms=${rms.toStringAsFixed(0)} took=${sw.elapsedMilliseconds}ms');
+          File(wav).copySync(p.join(out.path, 'tts_kokoro_영어_af_heart.wav'));
+          expect(n / 24000, greaterThan(2.0));
+          expect(rms, greaterThan(300));
+        });
+      });
+    }
 
     // 공유 서버: 가족 계정으로 로그인하면 막힌 그림이 안 보여야 하고, 공용 아이디(제한 없음)는 보여야 한다
     await step('share server access', () async {
