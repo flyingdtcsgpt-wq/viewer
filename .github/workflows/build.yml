@@ -493,3 +493,45 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A && git commit -qm "iOS screenshots for ${{ github.sha }}"
           git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots-ios
+
+  # ---------------- 전체 묶음: 모든 설치파일 + 소스 + git 기록 + 문서를 한 번에 ----------------
+  package:
+    needs: [windows, android, macos, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ARARIFlex-{windows,android,macos,ios}
+          path: pack/설치파일
+          merge-multiple: false
+
+      - name: Assemble
+        run: |
+          ver=$(grep -E '^version:' pubspec.yaml | sed -E 's/version: *([0-9.]+).*/\1/')
+          mkdir -p pack/문서
+          cp docs/*.md README.md THIRD_PARTY_NOTICES.txt pack/문서/
+          git archive --format=zip --prefix=ARARIFlex-src/ -o "pack/ARARIFlex-$ver-source.zip" HEAD
+          git bundle create pack/ARARIFlex-history.bundle --all
+          cat > pack/처음_읽어주세요.txt <<'TXT'
+          ARARIFlex 전체 묶음
+
+          설치파일/   Windows(설치판 · 포터블 zip) · 안드로이드(apk) · 맥(dmg) · 아이폰/아이패드(서명 없는 ipa)
+          문서/       MANUAL.md(사용 설명서) · HANDOFF.md(이어서 개발하기) · DEV_NOTES.md(개발 노트)
+                      SOURCE_GUIDE.md(소스 설명) · CHANGELOG.md(개발 내역) · THIRD_PARTY_NOTICES.txt(라이선스)
+          ARARIFlex-*-source.zip     소스코드 전체
+          ARARIFlex-history.bundle   git 전체 기록 → git clone ARARIFlex-history.bundle ARARIFlex
+
+          이어서 개발하려면 문서/HANDOFF.md 부터 읽으세요.
+          TXT
+          sed -i 's/^          //' pack/처음_읽어주세요.txt
+          find pack -maxdepth 3 | sort
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARARIFlex-all-in-one
+          path: pack/
+

@@ -6,6 +6,9 @@
 ## 문서
 - 사용 설명서: [docs/MANUAL.md](docs/MANUAL.md)
 - 개발 노트(구조 · 설계 · CI · 이어서 작업하는 법): [docs/DEV_NOTES.md](docs/DEV_NOTES.md)
+- 이어서 개발하기(빌드 방법 · 모델 받는 곳 · 인수인계): [docs/HANDOFF.md](docs/HANDOFF.md)
+- 소스 설명서(파일마다 하는 일): [docs/SOURCE_GUIDE.md](docs/SOURCE_GUIDE.md)
+- 개발 내역서(모든 변경 날짜순): [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 ## 받기
 GitHub Actions 가 push 할 때마다 빌드한다. 저장소의 **Actions → 최신 실행 → Artifacts** 에서
