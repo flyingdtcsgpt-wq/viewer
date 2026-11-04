@@ -595,15 +595,31 @@ class AppState extends ChangeNotifier {
 
   /// 묶음 아래 모든 권 (하위 묶음 포함, 보이기 규칙 무시)
   List<MediaItem> _itemsUnder(int seriesId) {
-    final ids = <int>{seriesId};
-    var grew = true;
-    while (grew) {
-      grew = false;
+    // 하위 묶음을 따라 내려가며 모은다 (묶음별 자식 · 항목 목록은 판마다 한 번 만듦)
+    final children = _memo('childIds', () {
+      final m = <int, List<int>>{};
       for (final s in _series.values) {
-        if (s.parentId != null && ids.contains(s.parentId) && ids.add(s.id!)) grew = true;
+        if (s.parentId != null) (m[s.parentId!] ??= []).add(s.id!);
       }
+      return m;
+    });
+    final bySeries = _memo('itemsBySeries', () {
+      final m = <int, List<MediaItem>>{};
+      for (final e in _items) {
+        if (e.seriesId != null) (m[e.seriesId!] ??= []).add(e);
+      }
+      return m;
+    });
+    final out = <MediaItem>[];
+    final seen = <int>{};
+    final stack = [seriesId];
+    while (stack.isNotEmpty) {
+      final id = stack.removeLast();
+      if (!seen.add(id)) continue;
+      out.addAll(bySeries[id] ?? const <MediaItem>[]);
+      stack.addAll(children[id] ?? const <int>[]);
     }
-    return _items.where((e) => ids.contains(e.seriesId)).toList();
+    return out;
   }
 
   /// 실제 파일의 숨김 속성 맞추기 (Windows: attrib, macOS: chflags)
@@ -1712,8 +1728,8 @@ class AppState extends ChangeNotifier {
     for (final e in gone) {
       covers.forget(e);
     }
+    await db.deleteSeriesMany(seriesIds.toList());
     for (final id in seriesIds) {
-      await db.deleteSeries(id);
       _series.remove(id);
     }
     if (currentSeriesId != null && !_series.containsKey(currentSeriesId)) currentSeriesId = null;
@@ -1752,9 +1768,12 @@ class AppState extends ChangeNotifier {
     for (final s in ss) {
       out.addAll(_itemsUnder(s.id!).where(canSeeItem));
     }
+    // 묶음 경로는 묶음마다 한 번만 만든다 (비교할 때마다 만들면 느림)
+    final paths = <int?, String>{};
+    String path(MediaItem e) => paths.putIfAbsent(e.seriesId, () => seriesPath(e.seriesId));
     return out.toList()
       ..sort((a, b) {
-        final c = seriesPath(a.seriesId).compareTo(seriesPath(b.seriesId));
+        final c = path(a).compareTo(path(b));
         return c != 0 ? c : _byVolume(a, b);
       });
   }

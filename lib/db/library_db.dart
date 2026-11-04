@@ -126,6 +126,19 @@ class LibraryDb {
     });
   }
 
+  /// 여러 묶음을 한 번에 지우기
+  Future<void> deleteSeriesMany(List<int> ids) async {
+    if (ids.isEmpty) return;
+    await _db.transaction((txn) async {
+      for (var i = 0; i < ids.length; i += 500) {
+        final chunk = ids.sublist(i, ids.length < i + 500 ? ids.length : i + 500);
+        final marks = List.filled(chunk.length, '?').join(',');
+        await txn.delete('series', where: 'id IN ($marks)', whereArgs: chunk);
+        await txn.delete('denied', where: 'target IN ($marks)', whereArgs: [for (final id in chunk) 's:$id']);
+      }
+    });
+  }
+
   /// 여러 항목을 한 번에 지우기 (진행률 · 기록 · 권한 포함)
   Future<void> deleteMany(List<int> ids) async {
     if (ids.isEmpty) return;

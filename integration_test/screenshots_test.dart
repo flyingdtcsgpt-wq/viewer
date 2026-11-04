@@ -575,11 +575,7 @@ void main() {
           made.addAll(state.rawItems.where((e) => e.path.contains('${p.separator}loose${p.separator}')));
           // 정리: 큰 서재 항목은 지운다 (다음 단계 화면에 섞이지 않게)
           final w2 = Stopwatch()..start();
-          await state.removeMany(items: made);
-          for (final id in seriesIds) {
-            final se = state.seriesById(id);
-            if (se != null) await state.deleteSeries(se);
-          }
+          await state.removeMany(items: made, series: [for (final id in seriesIds) ?state.seriesById(id)]);
           debugPrint('CHECK scale remove=${w2.elapsedMilliseconds}ms');
         });
       });
