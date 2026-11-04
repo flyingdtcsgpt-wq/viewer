@@ -80,18 +80,43 @@ class TtsService {
       ? KokoroTts.instance.synthesize(text, voice, speed: (1 + rate.clamp(-10, 10) * 0.06).clamp(0.5, 2.0), wanted: wanted)
       : NaturalTts.instance.synthesize(text, voice, speed: _speed(rate), wanted: wanted);
 
+  static final _abbr = RegExp(r'\b(Mr|Mrs|Ms|Dr|Prof|Capt|Col|Lt|Gen|Sgt|Sr|Jr|Rev|Hon|Mt|Ft)\.(?=\s|$)');
+  static const _abbrWords = {
+    'Mr': 'Mister', 'Mrs': 'Missus', 'Ms': 'Miz', 'Dr': 'Doctor', 'Prof': 'Professor', 'Capt': 'Captain', 'Col': 'Colonel',
+    'Lt': 'Lieutenant', 'Gen': 'General', 'Sgt': 'Sergeant', 'Sr': 'Senior', 'Jr': 'Junior', 'Rev': 'Reverend', 'Hon': 'Honorable',
+    'Mt': 'Mount', 'Ft': 'Fort',
+  };
+
+  /// 읽기 전에 글 다듬기: 영어 호칭 약어(Mr. → Mister, St. Paul → Saint Paul, Baker St. → Baker Street, No. 5 → Number 5,
+  /// e.g. · i.e. · etc.)는 점에서 문장이 끊기지 않게 풀어 쓰고, 마침표 셋(...)은 말줄임표(…)로 (잠깐 쉼)
+  static String normalize(String t) {
+    var x = t.replaceAll(RegExp(r'\.{3,}'), '…').replaceAll(RegExp(r'…{2,}'), '…');
+    if (!x.contains(RegExp(r'[A-Za-z]\.'))) return x;
+    x = x.replaceAllMapped(_abbr, (m) => _abbrWords[m.group(1)] ?? m.group(0)!);
+    x = x.replaceAllMapped(RegExp(r'\bSt\.(\s+)(?=[A-Z])'), (m) => 'Saint${m.group(1)}');
+    x = x.replaceAll(RegExp(r'\bSt\.(?=\s|$)'), 'Street');
+    x = x.replaceAllMapped(RegExp(r'\bNo\.(\s*)(?=\d)'), (m) => 'Number${m.group(1)}');
+    x = x.replaceAll(RegExp(r'\be\.g\.', caseSensitive: false), 'for example').replaceAll(RegExp(r'\bi\.e\.', caseSensitive: false), 'that is');
+    x = x.replaceAll(RegExp(r'\betc\.(?=\s+[a-z])'), 'etcetera');
+    return x;
+  }
+
   /// AI 모델 음성으로 WAV 파일 만들기 (오디오북 저장용, 재생은 하지 않음)
-  static Future<String> renderModel(String text, String voice, int rate) => _synth(text, _fit(text, voice), rate);
+  static Future<String> renderModel(String text, String voice, int rate) {
+    final t = normalize(text);
+    return _synth(t, _fit(t, voice), rate);
+  }
 
   /// 다음에 읽을 글을 미리 만들어 둔다 (자연 음성일 때 끊김 줄이기)
   void prefetch(String text, {String? voice, int rate = 0}) {
     if (voice == null || !_isModel(voice) || text.trim().isEmpty) return;
+    text = normalize(text.trim());
     voice = _fit(text, voice);
-    final k = _key(text.trim(), voice, rate);
+    final k = _key(text, voice, rate);
     if (_ready.containsKey(k)) return;
     if (_ready.length > 6) _discard(_ready.remove(_ready.keys.first));
     final epoch = _epoch;
-    final f = _synth(text.trim(), voice, rate, wanted: () => epoch == _epoch);
+    final f = _synth(text, voice, rate, wanted: () => epoch == _epoch);
     f.ignore(); // 실패는 실제로 읽을 때 처리
     _ready[k] = f;
   }
@@ -205,7 +230,7 @@ class TtsService {
     _stopped = false;
     failed = false;
     final gen = _gen;
-    final t = text.trim();
+    final t = normalize(text.trim());
     if (t.isEmpty) return true;
     if (voice != null && _isModel(voice)) return _speakNatural(t, _fit(t, voice), rate, gen);
     if (_mobile) {

@@ -14,10 +14,9 @@ import '../../services/text_document.dart';
 /// 돌려줌: (시작 블록, 부분)
 List<(int, AudiobookPart)> audiobookParts(TextDocument doc) {
   final blocks = doc.blocks;
-  List<String> textOf(int a, int z) => [
-        for (var i = a; i < z; i++)
-          if (!blocks[i].isImage && (blocks[i].text ?? '').trim().isNotEmpty) blocks[i].text!.trim(),
-      ];
+  bool has(int i) => !blocks[i].isImage && (blocks[i].text ?? '').trim().isNotEmpty;
+  List<int> idsOf(int a, int z) => [for (var i = a; i < z; i++) if (has(i)) i];
+  AudiobookPart partOf(String title, List<int> ids) => AudiobookPart(title, [for (final i in ids) blocks[i].text!.trim()], ids);
   final starts = <(int, String)>[];
   final seen = <int>{};
   for (final t in [...doc.toc]..sort((a, b) => a.block.compareTo(b.block))) {
@@ -25,32 +24,30 @@ List<(int, AudiobookPart)> audiobookParts(TextDocument doc) {
   }
   final out = <(int, AudiobookPart)>[];
   if (starts.isEmpty) {
-    var cur = <String>[];
-    var n = 0, from = 0;
+    var cur = <int>[];
+    var n = 0;
     for (var i = 0; i < blocks.length; i++) {
-      final t = blocks[i].text?.trim() ?? '';
-      if (blocks[i].isImage || t.isEmpty) continue;
-      if (cur.isEmpty) from = i;
-      cur.add(t);
-      n += t.length;
+      if (!has(i)) continue;
+      cur.add(i);
+      n += blocks[i].text!.trim().length;
       if (n >= 20000) {
-        out.add((from, AudiobookPart('${out.length + 1}부분', cur)));
+        out.add((cur.first, partOf('${out.length + 1}부분', cur)));
         cur = [];
         n = 0;
       }
     }
-    if (cur.isNotEmpty) out.add((from, AudiobookPart('${out.length + 1}부분', cur)));
+    if (cur.isNotEmpty) out.add((cur.first, partOf('${out.length + 1}부분', cur)));
     return out;
   }
   if (starts.first.$1 > 0) {
-    final pre = textOf(0, starts.first.$1);
-    if (pre.isNotEmpty) out.add((0, AudiobookPart('머리말', pre)));
+    final pre = idsOf(0, starts.first.$1);
+    if (pre.isNotEmpty) out.add((0, partOf('머리말', pre)));
   }
   for (var k = 0; k < starts.length; k++) {
     final (a, title) = starts[k];
     final z = k + 1 < starts.length ? starts[k + 1].$1 : blocks.length;
-    final paras = textOf(a, z);
-    if (paras.isNotEmpty) out.add((a, AudiobookPart(title, paras)));
+    final ids = idsOf(a, z);
+    if (ids.isNotEmpty) out.add((a, partOf(title, ids)));
   }
   return out;
 }
@@ -85,7 +82,7 @@ Future<void> showAudiobookExport(
   required TextDocument doc,
   required int currentBlock,
   required int rate,
-  required List<(String, String, int)> Function(String paragraph) plan,
+  required List<(String, String, int)> Function(String paragraph, int block) plan,
 }) async {
   final all = audiobookParts(doc);
   if (all.isEmpty) {
@@ -99,6 +96,7 @@ Future<void> showAudiobookExport(
   }
   var range = 0; // 0 전체, 1 지금 장부터, 2 지금 장만
   var compress = true;
+  var single = false;
   var dir = await defaultAudiobookDir(title);
   if (!context.mounted) return;
 
@@ -140,6 +138,11 @@ Future<void> showAudiobookExport(
                 ChoiceChip(label: const Text('M4A (작게 · 권장)'), selected: compress, onSelected: (_) => set(() => compress = true)),
                 ChoiceChip(label: const Text('WAV (원음 · 약 4배 큼)'), selected: !compress, onSelected: (_) => set(() => compress = false)),
               ]),
+              const SizedBox(height: 6),
+              Wrap(spacing: 8, runSpacing: 6, children: [
+                ChoiceChip(label: const Text('장마다 파일'), selected: !single, onSelected: (_) => set(() => single = false)),
+                ChoiceChip(label: const Text('한 파일로 합치기'), selected: single, onSelected: (_) => set(() => single = true)),
+              ]),
               const SizedBox(height: 14),
               const Text('저장 위치', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
@@ -155,7 +158,7 @@ Future<void> showAudiobookExport(
                   ),
               ]),
               const SizedBox(height: 12),
-              Text('${parts.length}개 파일 · 듣는 시간 약 ${_dur(Duration(minutes: minutes.ceil()))} · ${(chars / 1000).toStringAsFixed(chars < 10000 ? 1 : 0)}천 자',
+              Text('${single ? 1 : parts.length}개 파일 · 듣는 시간 약 ${_dur(Duration(minutes: minutes.ceil()))} · ${(chars / 1000).toStringAsFixed(chars < 10000 ? 1 : 0)}천 자',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 4),
               const Text('긴 책은 오래 걸립니다. 만드는 동안 이 창을 열어 두세요. 멈춰도 다 만든 장은 남고, 다시 하면 이어서 만듭니다.',
@@ -186,6 +189,7 @@ Future<void> showAudiobookExport(
         outDir: dir,
         bookTitle: title,
         compress: compress,
+        single: single,
         plan: plan,
         onProgress: (pr) => progress.value = pr,
       )

@@ -2,6 +2,7 @@ import 'dart:isolate';
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -10,7 +11,9 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
 import '../../services/text_document.dart';
+import '../../services/ambient.dart';
 import '../../services/background_reading.dart';
+import '../../services/kokoro_tts.dart';
 import '../../services/natural_tts.dart';
 import '../../services/speakers.dart';
 import '../../services/tts_service.dart';
@@ -110,6 +113,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
         _anchor = saved.clamp(0, doc.blocks.isEmpty ? 0 : doc.blocks.length - 1);
         _current = _anchor;
       });
+      _prepareCast();
     } catch (e) {
       if (mounted) setState(() => _error = e);
     }
@@ -125,6 +129,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
     _speaking = false;
     _sleepTick?.cancel();
     BackgroundReading.stop();
+    Ambient.stop();
     _tts.dispose();
     _ctrl.dispose();
     _focus.dispose();
@@ -229,14 +234,18 @@ class _TextReaderPageState extends State<TextReaderPage> {
   // ---------------- 소리 내어 읽기 ----------------
 
   /// 문단을 (종류, 글) 로 나눈다: 0 일반, 1 대사("…"), 2 속마음('…')
+  /// 작은따옴표는 낱말 안의 줄임표(don't, it's)와 헷갈리지 않게 낱말 밖에서 열고 닫힐 때만
+  static final _quoteRe = RegExp(r'''([“"「『][^”"」』]+[”"」』])|((?<![A-Za-z0-9])[‘'][^’']+[’'](?![A-Za-z]))''');
+
   List<(int, String)> _segments(String text, bool split) {
     if (!split) return [(0, text)];
     final out = <(int, String)>[];
-    final re = RegExp(r'''([“"「『][^”"」』]+[”"」』])|([‘'][^’']+[’'])''');
     var pos = 0;
-    for (final m in re.allMatches(text)) {
+    // 영국식 영어 원서는 작은따옴표가 대사
+    final single = _singleDialogue ? 1 : 2;
+    for (final m in _quoteRe.allMatches(text)) {
       if (m.start > pos) out.add((0, text.substring(pos, m.start)));
-      out.add((m.group(1) != null ? 1 : 2, m.group(0)!));
+      out.add((m.group(1) != null ? 1 : single, m.group(0)!));
       pos = m.end;
     }
     if (pos < text.length) out.add((0, text.substring(pos)));
@@ -289,15 +298,16 @@ class _TextReaderPageState extends State<TextReaderPage> {
   int _ttsRun = 0; // 새로 읽기 시작하거나 멈추면 바뀜 (이전 읽기 루프는 그만둔다)
 
   /// 한 문단의 읽기 계획: (글, 음성, 속도)
-  List<(String, String, int)> _plan(String text, Settings s) {
+  List<(String, String, int)> _plan(String text, Settings s, {int? block}) {
     final segs = _segments(text, s.ttsSplit);
     final cast = s.ttsSplit ? s.speakerVoices(item.id!) : const <String, String>{};
+    final pool = s.ttsSplit && s.ttsAutoCast ? _castPool(s) : const <String>[];
     String voiceOf(int k) {
       switch (segs[k].$1) {
         case 1:
-          // 대사: 화자를 알아냈고 그 인물 목소리를 정해 두었으면 그 목소리
-          final who = cast.isEmpty ? null : Speakers.speakerAt(segs, k);
-          final v = who == null ? null : cast[who];
+          // 대사: 화자 → 정해 둔 인물 목소리, 없으면 자동 배역 (같은 인물은 책 끝까지 같은 목소리)
+          final who = _whoSays(segs, k, s, block);
+          final v = who == null ? null : (cast[who] ?? Speakers.autoVoice(who, _ranked ?? const [], pool));
           if (v != null) return v;
           return s.ttsDialogueVoice.isNotEmpty ? s.ttsDialogueVoice : s.ttsVoice;
         case 2:
@@ -312,6 +322,80 @@ class _TextReaderPageState extends State<TextReaderPage> {
     ];
   }
 
+  // ---- 책 분석 (인물 순위 · 영어 책인가 · 작은따옴표가 대사인가) ----
+  List<(String, int)>? _found; // 말한 횟수 순 인물
+  List<String>? _ranked;
+  bool _english = false;
+  bool _singleDialogue = false;
+  Future<void>? _castJob;
+  final Map<int, (String?, bool)> _paraInfo = {}; // 블록 → (화자, 대사만인가)
+
+  Future<void> _prepareCast() => _castJob ??= () async {
+        final doc = _doc;
+        if (doc == null) return;
+        final texts = [for (final b in doc.blocks) if (!b.isImage) b.text ?? ''];
+        final r = await _analyze(texts);
+        if (!mounted) return;
+        setState(() {
+          _found = r.$1;
+          _ranked = [for (final (n, _) in r.$1) n];
+          _english = r.$2;
+          _singleDialogue = r.$3;
+          _paraInfo.clear();
+        });
+      }();
+
+  /// 책 분석은 따로 도는 일꾼에서. static 이라야 화면 객체(State)가 같이 보내지지 않는다
+  static Future<(List<(String, int)>, bool, bool)> _analyze(List<String> texts) => Isolate.run(() {
+        var ko = 0, en = 0, dq = 0, sq = 0;
+        final open = RegExp(r'''(?<![A-Za-z0-9])['‘](?=[A-Z])''');
+        for (final t in texts.take(400)) {
+          ko += RegExp(r'[가-힣]').allMatches(t).length;
+          en += RegExp(r'[A-Za-z]').allMatches(t).length;
+          dq += RegExp(r'["“]').allMatches(t).length;
+          sq += open.allMatches(t).length;
+        }
+        final english = en > 200 && en > ko * 3;
+        return (Speakers.scan(texts), english, english && sq > dq * 2 && sq > 10);
+      });
+
+  /// 블록 하나의 (화자, 대사만인가). 대사 없는 문단은 화자 ''
+  (String?, bool) _infoOf(int i) => _paraInfo[i] ??= () {
+        final b = _doc!.blocks[i];
+        final t = b.text ?? '';
+        if (b.isImage || t.trim().isEmpty) return ('', false);
+        final segs = _segments(t, true);
+        return (Speakers.paragraphSpeaker(segs), Speakers.dialogueOnly(segs));
+      }();
+
+  /// 대사 [k] 를 누가 말했나: 지문에서, 없으면 (대사만인 문단이면) 앞 문단들과 주고받기로
+  String? _whoSays(List<(int, String)> segs, int k, Settings s, int? block) {
+    final who = Speakers.speakerAt(segs, k);
+    if (who != null || !s.ttsAlternate || block == null || block < 1 || _doc == null || !Speakers.dialogueOnly(segs)) return who;
+    return Speakers.alternate([for (var j = block - 1; j >= 0 && j >= block - 10; j--) _infoOf(j)]);
+  }
+
+  /// 자동 배역에 쓸 목소리: 영어 책이면 Kokoro, 아니면 자연 음성(남녀 번갈아). 서술 · 대사 · 속마음 목소리는 뺀다
+  List<String> _castPool(Settings s) {
+    final avoid = {s.ttsVoice, s.ttsDialogueVoice, s.ttsThoughtVoice};
+    List<String> pick(bool Function(String) f) => _voices.where(f).where((v) => !avoid.contains(v)).toList();
+    var pool = _english ? pick(KokoroTts.isKokoro) : <String>[];
+    if (pool.isEmpty) pool = pick(NaturalTts.isNatural);
+    if (pool.isEmpty) return const [];
+    String gender(String v) {
+      final id = v.substring(v.indexOf(':') + 1);
+      if (KokoroTts.isKokoro(v)) return id.length > 1 ? id[1] : '?';
+      return id.isEmpty ? '?' : id[0].toLowerCase();
+    }
+
+    final m = pool.where((v) => gender(v) == 'm').toList(), f = pool.where((v) => gender(v) == 'f').toList();
+    final rest = pool.where((v) => gender(v) != 'm' && gender(v) != 'f').toList();
+    return [
+      for (var i = 0; i < (m.length > f.length ? m.length : f.length); i++) ...[if (i < m.length) m[i], if (i < f.length) f[i]],
+      ...rest,
+    ];
+  }
+
   Future<void> _ttsPlay({int? from}) async {
     if (_doc == null) return;
     final run = ++_ttsRun;
@@ -321,7 +405,10 @@ class _TextReaderPageState extends State<TextReaderPage> {
       _ttsBlock = from ?? _ttsBlock ?? _current;
     });
     bool alive() => mounted && _speaking && run == _ttsRun;
+    await _prepareCast();
+    if (!alive()) return;
     BackgroundReading.start(item.title); // 화면을 꺼도 계속 (안드로이드)
+    Ambient.start(s.ttsBgm, s.ttsBgmVolume); // 배경음 (켜 두었으면)
     while (alive() && _ttsBlock! < _count) {
       final i = _ttsBlock!;
       if (_sleepDue(i)) {
@@ -331,10 +418,10 @@ class _TextReaderPageState extends State<TextReaderPage> {
       final b = _doc!.blocks[i];
       _showBlock(i);
       if (!b.isImage && (b.text ?? '').trim().isNotEmpty) {
-        final plan = _plan(b.text!, s);
+        final plan = _plan(b.text!, s, block: i);
         // 다음 문단 첫 덩어리도 미리 만들어 두면 문단 사이가 덜 끊긴다
         final nextBlock = i + 1 < _count ? _doc!.blocks[i + 1] : null;
-        final nextFirst = nextBlock == null || nextBlock.isImage ? null : _plan(nextBlock.text ?? '', s).firstOrNull;
+        final nextFirst = nextBlock == null || nextBlock.isImage ? null : _plan(nextBlock.text ?? '', s, block: i + 1).firstOrNull;
         for (var k = 0; k < plan.length; k++) {
           final (seg, voice, rate) = plan[k];
           final ahead = k + 1 < plan.length ? plan[k + 1] : nextFirst;
@@ -345,6 +432,11 @@ class _TextReaderPageState extends State<TextReaderPage> {
             if (_tts.failed) _ttsFailed();
             return;
           }
+          // 서술 ↔ 대사 ↔ 다른 인물로 목소리가 바뀔 때 짧게 숨을 고른다
+          if (k + 1 < plan.length && plan[k + 1].$2 != voice) {
+            await Future<void>.delayed(const Duration(milliseconds: 220));
+            if (!alive()) return;
+          }
         }
       }
       if (!alive()) return;
@@ -353,6 +445,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
     if (mounted && run == _ttsRun) {
       setState(() => _speaking = false);
       BackgroundReading.stop();
+      Ambient.stop();
     }
   }
 
@@ -360,10 +453,10 @@ class _TextReaderPageState extends State<TextReaderPage> {
   Future<void> _castDialog(Settings s) async {
     final doc = _doc;
     if (doc == null) return;
-    // 큰 책은 몇 초 걸릴 수 있어 화면이 멈추지 않게 따로 센다
-    final texts = [for (final b in doc.blocks) if (!b.isImage) b.text ?? ''];
-    final found = await Isolate.run(() => Speakers.scan(texts));
+    // 큰 책은 몇 초 걸릴 수 있어 화면이 멈추지 않게 따로 센다 (한 번만)
+    await _prepareCast();
     if (!mounted) return;
+    final found = _found ?? const <(String, int)>[];
     final cast = Map<String, String>.from(s.speakerVoices(item.id!));
     // 예전에 정했지만 이번에 못 찾은 이름도 보여 준다
     final names = [...found.map((e) => e.$1), ...cast.keys.where((k) => !found.any((f) => f.$1 == k))];
@@ -377,9 +470,25 @@ class _TextReaderPageState extends State<TextReaderPage> {
           content: SizedBox(
             width: 520,
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('대사 앞뒤의 "○○가 말했다" 같은 문장으로 누가 말했는지 찾습니다. '
-                  '화자를 알 수 없는 대사는 "대사" 목소리로 읽습니다.',
+              const Text('대사 앞뒤의 "○○가 말했다" · "said Holmes" 같은 문장으로 누가 말했는지 찾습니다. '
+                  '목소리를 고르지 않은 인물은 자동으로 서로 다른 목소리를 붙이고, 책 끝까지 같은 목소리로 읽습니다.',
                   style: TextStyle(fontSize: 12)),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('고르지 않은 인물은 자동 배역'),
+                value: s.ttsAutoCast,
+                onChanged: (v) => setD(() => s.ttsAutoCast = v),
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('화자가 안 적힌 주고받는 대사는 앞의 두 사람이 번갈아'),
+                value: s.ttsAlternate,
+                onChanged: (v) {
+                  setD(() => s.ttsAlternate = v);
+                },
+              ),
               const SizedBox(height: 8),
               if (names.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('말하는 인물을 찾지 못했습니다. 아래에서 이름을 직접 넣을 수 있습니다.')),
               Flexible(
@@ -394,7 +503,13 @@ class _TextReaderPageState extends State<TextReaderPage> {
                       trailing: DropdownButton<String>(
                         value: _voices.contains(cast[n]) ? cast[n] : '',
                         items: [
-                          const DropdownMenuItem(value: '', child: Text('대사 목소리')),
+                          DropdownMenuItem(
+                            value: '',
+                            child: Text(() {
+                              final a = s.ttsAutoCast ? Speakers.autoVoice(n, _ranked ?? const [], _castPool(s)) : null;
+                              return a == null ? '대사 목소리' : '자동 · ${TtsService.label(a)}';
+                            }()),
+                          ),
                           for (final v in _voices) DropdownMenuItem(value: v, child: Text(TtsService.label(v))),
                         ],
                         onChanged: (v) => setD(() => (v == null || v.isEmpty) ? cast.remove(n) : cast[n] = v),
@@ -419,6 +534,18 @@ class _TextReaderPageState extends State<TextReaderPage> {
             ]),
           ),
           actions: [
+            if (s.ttsAutoCast)
+              TextButton(
+                // 자동으로 붙은 목소리를 그대로 고정 (그 뒤 하나씩 바꾸기 쉽게)
+                onPressed: () => setD(() {
+                  final pool = _castPool(s);
+                  for (final n in names) {
+                    final a = Speakers.autoVoice(n, _ranked ?? const [], pool);
+                    if (a != null) cast.putIfAbsent(n, () => a);
+                  }
+                }),
+                child: const Text('자동 배역 고정'),
+              ),
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
             FilledButton(
               onPressed: () {
@@ -436,6 +563,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
 
   void _ttsFailed() {
     BackgroundReading.stop();
+    Ambient.stop();
     setState(() => _speaking = false);
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('음성을 만들지 못했습니다. 설정 › 읽어주기 음성에서 음성 파일을 확인하거나 다른 음성을 고르세요.')));
@@ -444,6 +572,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   Future<void> _ttsStop({bool reset = false}) async {
     _ttsRun++;
     BackgroundReading.stop();
+    Ambient.stop();
     setState(() {
       _speaking = false;
       if (reset) _ttsBlock = null;
@@ -542,10 +671,48 @@ class _TextReaderPageState extends State<TextReaderPage> {
                 ),
               ]),
             ),
+            PopupMenuButton<String>(
+              tooltip: '배경음',
+              color: toolBg,
+              onSelected: (v) async {
+                if (v == '#file') {
+                  final r = await FilePicker.pickFiles(type: FileType.audio, dialogTitle: '배경음으로 쓸 소리 파일');
+                  final path = r?.files.single.path;
+                  if (path == null) return;
+                  v = path;
+                }
+                s.ttsBgm = v;
+                if (_speaking) v.isEmpty ? Ambient.stop() : Ambient.start(v, s.ttsBgmVolume);
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: '', child: Text('배경음 끄기', style: TextStyle(color: Colors.white))),
+                for (final (k, l) in Ambient.kinds)
+                  PopupMenuItem(value: k, child: Text('${s.ttsBgm == k ? '✓ ' : ''}$l', style: const TextStyle(color: Colors.white))),
+                const PopupMenuItem(value: '#file', child: Text('내 소리 파일 고르기…', style: TextStyle(color: Colors.white))),
+              ],
+              child: ToolGroup([ToolBtn(icon: Icons.music_note, tooltip: '배경음 · ${Ambient.label(s.ttsBgm)}', active: s.ttsBgm.isNotEmpty)]),
+            ),
             const SizedBox(width: 6),
             voicePick(s.ttsVoice, (v) => s.ttsVoice = v, '기본 음성'),
             IconButton(onPressed: () => setState(() => _ttsPanel = false), icon: const Icon(Icons.close, color: Colors.white54)),
           ]),
+          if (s.ttsBgm.isNotEmpty)
+            Row(children: [
+              const Icon(Icons.music_note, color: Colors.white54, size: 16),
+              const SizedBox(width: 4),
+              Flexible(child: Text('배경음 · ${Ambient.label(s.ttsBgm)}', style: const TextStyle(color: Colors.white70, fontSize: 12), overflow: TextOverflow.ellipsis)),
+              SizedBox(
+                width: 160,
+                child: Slider(
+                  value: s.ttsBgmVolume.toDouble(),
+                  max: 100,
+                  onChanged: (v) {
+                    s.ttsBgmVolume = v.round();
+                    Ambient.setVolume(v.round());
+                  },
+                ),
+              ),
+            ]),
           Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, runSpacing: 4, children: [
             Checkbox(value: s.ttsSplit, onChanged: (v) => s.ttsSplit = v ?? false),
             const Text('큰따옴표=대사, 작은따옴표=속마음 다른 음성으로', style: TextStyle(color: Colors.white70, fontSize: 12)),
@@ -569,13 +736,26 @@ class _TextReaderPageState extends State<TextReaderPage> {
                 ? null
                 : () async {
                     if (_speaking) await _ttsStop();
+                    await _prepareCast();
                     if (!mounted || _doc == null) return;
                     await showAudiobookExport(context,
-                        title: item.title, doc: _doc!, currentBlock: _ttsBlock ?? _current, rate: s.ttsRate, plan: (t) => _plan(t, s));
+                        title: item.title, doc: _doc!, currentBlock: _ttsBlock ?? _current, rate: s.ttsRate, plan: (t, block) => _plan(t, s, block: block < 0 ? null : block));
                   },
             icon: const Icon(Icons.library_music, size: 18),
             label: const Text('오디오북으로 저장 (장마다 소리 파일)'),
           ),
+          if (_english && !KokoroTts.isKokoro(s.ttsVoice))
+            if (_voices.any(KokoroTts.isKokoro))
+              TextButton.icon(
+                onPressed: () => s.ttsVoice = _voices.contains('${KokoroTts.prefix}af_heart')
+                    ? '${KokoroTts.prefix}af_heart'
+                    : _voices.firstWhere(KokoroTts.isKokoro),
+                icon: const Icon(Icons.translate, size: 18),
+                label: const Text('영어 책입니다 — Kokoro 영어 성우로 읽기'),
+              )
+            else if (KokoroTts.platformOk)
+              const Text('영어 책입니다. 설정 › 읽어주기 · 글자 인식에서 Kokoro 영어 성우(28가지)를 받으면 더 자연스럽습니다',
+                  style: TextStyle(color: Colors.white54, fontSize: 11)),
           if (_voices.isEmpty)
             const Text('음성 목록을 읽는 중… (Windows 설정 → 시간 및 언어 → 음성 에서 한국어 음성을 추가할 수 있습니다)',
                 style: TextStyle(color: Colors.white38, fontSize: 11))

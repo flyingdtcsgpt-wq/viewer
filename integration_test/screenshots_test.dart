@@ -18,6 +18,8 @@ import 'package:media_shelf/db/library_db.dart';
 import 'package:media_shelf/main.dart';
 import 'package:media_shelf/models/entry.dart';
 import 'package:media_shelf/models/media_item.dart';
+import 'package:media_shelf/services/ambient.dart';
+import 'package:media_shelf/services/speakers.dart';
 import 'package:media_shelf/services/audiobook.dart';
 import 'package:media_shelf/services/auth.dart';
 import 'package:media_shelf/services/cover_service.dart';
@@ -636,6 +638,67 @@ void main() {
       });
     });
 
+    // 화자 찾기 · 주고받기 · 영어 약어 · 배경음 (순수 규칙이라 숫자로 정확히 확인)
+    await step('speakers', () async {
+      await tester.runAsync(() async {
+        final got = {
+          'en_after': Speakers.after(' said Holmes, smiling.'),
+          'en_after2': Speakers.after(' Mr. Holmes asked.'),
+          'en_then': Speakers.after(' Then Sherlock Holmes replied quietly.'),
+          'en_before': Speakers.before('Watson turned to me and said, '),
+          'en_he': Speakers.after(' he said.'),
+          'ko_after': Speakers.after(' 민호가 속삭였다.'),
+          'ko_before': Speakers.before('수아가 고개를 저으며 말했다. '),
+          'alt_even': Speakers.alternate([(null, true), ('민호', false)]),
+          'alt_odd': Speakers.alternate([('민호', false), ('수아', false)]),
+          'alt_break': Speakers.alternate([('', false), ('민호', false)]),
+          'alt_unknown_other': Speakers.alternate([('민호', false)]),
+        };
+        debugPrint('CHECK speakers $got');
+        expect(got, {
+          'en_after': 'Holmes',
+          'en_after2': 'Holmes',
+          'en_then': 'Holmes',
+          'en_before': 'Watson',
+          'en_he': null,
+          'ko_after': '민호',
+          'ko_before': '수아',
+          'alt_even': '민호',
+          'alt_odd': '수아',
+          'alt_break': null,
+          'alt_unknown_other': null,
+        });
+        final scan = Speakers.scan([
+          '"Come in," said Holmes.',
+          '"Thank you," Watson replied.',
+          '"Sit down," said Mr. Holmes.',
+          '"Of course," said Watson.',
+        ]);
+        debugPrint('CHECK speakers scan=$scan');
+        expect(scan.map((e) => e.$1).toSet(), {'Holmes', 'Watson'});
+        final pool = ['st:M1', 'st:F1', 'st:M2'];
+        expect(Speakers.autoVoice('Holmes', ['Holmes', 'Watson'], pool), 'st:M1');
+        expect(Speakers.autoVoice('Watson', ['Holmes', 'Watson'], pool), 'st:F1');
+        final norm = TtsService.normalize('Mr. Holmes met Dr. Watson on Baker St. near St. Paul... No. 5, e.g. here.');
+        debugPrint('CHECK normalize "$norm"');
+        expect(norm, 'Mister Holmes met Doctor Watson on Baker Street near Saint Paul… Number 5, for example here.');
+        for (final (k, _) in Ambient.kinds) {
+          final w = Ambient.makeWav(k);
+          final pcm = pcmFromWav(w, 22050)!;
+          var sq = 0.0;
+          for (final v in pcm) {
+            sq += v * v.toDouble();
+          }
+          final rms = sqrt(sq / pcm.length);
+          // 이음새: 끝과 처음 표본 차이가 작아야 반복할 때 '딱' 소리가 안 남
+          final seam = (pcm.last - pcm.first).abs();
+          debugPrint('CHECK ambient $k sec=${pcm.length / 22050} rms=${rms.round()} seam=$seam');
+          expect(pcm.length, 22050 * 30);
+          expect(rms, greaterThan(500));
+        }
+      });
+    });
+
     // 오디오북: 가짜 음성으로 이어 붙이기 · 표본률 맞추기 · 이어 만들기를 숫자로 확인하고, 실제 기기 음성과 M4A 변환도 해 본다
     await step('audiobook', () async {
       await tester.runAsync(() async {
@@ -681,7 +744,7 @@ void main() {
           AudiobookPart('제1장 시작', ['첫 문단입니다.', '"안녕." 민호가 말했다.']),
           AudiobookPart('제2장: 끝/마무리?', ['두 번째 장.']),
         ];
-        List<(String, String, int)> plan(String t) => [
+        List<(String, String, int)> plan(String t, [int block = -1]) => [
               for (final x in t.split('"').where((x) => x.trim().isNotEmpty)) (x, t.startsWith('"') && x == t.split('"')[1] ? 'b' : 'a', 0),
             ];
         var expected = 0;
@@ -706,6 +769,13 @@ void main() {
         final again = await AudiobookMaker(render: fake).make(parts: parts, outDir: dir.path, bookTitle: '시험 책', compress: false, plan: plan);
         debugPrint('CHECK audiobook resume skipped=${again.skippedParts} files=${again.files.length}');
         expect(again.skippedParts, 2);
+        final oneDir = p.join(dir.path, 'one');
+        final one = await AudiobookMaker(render: fake).make(parts: parts, outDir: oneDir, bookTitle: '시험 책', compress: false, single: true, plan: plan);
+        final onePcm = pcmFromWav(await File(one.files.single).readAsBytes(), 24000)!;
+        final left = Directory(oneDir).listSync().map((e) => p.basename(e.path)).toList();
+        debugPrint('CHECK audiobook single=${p.basename(one.files.single)} samples=${onePcm.length} left=$left');
+        expect(onePcm.length, expected);
+        expect(left, ['시험 책.wav']);
 
         // 실제 기기 음성 (자연 음성이 없어도 되는 길)
         final v = await TtsService.voices();

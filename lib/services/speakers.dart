@@ -4,6 +4,8 @@
 ///   "정말이야." 민호가 속삭였다.        ← 대사 뒤 서술
 ///   수아가 고개를 저으며 말했다. "아니." ← 대사 앞 서술
 /// 이름 뒤 조사(이/가/은/는/께서) + 말하는 동사가 가까이 있으면 그 이름을 화자로 본다.
+/// 영어 원서: "…," said Holmes. / Holmes said, "…" / Mr. Holmes asked. (호칭은 떼고 성으로 묶음: Sherlock Holmes = Holmes)
+/// 화자가 안 적힌 대사가 대사만으로 이어지면 앞의 두 사람이 번갈아 말한 것으로 본다 ([alternate]).
 class Speakers {
   Speakers._();
 
@@ -28,11 +30,93 @@ class Speakers {
     return t;
   }
 
-  /// 대사 바로 뒤 서술에서 화자 ("…" 민호가 속삭였다)
-  static String? after(String narration) => _clean(_after.firstMatch(narration)?.group(1));
+  // ---- 영어 ----
+  static const _enVerbs = r'(?:said|says|asked|asks|replied|answered|cried|whispered|shouted|muttered|murmured|exclaimed|added|continued|called|remarked|observed|returned|repeated|insisted|admitted|explained|snapped|growled|sighed|laughed|demanded|inquired|interrupted|declared|protested|began|went on)';
+  static const _enName = r"((?:(?:Mr|Mrs|Ms|Dr|Prof|Sir|Lady|Lord|Miss|Captain|Colonel|Inspector|Doctor|Professor|Uncle|Aunt)\.?\s)?[A-Z][a-z'’]+(?:\s[A-Z][a-z'’]+){0,2})";
+  static final _enAfterVerbFirst = RegExp('^\\s*,?\\s*(?:[a-z]+ly\\s+)?$_enVerbs\\s+$_enName');
+  static final _enAfterNameFirst = RegExp('^\\s*,?\\s*$_enName\\s+(?:[a-z]+ly\\s+)?$_enVerbs\\b');
+  static final _enBefore = RegExp('$_enName\\b[^.!?"“”]{0,40}?\\b$_enVerbs\\b[^.!?"“”]*[,:.]?\\s*\$');
+  static final _enAny1 = RegExp('$_enName\\s+(?:[a-z]+ly\\s+)?$_enVerbs\\b');
+  static final _enAny2 = RegExp('\\b$_enVerbs\\s+$_enName');
+  static const _enStop = {
+    'He', 'She', 'I', 'They', 'We', 'You', 'It', 'The', 'His', 'Her', 'Their', 'There', 'Then', 'And', 'But', 'This', 'That',
+    'One', 'Someone', 'Everyone', 'Nobody', 'Somebody', 'A', 'An', 'My', 'Our', 'Your', 'What', 'When', 'Where', 'Why', 'How',
+    'Yes', 'No', 'Oh', 'Well', 'Now', 'So', 'If', 'As', 'At', 'In', 'On', 'For', 'With', 'Who',
+  };
+  static final _title = RegExp(r'^(?:Mr|Mrs|Ms|Dr|Prof|Sir|Lady|Lord|Miss|Captain|Colonel|Inspector|Doctor|Professor|Uncle|Aunt)\.?\s+');
 
-  /// 대사 바로 앞 서술에서 화자 (민호가 말했다. "…")
-  static String? before(String narration) => _clean(_before.firstMatch(narration)?.group(1));
+  /// 영어 이름 → 묶는 이름 (호칭 떼고 성: "Mr. Sherlock Holmes" → "Holmes")
+  static String? _cleanEn(String? n) {
+    if (n == null) return null;
+    final t = n.trim().replaceFirst(_title, '');
+    final words = t.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    // "Then Holmes said" 처럼 앞에 붙은 보통 낱말은 뗀다
+    while (words.isNotEmpty && _enStop.contains(words.first)) {
+      words.removeAt(0);
+    }
+    if (words.isEmpty) return null;
+    final key = words.last.replaceAll(RegExp(r"['’]s$"), '');
+    if (key.length < 2 || _enStop.contains(key)) return null;
+    return key;
+  }
+
+  /// 대사 바로 뒤 서술에서 화자 ("…" 민호가 속삭였다 / "…," said Holmes)
+  static String? after(String narration) =>
+      _clean(_after.firstMatch(narration)?.group(1)) ??
+      _cleanEn(_enAfterVerbFirst.firstMatch(narration)?.group(1)) ??
+      _cleanEn(_enAfterNameFirst.firstMatch(narration)?.group(1));
+
+  /// 대사 바로 앞 서술에서 화자 (민호가 말했다. "…" / Holmes said, "…")
+  static String? before(String narration) => _clean(_before.firstMatch(narration)?.group(1)) ?? _cleanEn(_enBefore.firstMatch(narration)?.group(1));
+
+  /// 문단의 대사 화자: 지문에서 찾으면 이름, 못 찾으면 null, 대사가 없는 문단이면 ''
+  static String? paragraphSpeaker(List<(int, String)> segs) {
+    var any = false;
+    for (var k = 0; k < segs.length; k++) {
+      if (segs[k].$1 != 1) continue;
+      any = true;
+      final n = speakerAt(segs, k);
+      if (n != null) return n;
+    }
+    return any ? null : '';
+  }
+
+  /// 대사만 있는 문단인가 (서술은 문장부호 정도)
+  static bool dialogueOnly(List<(int, String)> segs) =>
+      segs.any((e) => e.$1 == 1) && segs.where((e) => e.$1 == 0).every((e) => e.$2.replaceAll(RegExp(r'[\s.,!?…—–-]'), '').isEmpty);
+
+  /// 주고받는 대사: [back] 은 바로 앞 문단부터 거꾸로 (그 문단의 화자 · 대사만인가).
+  /// 대사가 이어지는 동안 가장 가까운 알려진 화자 X 가 홀수 칸 앞이면 그 앞의 다른 사람 Y, 짝수 칸 앞이면 X.
+  /// 대사 없는 문단이나 화자를 모르는 서술 섞인 문단을 만나면 확신이 없어 null.
+  static String? alternate(List<(String?, bool)> back) {
+    String? x, y;
+    var dx = 0;
+    for (var j = 0; j < back.length; j++) {
+      final (who, only) = back[j];
+      if (who == '') break;
+      if (who != null) {
+        if (x == null) {
+          x = who;
+          dx = j + 1;
+        } else if (who != x) {
+          y = who;
+          break;
+        }
+      } else if (!only) {
+        break;
+      }
+    }
+    if (x == null) return null;
+    return dx.isEven ? x : y;
+  }
+
+  /// 자동 배역: 인물 순위(말한 횟수 순)대로 서로 다른 목소리를 돌려 쓴다. 순위에 없는 이름은 이름으로 정해진 자리
+  static String? autoVoice(String name, List<String> ranked, List<String> pool) {
+    if (pool.isEmpty) return null;
+    var i = ranked.indexOf(name);
+    if (i < 0) i = name.codeUnits.fold(0, (a, b) => (a * 31 + b) & 0x7fffffff);
+    return pool[i % pool.length];
+  }
 
   /// 문단 조각들 (종류 0 서술 / 1 대사 / 2 속마음) 중 [i] 번째 대사의 화자
   static String? speakerAt(List<(int, String)> segs, int i) {
@@ -55,6 +139,12 @@ class Speakers {
       for (final m in _anywhere.allMatches(t)) {
         final n = _clean(m.group(1));
         if (n != null) count[n] = (count[n] ?? 0) + 1;
+      }
+      for (final re in [_enAny1, _enAny2]) {
+        for (final m in re.allMatches(t)) {
+          final n = _cleanEn(m.group(1));
+          if (n != null) count[n] = (count[n] ?? 0) + 1;
+        }
       }
     }
     final list = count.entries.where((e) => e.value >= 2 || count.length < 8).map((e) => (e.key, e.value)).toList()

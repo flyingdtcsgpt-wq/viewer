@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../services/ambient.dart';
 import '../../services/background_reading.dart';
 import '../../services/natural_tts.dart';
 import '../../services/ocr_service.dart';
@@ -51,6 +52,7 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
   void dispose() {
     _run++;
     BackgroundReading.stop();
+    Ambient.stop();
     _tts.dispose();
     super.dispose();
   }
@@ -91,6 +93,7 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
     final s = context.read<Settings>();
     setState(() => _speaking = true);
     BackgroundReading.start('');
+    Ambient.start(s.ttsBgm, s.ttsBgmVolume); // 배경음 (켜 두었으면)
     var page = widget.currentPage();
     while (mounted && run == _run && page < widget.pageCount) {
       setState(() => _status = '${page + 1}쪽 글자 읽는 중…');
@@ -129,12 +132,14 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
         _speaking = false;
         _status = '끝까지 읽었습니다';
         BackgroundReading.stop();
+        Ambient.stop();
       });
     }
   }
 
   void _fail(String msg) {
     BackgroundReading.stop();
+    Ambient.stop();
     if (!mounted) return;
     setState(() {
       _speaking = false;
@@ -145,6 +150,7 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
   Future<void> _stop() async {
     _run++;
     BackgroundReading.stop();
+    Ambient.stop();
     setState(() {
       _speaking = false;
       _status = '';

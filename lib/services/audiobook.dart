@@ -15,7 +15,8 @@ import 'tts_service.dart';
 class AudiobookPart {
   final String title;
   final List<String> paragraphs;
-  AudiobookPart(this.title, this.paragraphs);
+  final List<int> blocks; // 문단마다 책 속 블록 번호 (주고받는 대사 추론용, 없으면 빈 목록)
+  AudiobookPart(this.title, this.paragraphs, [this.blocks = const []]);
   int get chars => paragraphs.fold(0, (a, b) => a + b.length);
 }
 
@@ -81,11 +82,14 @@ class AudiobookMaker {
   Future<AudiobookResult> make({
     required List<AudiobookPart> parts,
     required String outDir,
-    required List<(String, String, int)> Function(String paragraph) plan,
+    required List<(String, String, int)> Function(String paragraph, int block) plan,
     String bookTitle = '',
     bool compress = true,
+    bool single = false, // 다 만든 뒤 책 한 파일로 합친다 (장 파일은 WAV 로 만들었다가 지움)
     void Function(AudiobookProgress)? onProgress,
   }) async {
+    final wantM4a = compress;
+    if (single) compress = false;
     await Directory(outDir).create(recursive: true);
     final total = parts.fold(0, (a, b) => a + b.chars);
     final sw = Stopwatch()..start();
@@ -102,7 +106,9 @@ class AudiobookMaker {
         final part = parts[i];
         final base = p.join(outDir, partBase(i, part.title));
         // 이미 만든 장 (이어 만들기)
-        final had = [for (final e in ['.m4a', '.wav']) File('$base$e')].where((f) => f.existsSync() && f.lengthSync() > 1024).firstOrNull;
+        final had = [for (final e in single ? ['.wav'] : ['.m4a', '.wav']) File('$base$e')]
+            .where((f) => f.existsSync() && f.lengthSync() > 1024)
+            .firstOrNull;
         if (part.paragraphs.isEmpty) {
           // 범위 밖 자리 (번호를 맞추려고 둔 것): 이미 만든 파일만 목록에 넣는다
           if (had != null) files.add(had.path);
@@ -122,9 +128,10 @@ class AudiobookMaker {
         try {
           await raf.writeFrom(NaturalTts.wavBytes(Float32List(0), sampleRate)); // 머리 (길이는 끝에 채움)
           var inPart = 0;
-          for (final para in part.paragraphs) {
+          for (var q = 0; q < part.paragraphs.length; q++) {
+            final para = part.paragraphs[q];
             if (_cancel) break;
-            for (final (text, voice, rate) in plan(para)) {
+            for (final (text, voice, rate) in plan(para, q < part.blocks.length ? part.blocks[q] : -1)) {
               if (_cancel) break;
               if (text.trim().isEmpty) continue;
               Int16List? pcm;
@@ -196,6 +203,53 @@ class AudiobookMaker {
       }
     } finally {
       await AudioRender.closeWorkers();
+    }
+
+    if (single && !_cancel && files.isNotEmpty) {
+      // 장 WAV 들을 차례대로 이어 책 한 파일로
+      final name = safeName(bookTitle).isEmpty ? '오디오북' : safeName(bookTitle);
+      final whole = p.join(outDir, '$name.wav');
+      final out = await File(whole).open(mode: FileMode.write);
+      var bytes = 0;
+      try {
+        await out.writeFrom(NaturalTts.wavBytes(Float32List(0), sampleRate));
+        for (final f in files) {
+          final raf = await File(f).open();
+          try {
+            await raf.setPosition(44);
+            while (true) {
+              final chunk = await raf.read(1 << 20);
+              if (chunk.isEmpty) break;
+              await out.writeFrom(chunk);
+              bytes += chunk.length;
+            }
+          } finally {
+            await raf.close();
+          }
+        }
+        await out.setPosition(4);
+        await out.writeFrom(_u32(36 + bytes));
+        await out.setPosition(40);
+        await out.writeFrom(_u32(bytes));
+      } finally {
+        await out.close();
+      }
+      var result = whole;
+      var ok = true;
+      if (wantM4a) {
+        final m4a = p.join(outDir, '$name.m4a');
+        ok = await AudioRender.encodeM4a(whole, m4a);
+        if (ok) {
+          await File(whole).delete();
+          result = m4a;
+        } else {
+          compressedAll = false;
+        }
+      }
+      for (final f in files) {
+        await File(f).delete().catchError((_) => File(f));
+      }
+      return AudiobookResult([result], Duration(milliseconds: bytes ~/ 2 * 1000 ~/ sampleRate), skipped, failed, wantM4a && ok, false, null);
     }
 
     String? playlist;
@@ -338,7 +392,7 @@ class AudioRender {
 
   /// 글 한 조각을 WAV 로. 실패하면 null
   static Future<String?> toWav(String text, String voice, int rate) async {
-    final t = text.trim();
+    final t = TtsService.normalize(text.trim());
     if (t.isEmpty) return null;
     if (_isModel(voice)) return TtsService.renderModel(t, voice, rate);
     if (Platform.isWindows) return (_win ??= _WinVoices()).render(t, voice, rate, await _tmp('.wav'));

@@ -63,13 +63,14 @@
 
 | 파일 | 하는 일 |
 |---|---|
-| `tts_service.dart` | ★ 읽기 진입점 `speak(text, voice, rate)`. 음성 이름 앞글자로 엔진 고름: `st:` Supertonic, `kk:` Kokoro, `and:` 안드로이드 기기, `ios:` iOS 기기, 그 밖은 Windows(PowerShell System.Speech) / macOS(`say`). 미리 만들기 `prefetch`, 멈춤 세대 `_gen/_epoch`, `failed`(멈춤과 실패 구분), WAV 재생은 media_kit |
+| `tts_service.dart` | ★ 읽기 진입점 `speak(text, voice, rate)`, 글 다듬기 `normalize`(영어 약어 · 말줄임표). 음성 이름 앞글자로 엔진 고름: `st:` Supertonic, `kk:` Kokoro, `and:` 안드로이드 기기, `ios:` iOS 기기, 그 밖은 Windows(PowerShell System.Speech) / macOS(`say`). 미리 만들기 `prefetch`, 멈춤 세대 `_gen/_epoch`, `failed`(멈춤과 실패 구분), WAV 재생은 media_kit |
 | `natural_tts.dart` | Supertonic 3 (한국어 등 31개 언어, 44.1kHz): 모델 받기/가져오기, 한글 자모 분해 전처리, 4개 ONNX(길이 · 텍스트 · 8단계 잡음 제거 · vocoder), `chunkText`, `wavBytes` |
 | `kokoro_tts.dart` | 영어 원서용 Kokoro-82M (24kHz): eSpeak NG 로 발음 기호 → 어휘 178개 → ONNX. voices-v1.0.bin(npz) 읽기. 맨 아래 `kokoroVocab` |
-| `speakers.dart` | 대사 화자 찾기(규칙): "…" 민호가 속삭였다 / 민호가 말했다. "…". `speakerAt`, `scan`(등장인물 목록) |
+| `speakers.dart` | 대사 화자 찾기(규칙, 한국어 · 영어): "…" 민호가 속삭였다 / said Holmes. `speakerAt`, `scan`(등장인물 순위), `alternate`(주고받는 대사), `autoVoice`(자동 배역) |
 | `ocr_service.dart` | 글자 인식 진입점 `recognizeFiles/recognizeBytes`. Windows: PaddleOCR(있으면) → Windows OCR(PowerShell+WinRT). 안드로이드(ML Kit) · 애플(Vision): 채널 `mediashelf/ocr`. 긴 그림은 2600px 조각(80px 겹침). `tidy`(줄 잇기) |
 | `paddle_ocr.dart` | PaddleOCR PP-OCRv5 한국어: 모델 목록에서 골라 받기, DB 검출 → 상자 → 높이 48 인식 → CTC 디코딩 → 줄 합치기 |
 | `audiobook.dart` | 오디오북 저장: `AudiobookMaker.make`(장마다 조각 합성 → 24kHz 모노로 이어 붙임 → M4A, 이어 만들기, m3u8), `pcmFromWav`(어떤 WAV 든 변환), `AudioRender`(플랫폼별 글 → WAV · WAV → M4A), `_WinVoices`(PowerShell 하나로 System.Speech 파일 출력) |
+| `ambient.dart` | 배경음: 빗소리 · 파도 · 벽난로 · 잡음을 직접 만들어(`makeWav`) 반복 재생, 내 소리 파일, 커지기/줄이기 |
 | `background_reading.dart` | 안드로이드 화면 꺼도 읽기: `mediashelf/bg` start/stop → `ReadAloudService` |
 
 ## 5. 화면 (lib/ui)

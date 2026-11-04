@@ -147,6 +147,18 @@ class Settings extends ChangeNotifier {
   bool get ttsSplit => _p.getBool('ttsSplit') ?? false;
   set ttsSplit(bool v) => _set(() => _p.setBool('ttsSplit', v));
 
+  /// 목소리를 정하지 않은 인물에게도 자동으로 서로 다른 목소리 (책 끝까지 같은 목소리)
+  bool get ttsAutoCast => _p.getBool('ttsAutoCast') ?? true;
+  set ttsAutoCast(bool v) => _set(() => _p.setBool('ttsAutoCast', v));
+  /// 화자가 안 적힌 주고받는 대사는 앞의 두 사람을 번갈아
+  bool get ttsAlternate => _p.getBool('ttsAlternate') ?? true;
+  set ttsAlternate(bool v) => _set(() => _p.setBool('ttsAlternate', v));
+  /// 배경음: '' 끔, 'rain' · 'waves' · 'fire' · 'white' · 'pink' · 'brown', 또는 소리 파일 경로
+  String get ttsBgm => _p.getString('ttsBgm') ?? '';
+  set ttsBgm(String v) => _set(() => _p.setString('ttsBgm', v));
+  int get ttsBgmVolume => _p.getInt('ttsBgmVolume') ?? 25;
+  set ttsBgmVolume(int v) => _set(() => _p.setInt('ttsBgmVolume', v.clamp(0, 100)));
+
   /// 책마다 인물별 목소리 { 이름: 음성 }
   Map<String, String> speakerVoices(int bookId) {
     final raw = _p.getString('spk_$bookId');

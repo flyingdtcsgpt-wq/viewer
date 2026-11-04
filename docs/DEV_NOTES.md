@@ -251,3 +251,23 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - 화면: `lib/ui/tools/convert_tool_pages.dart`, `archive_tool_pages.dart`(`ToolRunner` 공통, `PdfToTextPage`), `tools_page.dart` 목록
 - CI 확인: integration_test 의 `audiobook`(가짜 음성으로 표본 수 정확히 · 이어 만들기 · 실제 기기 음성 · M4A), `pdf text`(쪽 합치기 규칙 ·
   그림으로 만든 스캔 PDF 를 글자 인식), `file tools`(CBZ PNG→JPEG 1600px, EPUB 표지 1200px · mimetype 맨 앞, PDF 4쪽 → 2+2 → 합쳐 4)
+
+## 12. 인물 목소리 · 배경음 (11-04 오후)
+- 화자 찾기 `speakers.dart`: 한국어 규칙 + 영어 규칙(`said Holmes` / `Holmes said` / `Mr. Holmes asked` / 앞 지문 `Watson turned … and said,`).
+  영어 이름은 호칭 · 앞 보통 낱말(Then …)을 떼고 성으로 묶음(`_cleanEn`). `scan` 도 영어를 셈
+- 주고받기 `Speakers.alternate(back)`: back = 앞 문단부터 거꾸로 (화자 | null | ''(대사 없음), 대사만인가).
+  가장 가까운 알려진 화자 X 가 짝수 칸 앞이면 X, 홀수 칸이면 그 앞의 다른 화자 Y. 대사 없는 문단 · 화자 모르는 서술 섞인 문단에서 멈춤.
+  뷰어 `_whoSays` 는 지문에서 못 찾고 문단이 대사만일 때 앞 10문단을 본다 (`_infoOf` 캐시)
+- 자동 배역 `Speakers.autoVoice(name, ranked, pool)`: 말한 횟수 순위 % pool, 순위 밖은 이름 해시. pool = `_castPool`
+  (영어 책이면 Kokoro, 아니면 Supertonic, 남녀 번갈아, 서술 · 대사 · 속마음 음성 제외). 사용자가 정한 `speakerVoices` 가 먼저
+- 책 분석 `_prepareCast` → static `_analyze`(isolate): 인물 순위, 영어 책(라틴 > 한글×3), 작은따옴표 대사(영어 + ' 여는 수 > " 의 2배)
+  — isolate 로 보내는 함수는 static 에서 만든다 (State 가 같이 보내지지 않게)
+- 작은따옴표 정규식은 낱말 안 줄임표(don't)를 피함: `(?<![A-Za-z0-9])['‘]…['’](?![A-Za-z])`
+- `TtsService.normalize`: ... → …, Mr./Mrs./Dr./Prof. … 풀어 쓰기, `St. 대문자` → Saint, 그 밖 `St.` → Street, `No. 숫자` → Number, e.g./i.e./etc.
+  speak · prefetch · renderModel · AudioRender.toWav 모두 같은 함수를 거침 (미리 만들기 키가 맞도록)
+- 목소리가 바뀌는 조각 사이 220ms 쉼 (뷰어 읽기)
+- 배경음 `ambient.dart`: 22.05kHz 30초 WAV 를 isolate 에서 만들어 `<지원 폴더>/ambient/<종류>_v1.wav` 에 저장, media_kit `PlaylistMode.single` 반복,
+  0.8초 커지기 · 0.6초 줄이기. 빗소리 = 분홍 잡음 고역 + 빗방울, 파도 = 갈색 잡음 × 느린 너울, 벽난로 = 갈색 + 타닥 소리. 끝 1초를 처음과 겹쳐 이음새 없앰.
+  설정 `ttsBgm`(종류 또는 파일 경로) · `ttsBgmVolume`. 시작/멈춤은 BackgroundReading 옆에서 같이 부름 (오디오북 만들기에는 안 깔림)
+- 오디오북 `single`: 장 WAV 를 만든 뒤 44바이트 머리 뒤 데이터를 이어 `책 제목.wav` → M4A, 장 파일은 지움. 이어 만들기는 장 WAV 가 남아 있을 때만
+- 오디오북 부분은 문단마다 블록 번호(`AudiobookPart.blocks`)를 가져 내보내기에서도 주고받기 추론이 같다 (`plan(text, block)`)
