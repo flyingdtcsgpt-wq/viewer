@@ -9,7 +9,7 @@ import '../app_state.dart';
 import '../models/media_item.dart';
 import 'cover_tile.dart';
 import 'metadata_search_dialog.dart';
-import 'browser.dart' show showRatingDialog;
+import 'browser.dart' show fileSize, showRatingDialog;
 import 'series_widgets.dart';
 import 'tools/image_editor.dart';
 import 'viewers/open_item.dart';
@@ -290,7 +290,7 @@ class _DetailPageState extends State<DetailPage> {
       field(_tags, '태그 (쉼표로 구분)'),
       field(_desc, '설명 / 메모', lines: 6),
       Text('파일: ${item.path}', style: Theme.of(context).textTheme.bodySmall),
-      Text('크기: ${(item.size / 1024 / 1024).toStringAsFixed(1)} MB · ${item.storage == StorageMode.managed ? '라이브러리 관리' : '원본 위치 참조'}',
+      Text('크기: ${fileSize(item.size)} · ${item.storage == StorageMode.managed ? '라이브러리 관리' : '원본 위치 참조'}',
           style: Theme.of(context).textTheme.bodySmall),
     ]);
 
