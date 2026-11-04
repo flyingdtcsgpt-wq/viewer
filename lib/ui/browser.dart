@@ -760,7 +760,7 @@ class _SeriesDetail extends StatelessWidget {
                 borderRadius: BorderRadius.circular(6),
                 child: cover == null
                     ? TitleCover(title: series.title, subtitle: series.author, icon: Icons.collections_bookmark)
-                    : Image.file(File(cover), fit: BoxFit.cover, width: double.infinity, errorBuilder: (_, _, _) => const SizedBox()),
+                    : Image.file(File(cover), fit: BoxFit.cover, width: double.infinity, cacheWidth: 480, errorBuilder: (_, _, _) => const SizedBox()),
               ),
             ),
             const SizedBox(height: 10),

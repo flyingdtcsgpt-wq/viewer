@@ -1301,7 +1301,7 @@ class AppState extends ChangeNotifier {
       }
     }
     item.coverPath = await covers.generate(item);
-    item.pages = await covers.pageCount(item);
+    item.pages ??= await covers.pageCount(item); // 압축 만화는 표지 만들 때 이미 셌다
 
     String? placed; // 복사/이동해서 새로 생긴 파일 (실패하면 되돌림)
     if (mode != ImportMode.reference && root != null) {
@@ -1309,7 +1309,7 @@ class AppState extends ChangeNotifier {
       if (!p.equals(dest, path)) placed = dest;
       item.path = dest;
       item.storage = StorageMode.managed;
-      if (item.kind == MediaKind.image) item.coverPath = item.path;
+      if (item.kind == MediaKind.image && item.coverPath == path) item.coverPath = item.path; // 작은 표지를 못 만든 그림만
     }
     try {
       if (await db.exists(item.path)) {

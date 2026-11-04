@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -7,6 +8,7 @@ import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'package:fc_native_video_thumbnail/fc_native_video_thumbnail.dart';
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -50,7 +52,9 @@ class CoverService {
     try {
       switch (item.kind) {
         case MediaKind.image:
-          return item.path; // 이미지는 자기 자신이 커버 (그리드에서 cacheWidth 로 축소 디코딩)
+          // 큰 사진을 목록마다 다시 풀지 않게 작은 표지를 따로 만든다 (못 읽는 형식이면 원본)
+          final small = await _thumbFile(item.path, () async => await File(item.path).readAsBytes());
+          return small ?? item.path;
         case MediaKind.video:
           final out = _target(item.path, '.jpg');
           final ok = await _video.saveThumbnailToFile(
@@ -60,7 +64,7 @@ class CoverService {
         case MediaKind.comic:
           return await switch (item.extension) {
             '.epub' => _epubCover(item.path),
-            '.cbz' || '.zip' => _zipFirstImage(item.path),
+            '.cbz' || '.zip' => _zipCover(item),
             '.pdf' => _pdfFirstPage(item.path),
             '.cbr' || '.rar' || '.cb7' || '.7z' when ExtArchive.supported => _extCover(item.path),
             _ => null, // TXT, RAR 등은 인터넷 검색 또는 수동 지정
@@ -76,13 +80,8 @@ class CoverService {
     try {
       switch (item.extension) {
         case '.cbz' || '.zip':
-          final input = InputFileStream(item.path);
-          try {
-            final zip = ZipDecoder().decodeStream(input);
-            return zip.files.where((f) => f.isFile && imageExts.contains(p.extension(f.name).toLowerCase())).length;
-          } finally {
-            await input.close();
-          }
+          final path = item.path;
+          return (await Isolate.run(() => _zipProbe(path, cover: false))).pages;
         case '.cbr' || '.rar' || '.cb7' || '.7z' when ExtArchive.supported:
           return (await ExtArchive.listImages(item.path)).length;
         case '.pdf':
@@ -121,52 +120,13 @@ class CoverService {
   }
 
   // ---------- EPUB ----------
-  Future<String?> _epubCover(String path) async {
-    final input = InputFileStream(path);
-    try {
-      final zip = ZipDecoder().decodeStream(input);
-      final opfPath = _opfPath(zip);
-      if (opfPath == null) return null;
-      final opf = XmlDocument.parse(utf8.decode(zip.findFile(opfPath)!.content, allowMalformed: true));
-      final items = opf.findAllElements('item', namespaceUri: '*').toList();
+  Future<String?> _epubCover(String path) => _thumbFile(path, () => Isolate.run(() => _epubCoverBytes(path)));
 
-      // EPUB3: properties="cover-image" / EPUB2: <meta name="cover" content="id">
-      XmlElement? coverItem = items.where((e) => (e.getAttribute('properties') ?? '').contains('cover-image')).firstOrNull;
-      if (coverItem == null) {
-        final id = opf
-            .findAllElements('meta', namespaceUri: '*')
-            .where((e) => e.getAttribute('name') == 'cover')
-            .map((e) => e.getAttribute('content'))
-            .firstOrNull;
-        coverItem = items.where((e) => e.getAttribute('id') == id).firstOrNull;
-      }
-      coverItem ??= items
-          .where((e) =>
-              (e.getAttribute('media-type') ?? '').startsWith('image/') &&
-              (e.getAttribute('href') ?? '').toLowerCase().contains('cover'))
-          .firstOrNull;
-      final href = coverItem?.getAttribute('href');
-      if (href == null) return null;
-      final full = p.posix.normalize(p.posix.join(p.posix.dirname(opfPath), Uri.decodeFull(href)));
-      final file = zip.findFile(full);
-      if (file == null) return null;
-      final out = _target(path, p.extension(full));
-      await File(out).writeAsBytes(file.content);
-      return out;
-    } finally {
-      await input.close();
-    }
-  }
+  /// EPUB 의 OPF 에서 제목/저자 등 읽기 (화면이 멈추지 않게 따로)
+  Future<EmbeddedInfo?> readEpubInfo(String path) => Isolate.run(() => _readEpubInfoSync(path));
+}
 
-  String? _opfPath(Archive zip) {
-    final container = zip.findFile('META-INF/container.xml');
-    if (container == null) return null;
-    final doc = XmlDocument.parse(utf8.decode(container.content, allowMalformed: true));
-    return doc.findAllElements('rootfile', namespaceUri: '*').firstOrNull?.getAttribute('full-path');
-  }
-
-  /// EPUB 의 OPF 에서 제목/저자 등 읽기
-  Future<EmbeddedInfo?> readEpubInfo(String path) async {
+EmbeddedInfo? _readEpubInfoSync(String path) {
     final input = InputFileStream(path);
     try {
       final zip = ZipDecoder().decodeStream(input);
@@ -189,37 +149,98 @@ class CoverService {
     } catch (_) {
       return null;
     } finally {
-      await input.close();
+      input.closeSync();
     }
+}
+
+String? _opfPath(Archive zip) {
+  final container = zip.findFile('META-INF/container.xml');
+  if (container == null) return null;
+  final doc = XmlDocument.parse(utf8.decode(container.content, allowMalformed: true));
+  return doc.findAllElements('rootfile', namespaceUri: '*').firstOrNull?.getAttribute('full-path');
+}
+
+/// EPUB 표지 그림 데이터 (별도 isolate 에서)
+Uint8List? _epubCoverBytes(String path) {
+  final input = InputFileStream(path);
+  try {
+    final zip = ZipDecoder().decodeStream(input);
+    final opfPath = _opfPath(zip);
+    if (opfPath == null) return null;
+    final opf = XmlDocument.parse(utf8.decode(zip.findFile(opfPath)!.content, allowMalformed: true));
+    final items = opf.findAllElements('item', namespaceUri: '*').toList();
+    // EPUB3: properties="cover-image" / EPUB2: <meta name="cover" content="id">
+    XmlElement? coverItem = items.where((e) => (e.getAttribute('properties') ?? '').contains('cover-image')).firstOrNull;
+    if (coverItem == null) {
+      final id = opf
+          .findAllElements('meta', namespaceUri: '*')
+          .where((e) => e.getAttribute('name') == 'cover')
+          .map((e) => e.getAttribute('content'))
+          .firstOrNull;
+      coverItem = items.where((e) => e.getAttribute('id') == id).firstOrNull;
+    }
+    coverItem ??= items
+        .where((e) => (e.getAttribute('media-type') ?? '').startsWith('image/') && (e.getAttribute('href') ?? '').toLowerCase().contains('cover'))
+        .firstOrNull;
+    final href = coverItem?.getAttribute('href');
+    if (href == null) return null;
+    final full = p.posix.normalize(p.posix.join(p.posix.dirname(opfPath), Uri.decodeFull(href)));
+    return zip.findFile(full)?.content;
+  } catch (_) {
+    return null;
+  } finally {
+    input.closeSync();
+  }
+}
+
+/// 압축 만화 한 번 열어서: 그림 수 + 첫 그림 (별도 isolate 에서)
+({int pages, Uint8List? first}) _zipProbe(String path, {bool cover = true}) {
+  final input = InputFileStream(path);
+  try {
+    final zip = ZipDecoder().decodeStream(input);
+    final images = zip.files.where((f) => f.isFile && imageExts.contains(p.extension(f.name).toLowerCase())).toList()
+      ..sort((a, b) => _naturalCompare(a.name, b.name));
+    return (pages: images.length, first: cover && images.isNotEmpty ? images.first.content : null);
+  } finally {
+    input.closeSync();
+  }
+}
+
+/// 그림 → 폭 480 이하 JPEG (표지용, 별도 isolate 에서)
+Uint8List? _thumbBytes(Uint8List bytes) {
+  final im = img.decodeImage(bytes);
+  if (im == null) return null;
+  final small = im.width > 480 ? img.copyResize(im, width: 480, interpolation: img.Interpolation.average) : im;
+  return img.encodeJpg(small, quality: 82);
+}
+
+extension _CoverMore on CoverService {
+  /// 그림 데이터를 작은 표지 파일로 저장 (실패하면 null)
+  Future<String?> _thumbFile(String key, Future<Uint8List?> Function() bytes) async {
+    final b = await bytes();
+    if (b == null) return null;
+    final t = await Isolate.run(() => _thumbBytes(b));
+    if (t == null) return null;
+    final out = _target(key, '.jpg');
+    await File(out).writeAsBytes(t);
+    return out;
   }
 
-  // ---------- CBZ / ZIP ----------
-  Future<String?> _zipFirstImage(String path) async {
-    final input = InputFileStream(path);
-    try {
-      final zip = ZipDecoder().decodeStream(input);
-      final images = zip.files
-          .where((f) => f.isFile && imageExts.contains(p.extension(f.name).toLowerCase()))
-          .toList()
-        ..sort((a, b) => _naturalCompare(a.name, b.name));
-      if (images.isEmpty) return null;
-      final out = _target(path, p.extension(images.first.name));
-      await File(out).writeAsBytes(images.first.content);
-      return out;
-    } finally {
-      await input.close();
-    }
+  // ---------- CBZ / ZIP: 한 번 열어 쪽수와 표지를 같이 ----------
+  Future<String?> _zipCover(MediaItem item) async {
+    final path = item.path;
+    final r = await Isolate.run(() => _zipProbe(path));
+    item.pages ??= r.pages;
+    final first = r.first;
+    if (first == null) return null;
+    return _thumbFile(path, () async => first);
   }
 
   // ---------- RAR / 7Z (Windows 내장 tar) ----------
   Future<String?> _extCover(String path) async {
     final names = await ExtArchive.listImages(path);
     if (names.isEmpty) return null;
-    final b = await ExtArchive.readOne(path, names.first);
-    if (b == null) return null;
-    final out = _target(path, p.extension(names.first));
-    await File(out).writeAsBytes(b);
-    return out;
+    return _thumbFile(path, () => ExtArchive.readOne(path, names.first));
   }
 
   // ---------- PDF ----------

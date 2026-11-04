@@ -171,7 +171,7 @@ class _Hero extends StatelessWidget {
             child: FractionallySizedBox(
               widthFactor: wide ? 0.7 : 1,
               heightFactor: 1,
-              child: Image.file(File(cover), fit: BoxFit.cover, alignment: Alignment.topCenter, errorBuilder: (_, _, _) => const SizedBox()),
+              child: Image.file(File(cover), fit: BoxFit.cover, alignment: Alignment.topCenter, cacheWidth: 1280, errorBuilder: (_, _, _) => const SizedBox()),
             ),
           ),
         if (cover == null) ...[
