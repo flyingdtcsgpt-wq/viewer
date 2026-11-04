@@ -1,6 +1,6 @@
 # ARARIFlex 개발 내역서
 
-모든 변경을 날짜순으로 적었습니다. (git 커밋 기록에서 만듦, 총 73건)
+모든 변경을 날짜순으로 적었습니다. (git 커밋 기록에서 만듦, 총 88건)
 각 줄의 7자리 코드는 커밋 번호입니다. `git show <번호>` 로 그때 바뀐 코드를 볼 수 있습니다.
 
 ## 버전 요약
@@ -11,6 +11,7 @@
 | 0.3 | 2026-11-02 | BookManager 풍 PC 화면, 뷰어 개편, 설정 창, 메타데이터 통합 검색·일괄 편집, 파일 도구, 공유 서버(Web/OPDS), TTS, RAR/7Z, 영상 자막 |
 | 0.4 | 2026-11-02 | 표지 편집기, TXT→EPUB, 이름 ARARIFlex, 가져오기 창(목록 선택·중복·복사/이동·묶기·숨김), 비밀번호 초기화, 화면 자동 캡처, UI 개선, 계정별 폴더/종류 권한 |
 | 0.5 | 2026-11-02~03 | 자연 음성(Supertonic), 소설 PDF 글자 인식 읽기, 인물별 목소리, 공유 서버 계정 권한, 안드로이드 다듬기, 태블릿·맥·아이폰/아이패드, 휴대용 모드, PaddleOCR, Kokoro 영어 성우 |
+| 0.6 | 2026-11-04 | 큰 서재 성능(2만 권), 취침 타이머 · 화면 꺼도 읽기, 오디오북 저장(M4A/WAV · 장마다/한 파일), 스캔 PDF → TXT/EPUB, 이미지 → PDF · 해상도 · EPUB 최적화 · PDF 나누기/합치기, 영어 화자 · 주고받기 · 자동 배역, 배경음, 설계 사양서 |
 
 ## 전체 변경 기록
 
@@ -95,3 +96,23 @@
 - `c9f1bfe` 05:40 — Unit test: portable settings file
 - `65e672b` 05:48 — Kokoro: original model only (int8 is far slower on CPU); docs for portable mode, PaddleOCR, Kokoro, novel-only read-aloud
 - `7f8bb4f` 08:12 — Docs: development history, source guide, handoff guide; CI all-in-one package (installers + source + git bundle + docs)
+- `fccca99` 08:13 — Docs: refresh development history
+- `dfd64aa` 11:24 — CI: creating a GitHub release builds everything and attaches all installers, source, git bundle and docs; handoff note
+
+### 2026-11-04
+
+- `cea5b19` 13:52 — Detail page: human-readable file size
+- `380dc9b` 14:05 — Performance for large libraries: per-revision caches (visible items, counts, tags, entries), view-only refresh for selection/navigation/search, debounced search, O(1) hidden/permission checks, throttled scan progress, batched DB writes and deletes, indexes + WAL, history cap, hidden attribute only for changed files, cover cleanup on delete, sidebar series cap, slider saves on release
+- `b4a85de` 14:06 — Scale test: 20k items / 2k series timings in CI; DB insertMany
+- `47ea7cb` 14:07 — Covers: archive/EPUB/RAR work in isolates, one archive open for page count + cover, 480px JPEG thumbnails (also for photos), cacheWidth on banner and detail panel
+- `ff758f6` 14:09 — Faster auto-grouping (title index, prefix search for spin-offs), missing-file check only in scanned folders and skips offline drives, in-memory path index for scans, import preview sort in isolate with parallel size reads and O(n) duplicate check; scale test for auto-grouping
+- `b64f525` 14:17 — Faster deep selection (series child index, cached sort keys) and bulk series deletion in one transaction
+- `760d5e2` 14:19 — Comic reader: CBZ pages from a background worker that keeps the archive open (no UI freezes on big archives / slow drives) and frees unpacked data per page (memory no longer grows); share server reuses per-account access per revision and looks items up by id; speaker scan off the UI thread
+- `5188531` 14:21 — Read-aloud: sleep timer (15-90 min or end of chapter); Android keeps reading with the screen off (foreground service with notification + wake lock)
+- `1d5dfeb` 14:43 — Audiobook export: save a novel as per-chapter audio files (M4A or WAV) with the chosen voices, including dialogue/thought/per-character casting; resumes skipped chapters; playlist; Windows/macOS/Android/iOS render and AAC encoders
+- `da67f15` 14:54 — Scanned PDF to TXT/EPUB (OCR in batches, page numbers and running headers removed, broken lines joined, chapter lines kept); file tools: image to PDF, image resize, EPUB optimize, PDF split/merge; drop unrealistic placeholder tools; docs
+- `982a592` 15:16 — File tools replace an image only when it gets smaller; audiobook treats silent renders as failures; tests use photo-like images and fall back to English for English-only voices
+- `3307369` 15:32 — Windows voice-to-file worker: run from a BOM script and write UTF-8 to stdin; tests clean up temp folders best-effort
+- `bcfc729` 15:41 — Character voices: English speaker rules, back-and-forth dialogue inference, automatic distinct voices per character, abbreviation/ellipsis normalization, short pauses on voice change, Kokoro hint for English books; generated background sounds with volume; audiobook as one file; tests and docs
+- `8831d69` 15:46 — Fix audio file picker result type; Windows voice-to-file falls back to one process per piece with error log; analyzer cleanups (reorder API, context after await, doc comment, imports)
+- (다음 커밋) — 설계 사양서(SPEC.md), 기능 목록 정리, 0.6.0

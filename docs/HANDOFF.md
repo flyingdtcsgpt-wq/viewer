@@ -7,7 +7,8 @@
 | 파일 | 내용 |
 |---|---|
 | `ARARIFlex-src/` | 소스코드 전체 (이 저장소) |
-| `ARARIFlex-history.bundle` | git 전체 기록 (커밋 70여 건). `git clone ARARIFlex-history.bundle ARARIFlex` 로 기록째 복원 |
+| `ARARIFlex-history.bundle` | git 전체 기록 (커밋 90여 건). `git clone ARARIFlex-history.bundle ARARIFlex` 로 기록째 복원 |
+| `docs/SPEC.md` | **설계 사양서** — 처음부터 같은 앱을 다시 만들 수 있게 기능 규칙 · 데이터 · 구조 · 채널 · 받아들이는 기준 |
 | `docs/MANUAL.md` | 사용 설명서 (설치 · 기능 · 자주 묻는 것) |
 | `docs/DEV_NOTES.md` | 개발 노트 (설계 · 결정 이유 · 플랫폼별 메모 · 알려진 한계) |
 | `docs/SOURCE_GUIDE.md` | 소스 설명서 (파일마다 하는 일) |

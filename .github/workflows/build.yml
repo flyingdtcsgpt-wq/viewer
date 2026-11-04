@@ -8,7 +8,7 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
-  # GitHub 웹의 Releases → "Draft a new release" 로 v0.5.0 같은 태그를 만들어 게시하면 모든 설치파일이 거기에 올라간다
+  # GitHub 웹의 Releases → "Draft a new release" 로 v0.6.0 같은 태그를 만들어 게시하면 모든 설치파일이 거기에 올라간다
   release:
     types: [published]
 
