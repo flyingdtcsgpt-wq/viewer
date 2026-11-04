@@ -562,6 +562,17 @@ void main() {
           final rv = t(() => state.rawItems.where(view.item).length);
           debugPrint('CHECK scale restricted-pass=${rv}ms');
           state.setFilter(clearKind: true);
+          // 묶음 없는 4천 개를 시리즈로 자동 묶기
+          final loose = [
+            for (var i = 0; i < 4000; i++)
+              MediaItem(path: p.join(tmp.path, 'scale', 'loose', '자동묶기 작품 ${i ~/ 10} ${(i % 10 + 1).toString().padLeft(2, '0')}권.cbz'), kind: MediaKind.comic, title: '자동묶기 $i'),
+          ];
+          await state.db.insertMany(loose);
+          await state.load();
+          final w3 = Stopwatch()..start();
+          final grouped = await state.autoGroup();
+          debugPrint('CHECK scale autoGroup4000 moved=$grouped took=${w3.elapsedMilliseconds}ms');
+          made.addAll(state.rawItems.where((e) => e.path.contains('${p.separator}loose${p.separator}')));
           // 정리: 큰 서재 항목은 지운다 (다음 단계 화면에 섞이지 않게)
           final w2 = Stopwatch()..start();
           await state.removeMany(items: made);

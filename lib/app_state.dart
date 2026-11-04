@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show FileImage;
@@ -993,7 +995,7 @@ class AppState extends ChangeNotifier {
   /// 2) "명탐정 코난" 과 "명탐정 코난 제로의 일상" 처럼 파생 시리즈 → 대표 묶음 아래로
   /// 반환: 묶인 항목 수
   Future<int> autoGroup() async {
-    var raw = rawTree;
+    final raw = rawTree;
     final candidates = _items.where((e) => e.seriesId == null && e.kind != MediaKind.image).toList();
     final groups = <String, List<(MediaItem, ParsedName)>>{};
     for (final e in candidates) {
@@ -1005,17 +1007,21 @@ class AppState extends ChangeNotifier {
 
     // 같은 제목의 기존 묶음 찾기: 같은 매체(책/영상)의 권이 들어 있거나, 완전히 빈 묶음
     // (대표 묶음처럼 하위 묶음만 가진 것은 제외)
+    // 정리된 제목 → 묶음들 (한 번만 만들고, 새 묶음을 만들 때마다 더한다)
+    final byNorm = <String, List<Series>>{};
+    for (final s in _series.values) {
+      (byNorm[normalizeTitle(s.title)] ??= []).add(s);
+    }
     Series? existing(String title, bool isVideo) {
       final n = normalizeTitle(title);
-      return _series.values.where((s) {
-        if (normalizeTitle(s.title) != n) return false;
+      return (byNorm[n] ?? const <Series>[]).where((s) {
         final direct = raw.items[s.id] ?? const <MediaItem>[];
         if (direct.isEmpty) return raw.children[s.id]?.isEmpty ?? true;
         return direct.any((e) => (e.kind == MediaKind.video) == isVideo);
       }).firstOrNull;
     }
 
-    bool titleTaken(String title) => _series.values.any((s) => normalizeTitle(s.title) == normalizeTitle(title));
+    bool titleTaken(String title) => byNorm.containsKey(normalizeTitle(title));
 
     var moved = 0;
     for (final g in groups.values) {
@@ -1033,7 +1039,7 @@ class AppState extends ChangeNotifier {
             ));
         s.author = first.author;
         await db.updateSeries(s);
-        raw = rawTree;
+        (byNorm[normalizeTitle(s.title)] ??= []).add(s); // 새 묶음은 비어 있으니 트리를 다시 만들 필요 없음
       }
       final before = _hiddenBefore(g.map((x) => x.$1));
       for (final (e, n) in g) {
@@ -1056,9 +1062,30 @@ class AppState extends ChangeNotifier {
   Future<void> _nestSpinOffs() async {
     final roots = _series.values.where((s) => s.parentId == null).toList()
       ..sort((a, b) => a.title.length.compareTo(b.title.length));
+    // 제목(소문자) 순으로 줄 세워 두고, 앞부분이 같은 것만 이진 탐색으로 찾는다 (모든 쌍을 비교하지 않음)
+    final sorted = [for (final s in roots) (s.title.trim().toLowerCase(), s)]..sort((a, b) => a.$1.compareTo(b.$1));
+    List<Series> startingWith(String prefix) {
+      var lo = 0, hi = sorted.length;
+      while (lo < hi) {
+        final mid = (lo + hi) >> 1;
+        if (sorted[mid].$1.compareTo(prefix) < 0) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      final out = <Series>[];
+      for (var i = lo; i < sorted.length && sorted[i].$1.startsWith(prefix); i++) {
+        out.add(sorted[i].$2);
+      }
+      return out;
+    }
+
     for (final base in roots) {
       if (base.parentId != null) continue; // 이번 루프에서 이미 옮겨짐
-      final spinOffs = roots.where((o) => o.id != base.id && o.parentId == null && isSpinOffOf(base.title, o.title)).toList();
+      final key = base.title.trim().toLowerCase();
+      if (key.length < 2) continue;
+      final spinOffs = startingWith(key).where((o) => o.id != base.id && o.parentId == null && isSpinOffOf(base.title, o.title)).toList();
       if (spinOffs.isEmpty) continue;
       final raw = rawTree;
       // base 가 이미 대표 묶음(하위 묶음만 가짐)이면 그 아래로, 아니면 대표 묶음을 새로 만든다
@@ -1224,7 +1251,7 @@ class AppState extends ChangeNotifier {
           }
         }
       }
-      await checkMissing();
+      await checkMissing(within: dirs);
       final grouped = added > 0 && settings.autoGroup ? await autoGroup() : 0;
       final parts = [
         '찾은 파일 $found개',
@@ -1278,8 +1305,12 @@ class AppState extends ChangeNotifier {
       null;
 
   /// 파일 하나 등록. 이미 있으면 null
+  /// 등록된 경로 (Windows · 맥은 대소문자 무시) — 스캔할 때 파일마다 DB 를 묻지 않으려고
+  Set<String> get _knownPaths => _memo('paths', () => {for (final e in _items) _pathKey(e.path)});
+  static String _pathKey(String path) => Platform.isWindows || Platform.isMacOS ? path.toLowerCase() : path;
+
   Future<MediaItem?> _addFile(String path, ImportMode mode, {String? root, bool hidden = false}) async {
-    if (await db.exists(path)) return null;
+    if (_knownPaths.contains(_pathKey(path))) return null;
     final kind = kindForPath(path)!;
     final stat = await File(path).stat();
     final item = MediaItem(
@@ -1332,6 +1363,7 @@ class AppState extends ChangeNotifier {
     }
     if (hidden) await _syncOsHidden([item]);
     _items.insert(0, item);
+    _knownPaths.add(_pathKey(item.path));
     return item;
   }
 
@@ -1371,12 +1403,25 @@ class AppState extends ChangeNotifier {
         if (paths.length % 50 == 0) onProgress?.call(paths.length);
       }
     }
-    paths.sort(ArchiveTools.natural);
-    return previewFiles(paths);
+    // 수만 개 정렬은 화면이 멈추지 않게 따로
+    final sorted = await Isolate.run(() => paths..sort(ArchiveTools.natural));
+    return previewFiles(sorted, onProgress: onProgress);
   }
 
-  Future<List<ImportCandidate>> previewFiles(List<String> paths) async {
-    final registered = {for (final e in _items) e.path};
+  Future<List<ImportCandidate>> previewFiles(List<String> paths, {void Function(int found)? onProgress}) async {
+    final registered = _knownPaths;
+    // 크기는 32개씩 동시에 읽는다 (느린 드라이브에서 하나씩 기다리지 않게)
+    final sizes = <String, int>{};
+    for (var i = 0; i < paths.length; i += 32) {
+      final chunk = paths.sublist(i, math.min(paths.length, i + 32));
+      final got = await Future.wait(chunk.map((x) => File(x).length().then<int?>((v) => v, onError: (_) => null)));
+      for (var k = 0; k < chunk.length; k++) {
+        final v = got[k];
+        if (v != null) sizes[chunk[k]] = v;
+      }
+      if (i % 320 == 0) onProgress?.call(i);
+    }
+    final freshBySize = <int, List<ImportCandidate>>{}; // 이번 목록 안 새 항목 (크기별)
     final bySize = <int, List<String>>{}; // 크기 → 이미 등록된 파일
     for (final e in _items) {
       bySize.putIfAbsent(e.size, () => []).add(e.path);
@@ -1386,20 +1431,16 @@ class AppState extends ChangeNotifier {
     for (final path in paths) {
       final kind = kindForPath(path);
       if (kind == null) continue;
-      int size;
-      try {
-        size = await File(path).length();
-      } catch (_) {
-        continue;
-      }
+      final size = sizes[path];
+      if (size == null) continue;
       final c = ImportCandidate(path, kind, size);
-      if (registered.contains(path)) {
+      if (registered.contains(_pathKey(path))) {
         c.status = ImportStatus.registered;
         c.selected = false;
       } else {
         // 크기가 같은 것만 내용 앞부분을 비교 (빠르게)
         final same = bySize[size] ?? const <String>[];
-        final sameInList = out.where((o) => o.size == size && o.status == ImportStatus.fresh);
+        final sameInList = freshBySize[size] ?? const <ImportCandidate>[];
         if (same.isNotEmpty || sameInList.isNotEmpty) {
           final h = await _quickHash(path);
           for (final other in same) {
@@ -1421,6 +1462,7 @@ class AppState extends ChangeNotifier {
           seenHash[path] = h;
         }
         c.selected = c.status == ImportStatus.fresh;
+        if (c.status == ImportStatus.fresh) (freshBySize[size] ??= []).add(c);
       }
       out.add(c);
     }
@@ -1730,15 +1772,34 @@ class AppState extends ChangeNotifier {
   List<String> get selectedTargets => selected.toList();
 
   /// 원본이 사라진 항목 표시
-  Future<void> checkMissing() async {
-    for (final e in _items) {
-      final missing = !await File(e.path).exists();
-      if (missing != e.missing) {
-        e.missing = missing;
-        await db.update(e);
+  /// 원본 파일이 사라졌는지 확인. [within] 을 주면 그 폴더 안의 항목만 본다.
+  /// 라이브러리 폴더 자체가 없으면(USB 를 뺐거나 네트워크가 끊김) "사라짐"으로 표시하지 않는다.
+  Future<void> checkMissing({List<String>? within}) async {
+    final roots = within ?? settings.watchFolders;
+    final offline = <String>[];
+    for (final r in roots) {
+      if (!await Directory(r).exists()) offline.add(r);
+    }
+    bool inside(String path, String root) => p.equals(path, root) || p.isWithin(root, path);
+    final targets = _items.where((e) {
+      if (within != null && !within.any((r) => inside(e.path, r))) return false;
+      return !offline.any((r) => inside(e.path, r));
+    }).toList();
+    final changed = <MediaItem>[];
+    // 16개씩 동시에 확인 (느린 드라이브에서도 빠르게)
+    for (var i = 0; i < targets.length; i += 16) {
+      final chunk = targets.sublist(i, math.min(targets.length, i + 16));
+      final exists = await Future.wait(chunk.map((e) => File(e.path).exists()));
+      for (var k = 0; k < chunk.length; k++) {
+        final missing = !exists[k];
+        if (missing != chunk[k].missing) {
+          chunk[k].missing = missing;
+          changed.add(chunk[k]);
+        }
       }
     }
-    notifyListeners();
+    await db.updateMany(changed);
+    if (changed.isNotEmpty) notifyListeners();
   }
 
   /// 같은 이름+크기 파일 → 중복 후보
