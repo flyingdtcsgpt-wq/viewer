@@ -139,7 +139,9 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
 3. 이름이 아닌 말 제외(그, 그녀, 남자, 목소리 … / He, She, Then …). 영어 이름은 호칭 · 앞 낱말을 떼고 성으로 묶음(Sherlock Holmes = Holmes)
 4. **주고받기**(옵션, 기본 켬): 지문에서 못 찾고 대사만인 문단이면 앞 10문단을 거꾸로 보며, 가장 가까운 알려진 화자 X 가 짝수 칸 앞이면 X,
    홀수 칸이면 그 앞의 다른 화자 Y. 대사 없는 문단 · 화자 모르는 서술 섞인 문단을 만나면 포기(→ "대사" 목소리)
-5. **등장인물 목록**(`scan`): 책 전체에서 말하는 장면 횟수 순 (2번 이상, 인물이 적으면 1번도), 최대 30명
+5. **AI 화자 분석**(선택, Claude API): 대사가 있는 부분을 약 6천 자씩(앞 묶음의 두 문단을 이어 붙여) 보내 `{"블록번호": "이름"}` 을 받음.
+   결과는 `<지원 폴더>/ai_speakers/<책id>.json`, 묶음마다 저장(이어서 가능). 순서: 사용자 지정 > 규칙 > AI > 주고받기 > 대사 목소리
+6. **등장인물 목록**(`scan`): 책 전체에서 말하는 장면 횟수 순 (2번 이상, 인물이 적으면 1번도), 최대 30명
 
 **목소리 정하기** (대사 조각)
 `사용자가 고른 인물 목소리(책마다 저장)` → `자동 배역(옵션, 기본 켬)` → `"대사" 목소리` → `기본 음성`
@@ -202,8 +204,17 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
 | `/file/<항목id>` | 내려받기 |
 | `/cover/<id>`, `/scover/<id>` | 표지 |
 | `/opds`, `/opds/s/<id>`, `/opds/search.xml` | OPDS 1.2 (Panels · ComicGlass · KyBook) |
+| `/dav/…` | WebDAV 읽기 전용: OPTIONS · PROPFIND(Depth 0/1) · GET · HEAD. 폴더 = 묶음(제목), 파일 = 원본 이름, 같은 이름은 ` (id)` 를 붙임. 나머지 메서드 403 |
+- 파일 응답은 Range(206 · 416) 지원 — 이어받기 · 영상 건너뛰기
+- HTTPS(선택): 처음 켤 때 RSA 2048 자체 서명 인증서(10년)를 만들어 `<지원 폴더>/share_tls/` 에 저장, `HttpServer.bindSecure`. 화면에 SHA-256 지문 앞 8바이트
+- 화면에 웹 · WebDAV 주소 QR 코드
 - 기본 인증. **앱 계정 이름 · 비밀번호로 들어오면 그 계정 권한 그대로**, 공용 아이디는 고른 계정과 같은 범위. 숨김은 언제나 빠짐. 접속 로그. HTTP(같은 망 전용)
 - 로그인 확인은 해시가 느려서 결과를 잠깐 기억
+
+### 5.9.1 NAS · WebDAV 에서 가져오기
+- 주소 · 아이디 · 비밀번호(저장 안 함) · "인증서 확인 안 함"(자체 서명 NAS). PROPFIND Depth 1 로 둘러보기(폴더 먼저), 파일 · 폴더 고르기(폴더는 하위 전부)
+- 받기: `.part` 로 받았다가 이름 바꿈, 크기가 같은 파일이 이미 있으면 건너뜀, 멈춤. 위치 = 라이브러리 폴더/NAS/호스트 (없으면 문서 폴더, 안드로이드는 Download/ARARIFlex)
+- 받은 뒤 일반 가져오기 창(묶기 · 숨김 · 복사/이동)으로 넘김. 서버 목록 최대 10개 저장
 
 ### 5.10 휴대용 모드 (USB)
 - 실행 파일 옆에 `arariflex_data` 폴더가 있으면 지원/문서/캐시 폴더를 모두 그 안으로(`PathProviderPlatform.instance` 교체), 설정은 `settings.json`(300ms 모아 쓰기)
@@ -230,7 +241,7 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
 `comicMode comicRtl comicCoverAlone viewerFit viewerSlider viewerImmersive viewerArrowNatural viewerEffect slideshowSeconds`
 `videoHwdec subtitleSize videoRate`
 `ttsVoice ttsDialogueVoice ttsThoughtVoice ttsRate ttsSplit ttsAutoCast ttsAlternate ttsBgm ttsBgmVolume spk_<책id>(인물 목소리 JSON)`
-`shareAsUser sharePort shareUser sharePassword`
+`shareAsUser sharePort shareUser sharePassword shareHttps davServers`
 
 ## 8. 네이티브 채널
 | 채널 | 메서드 | 플랫폼 |
@@ -247,6 +258,7 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
 ## 9. 빌드 · 배포 (GitHub Actions)
 | 잡 | 하는 일 |
 |---|---|
+| (참고) | 지금은 PC · 안드로이드 집중: macos · ios 잡은 릴리스(태그) · 수동 실행 때만 |
 | windows | analyze(오류 0) · 단위 테스트 · 릴리스 빌드 · 7-Zip/VC++/eSpeak NG 동봉 · Inno Setup 설치파일 + 포터블 zip |
 | screenshots | Windows 에서 통합 테스트(샘플 서재로 주요 화면 캡처 + 아래 검사) → `screenshots` 브랜치 |
 | android / android-screens | APK(서명) / 에뮬레이터(API 34)에서 같은 통합 테스트 → `screenshots-android` |
@@ -266,6 +278,7 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
 | pdf text | 쪽 합치기 규칙 결과 문자열 정확히 같음, 그림으로 만든 스캔 PDF 4쪽을 글자 인식, 머리글 제거 |
 | file tools | CBZ PNG→JPEG 1600px · 크기 줄어듦, EPUB 표지 1200px · mimetype 맨 앞, PDF 4쪽 → 2+2 → 합쳐 4 |
 | tts / ocr | 자연 음성 1초 넘고 소리 있음, 영어 OCR "fox", PaddleOCR 한국어 "풍차" |
+| webdav | 우리 서버 /dav/ 둘러보기 · 받은 파일 크기 같음 · Range 206/10바이트 · 가족 계정 그림 0 · HTTPS(인증서 확인 안 함은 됨, 엄격하면 거절) · 다른 서버 XML 읽기 정확히 같음 |
 
 ## 11. 처음부터 만들 때 순서
 1. 모델 · DB · `AppState`(판 캐시) · 폴더 스캔 · 표지 → 2. PC 서재 화면 · 묶음 · 자동 묶기 → 3. 뷰어 4종 → 4. 사용자 · 권한 · 숨김 →

@@ -347,6 +347,8 @@ jobs:
 
   # ---------------- macOS (맥북 · 아이맥) ----------------
   macos:
+    # 지금은 PC · 안드로이드에 집중: 맥 · 아이폰은 릴리스(태그)나 수동 실행 때만 빌드
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -415,6 +417,8 @@ jobs:
 
   # ---------------- iOS (아이폰 · 아이패드) ----------------
   ios:
+    # 지금은 PC · 안드로이드에 집중: 맥 · 아이폰은 릴리스(태그)나 수동 실행 때만 빌드
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     timeout-minutes: 75
     steps:
@@ -500,6 +504,8 @@ jobs:
   # ---------------- 전체 묶음: 모든 설치파일 + 소스 + git 기록 + 문서를 한 번에 ----------------
   package:
     needs: [windows, android, macos, ios]
+    # 맥 · 아이폰을 건너뛴 실행에서도 PC · 안드로이드 묶음은 만든다
+    if: always() && needs.windows.result == 'success' && needs.android.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

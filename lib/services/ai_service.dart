@@ -44,6 +44,23 @@ class AiService {
     return m == null ? {} : jsonDecode(m.group(0)!) as Map<String, dynamic>;
   }
 
+  /// 소설 대사 화자: [numbered] 는 "[블록번호] 문단" 줄들. 돌려줌 { 블록번호: 이름 } (모르면 빠짐)
+  Future<Map<int, String>> dialogueSpeakers(String numbered, List<String> known) async {
+    final text = await _ask(
+      '너는 소설 편집자다. 문단마다 큰따옴표(또는 「」) 대사를 누가 말했는지 앞뒤 흐름으로 판단한다. 반드시 JSON 객체만 출력한다.',
+      '아래는 소설의 연속된 문단이다. 각 줄 맨 앞 [숫자] 는 문단 번호다.\n'
+          '대사가 있는 문단마다 그 대사를 말한 인물 이름을 {"번호": "이름"} 으로 답해. 한 문단에 여러 사람이 말하면 처음 말한 사람.\n'
+          '이름은 본문에 나온 표기 그대로(영어 소설이면 성만, 예: Holmes). 알려진 인물: ${known.take(40).join(', ')}\n'
+          '확실하지 않으면 그 번호는 빼라. 대사가 없는 문단도 빼라.\n\n$numbered',
+      maxTokens: 1500,
+    );
+    final m = _json(text);
+    return {
+      for (final e in m.entries)
+        if (int.tryParse(e.key) != null && e.value is String && (e.value as String).trim().isNotEmpty) int.parse(e.key): (e.value as String).trim(),
+    };
+  }
+
   /// 파일명에서 메타데이터 추정. 반환 키: title, author, series, volume, query
   Future<Map<String, dynamic>> parseFileName(String fileName) async {
     final text = await _ask(

@@ -33,6 +33,8 @@ import 'package:media_shelf/services/paddle_ocr.dart';
 import 'package:media_shelf/services/pdf_text.dart';
 import 'package:media_shelf/services/settings.dart';
 import 'package:media_shelf/services/tts_service.dart';
+import 'package:media_shelf/services/share_cert.dart';
+import 'package:media_shelf/services/webdav_client.dart';
 import 'package:media_shelf/ui/admin_page.dart';
 import 'package:media_shelf/ui/detail_page.dart';
 import 'package:media_shelf/ui/home_page.dart';
@@ -500,6 +502,78 @@ void main() {
         expect(famSees, isFalse);
         expect(guestSees, isTrue);
         expect(wrong.startsWith('401'), isTrue);
+      });
+    });
+
+    // WebDAV · HTTPS: 우리 서버를 WebDAV 로 둘러보고 받기, 이어받기(Range), 가족 계정 권한, HTTPS(자체 서명), 다른 서버 응답 읽기
+    await step('webdav', () async {
+      await tester.runAsync(() async {
+        final fam = state.users.firstWhere((u) => !u.isAdmin);
+        state.share
+          ..user = 'guest'
+          ..password = 'pw'
+          ..asUserId = null;
+        await state.share.start(18079);
+        try {
+          final dav = WebDavClient('http://127.0.0.1:18079/dav/', user: 'guest', password: 'pw');
+          final top = await dav.list(dav.base.path);
+          final files = await dav.walk(dav.base.path, (e) => kindForPath(e.name) != null);
+          files.sort((a, b) => a.size.compareTo(b.size));
+          final small = files.firstWhere((e) => e.size > 100);
+          final to = p.join((await getTemporaryDirectory()).path, 'dav_get', small.name);
+          await dav.download(small, to);
+          final orig = state.rawItems.firstWhere((e) => e.fileName == small.name);
+          final same = File(to).readAsBytesSync().length == File(orig.path).lengthSync();
+          // 이어받기: 앞 10바이트만
+          final c = HttpClient();
+          final rq = await c.getUrl(dav.uriOf(small.path));
+          rq.headers.set(HttpHeaders.authorizationHeader, 'Basic ${base64.encode(utf8.encode('guest:pw'))}');
+          rq.headers.set(HttpHeaders.rangeHeader, 'bytes=0-9');
+          final rs = await rq.close();
+          final part = await rs.fold<List<int>>([], (a, b) => a..addAll(b));
+          c.close(force: true);
+          final famDav = WebDavClient('http://127.0.0.1:18079/dav/', user: fam.name, password: '1111');
+          final famImages = (await famDav.walk(famDav.base.path, (e) => kindForPath(e.name) == MediaKind.image)).length;
+          final guestImages = files.where((e) => kindForPath(e.name) == MediaKind.image).length;
+          debugPrint('CHECK webdav top=${top.length} dirs=${top.where((e) => e.dir).length} files=${files.length} '
+              'got=${small.name} same=$same range=${rs.statusCode}/${part.length} guestImages=$guestImages famImages=$famImages');
+          expect(top, isNotEmpty);
+          expect(same, isTrue);
+          expect(rs.statusCode, 206);
+          expect(part.length, 10);
+          expect(famImages, 0);
+          expect(guestImages, greaterThan(0));
+        } finally {
+          await state.share.stop();
+        }
+
+        // HTTPS: 처음 켤 때 인증서를 만든다
+        final sw = Stopwatch()..start();
+        await state.share.start(18443, https: true);
+        try {
+          final made = sw.elapsedMilliseconds;
+          final ok = await WebDavClient('https://127.0.0.1:18443/dav/', user: 'guest', password: 'pw', insecure: true).list('/dav/');
+          var strictFails = false;
+          try {
+            await WebDavClient('https://127.0.0.1:18443/dav/', user: 'guest', password: 'pw').list('/dav/');
+          } on WebDavError {
+            strictFails = true;
+          }
+          debugPrint('CHECK https start=${made}ms list=${ok.length} strictRejects=$strictFails finger=${await ShareCert.fingerprint()}');
+          expect(ok, isNotEmpty);
+          expect(strictFails, isTrue);
+        } finally {
+          await state.share.stop();
+        }
+
+        // 다른 서버(시놀로지 · Nextcloud 꼴) 응답 읽기
+        final parsed = WebDavClient.parse('''<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">
+<d:response><d:href>/books/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>
+<d:response><d:href>https://nas:5006/books/%EB%A7%8C%ED%99%94/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>
+<d:response><d:href>/books/a%20b.epub</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>1234</d:getcontentlength></d:prop></d:propstat></d:response>
+</d:multistatus>''', '/books/');
+        debugPrint('CHECK webdav parse=${parsed.map((e) => '${e.name}|${e.path}|${e.dir}|${e.size}').toList()}');
+        expect(parsed.map((e) => (e.name, e.path, e.dir, e.size)).toList(), [('만화', '/books/만화/', true, 0), ('a b.epub', '/books/a b.epub', false, 1234)]);
       });
     });
 

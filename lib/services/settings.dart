@@ -159,6 +159,21 @@ class Settings extends ChangeNotifier {
   int get ttsBgmVolume => _p.getInt('ttsBgmVolume') ?? 25;
   set ttsBgmVolume(int v) => _set(() => _p.setInt('ttsBgmVolume', v.clamp(0, 100)));
 
+  /// 공유 서버를 HTTPS 로 (자체 서명 인증서)
+  bool get shareHttps => _p.getBool('shareHttps') ?? false;
+  set shareHttps(bool v) => _set(() => _p.setBool('shareHttps', v));
+
+  /// WebDAV · NAS 서버 목록 [{name, url, user}] (비밀번호는 저장하지 않음)
+  List<Map<String, String>> get davServers {
+    try {
+      return [for (final m in jsonDecode(_p.getString('davServers') ?? '[]') as List) Map<String, String>.from(m as Map)];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  set davServers(List<Map<String, String>> v) => _set(() => _p.setString('davServers', jsonEncode(v)));
+
   /// 책마다 인물별 목소리 { 이름: 음성 }
   Map<String, String> speakerVoices(int bookId) {
     final raw = _p.getString('spk_$bookId');

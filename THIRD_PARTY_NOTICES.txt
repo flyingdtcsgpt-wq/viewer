@@ -32,7 +32,8 @@
    Microsoft Visual Studio 재배포 가능 구성요소 라이선스에 따라 앱과 함께 배포됩니다.
 
 8. 그 밖의 Dart 패키지 (provider, sqflite, archive, xml, http, file_picker, path_provider,
-   shared_preferences, crypto, cp949_codec, fc_native_video_thumbnail, open_filex 등)
+   shared_preferences, crypto, cp949_codec, fc_native_video_thumbnail, open_filex,
+   qr_flutter(BSD-3, QR 코드), basic_utils(MIT, HTTPS 인증서), pointycastle(MIT) 등)
    각 패키지의 라이선스(MIT / BSD / Apache 2.0 등) — 앱 안 "오픈소스 라이선스" 화면 참고
 
 9. ONNX Runtime (Microsoft) — MIT License

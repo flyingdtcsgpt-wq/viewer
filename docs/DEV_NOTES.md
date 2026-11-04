@@ -155,7 +155,6 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - 한국어 OCR 은 CI 에서 검증 못 함(서버 Windows 에 인식기 없음). 실제 한국어 Windows 에서 확인 필요
 - 만화 말풍선 OCR 은 읽는 순서가 틀릴 수 있음(시험 기능)
 - EPUB 편집기, TXT → PDF(한글 글꼴을 넣어야 함), AI 화질 향상은 만들지 않기로 하고 도구 목록에서 뺐다 (11-04)
-- WebDAV, 휴대폰 연동(QR)
 - 공유 서버는 HTTP(암호화 없음) — 같은 Wi-Fi 전용
 
 ## 7. 작업 이력 요약
@@ -271,3 +270,14 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   설정 `ttsBgm`(종류 또는 파일 경로) · `ttsBgmVolume`. 시작/멈춤은 BackgroundReading 옆에서 같이 부름 (오디오북 만들기에는 안 깔림)
 - 오디오북 `single`: 장 WAV 를 만든 뒤 44바이트 머리 뒤 데이터를 이어 `책 제목.wav` → M4A, 장 파일은 지움. 이어 만들기는 장 WAV 가 남아 있을 때만
 - 오디오북 부분은 문단마다 블록 번호(`AudiobookPart.blocks`)를 가져 내보내기에서도 주고받기 추론이 같다 (`plan(text, block)`)
+
+## 13. WebDAV · HTTPS · QR · AI 화자 (11-04 밤) — PC · 안드로이드 집중
+- CI: macos · ios 잡은 태그 · 릴리스 · 수동 실행 때만 (`if:`), package 는 windows · android 만 성공하면 만든다
+- 공유 서버 `/dav/` (`share_server.dart` `_dav · davChildren · davResolve`): 읽기 전용, 폴더 = 묶음 트리, 이름 겹치면 ` (id)`.
+  파일은 `_send`(Range) 로. 권한은 웹 · OPDS 와 같은 `AccessView`
+- HTTPS: `share_cert.dart` (basic_utils 로 RSA 2048 + 자체 서명, isolate 에서), `start(port, https:)` → `bindSecure`. 설정 `shareHttps`
+- QR: `qr_flutter` `QrImageView` (웹 · WebDAV 주소)
+- WebDAV 받기: `webdav_client.dart`(list · walk · download · parse — `namespaceUri: '*'` 로 접두어 무관, 전체 주소 href 도 처리),
+  화면 `webdav_import.dart` → `showImportDialog(files:)`. 설정 `davServers`(비밀번호 빼고)
+- AI 화자: `ai_service.dart dialogueSpeakers`, `ai_speakers.dart`(묶음 · 저장 · 이어서), 뷰어 `_aiSpk` 를 `_whoSays` · `_infoOf` 에서 규칙 다음에.
+  기기 안 LLM 은 정확도 · 속도 · 용량 때문에 보류(DEV 판단)

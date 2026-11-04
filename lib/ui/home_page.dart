@@ -20,6 +20,7 @@ import 'landing_view.dart';
 import 'series_widgets.dart';
 import 'settings_page.dart';
 import 'viewers/open_item.dart';
+import 'webdav_import.dart';
 
 const _kinds = <MediaKind?>[null, MediaKind.book, MediaKind.comic, MediaKind.image, MediaKind.video];
 
@@ -316,6 +317,7 @@ class _Sidebar extends StatelessWidget {
         section('라이브러리 관리'),
         item(Icons.create_new_folder, '폴더 추가', act(() => addFolderFlow(rootContext))),
         item(Icons.note_add, '파일 추가', act(() => addFilesFlow(rootContext))),
+        item(Icons.dns, 'NAS · WebDAV 에서 가져오기', act(() => openWebDavImport(rootContext))),
         item(Icons.refresh, '다시 스캔', state.scanning ? null : act(() async {
           if (await ensureStorageAccess(rootContext)) await state.rescanAll();
         })),
@@ -464,10 +466,15 @@ class _TopActionBar extends StatelessWidget {
           PopupMenuButton<int>(
             tooltip: '라이브러리에 추가',
             position: PopupMenuPosition.under,
-            onSelected: (v) => v == 0 ? addFolderFlow(context) : addFilesFlow(context),
+            onSelected: (v) => switch (v) {
+              0 => addFolderFlow(context),
+              1 => addFilesFlow(context),
+              _ => openWebDavImport(context),
+            },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.create_new_folder), title: Text('폴더 추가'), subtitle: Text('폴더 안의 책 · 만화 · 그림 · 영상을 찾아 추가'))),
               PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.note_add), title: Text('파일 추가'), subtitle: Text('파일을 골라서 추가'))),
+              PopupMenuItem(value: 2, child: ListTile(leading: Icon(Icons.dns), title: Text('NAS · WebDAV 에서 가져오기'), subtitle: Text('NAS · 클라우드 · 다른 PC 의 ARARIFlex 에서 받아 오기'))),
             ],
             child: IgnorePointer(
               child: FilledButton.icon(

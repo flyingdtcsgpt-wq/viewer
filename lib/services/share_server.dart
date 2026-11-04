@@ -7,10 +7,13 @@ import 'package:path/path.dart' as p;
 import '../app_state.dart';
 import '../models/media_item.dart';
 import '../models/series.dart';
+import 'share_cert.dart';
 
 /// 같은 Wi-Fi 의 다른 기기에서 라이브러리를 보는 서버
 /// - Web : 브라우저로 둘러보기 · 검색 · 내려받기   http://PC주소:포트/
 /// - OPDS: Panels, ComicGlass, KyBook 같은 리더 앱  http://PC주소:포트/opds
+/// - WebDAV: 파일 관리자 · 리더 앱에서 폴더처럼 열기 (읽기 전용)  http://PC주소:포트/dav/
+/// HTTPS 를 켜면 자체 서명 인증서로 암호화한다 (같은 Wi-Fi 에서도 비밀번호 · 파일을 엿볼 수 없게).
 /// 숨김 항목은 내보내지 않는다. 앱 계정으로 로그인하면 그 계정의 접근 규칙(폴더·종류·묶음)을 따른다.
 class ShareServer {
   final AppState app;
@@ -23,6 +26,8 @@ class ShareServer {
 
   bool get running => _server != null;
   int get port => _server?.port ?? 0;
+  bool secure = false;
+  String get scheme => secure ? 'https' : 'http';
 
   String user = '';
   String password = '';
@@ -37,11 +42,14 @@ class ShareServer {
     _logCtrl.add(null);
   }
 
-  Future<void> start(int port) async {
+  Future<void> start(int port, {bool https = false}) async {
     await stop();
     forgetLogins();
-    _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-    _log('서버 시작: 포트 $port');
+    _server = https
+        ? await HttpServer.bindSecure(InternetAddress.anyIPv4, port, await ShareCert.context())
+        : await HttpServer.bind(InternetAddress.anyIPv4, port);
+    secure = https;
+    _log('서버 시작: ${https ? 'HTTPS' : 'HTTP'} 포트 $port');
     _server!.listen(_handle, onError: (e) => _log('오류: $e'));
     _logCtrl.add(null);
   }
@@ -159,9 +167,10 @@ class ShareServer {
       final seg = req.uri.pathSegments;
       _log('${req.connectionInfo?.remoteAddress.address ?? '?'} ${req.method} $path');
 
+      if (seg.isNotEmpty && seg[0] == 'dav') return await _dav(req, res, v, seg.skip(1).where((x) => x.isNotEmpty).toList());
       if (path == '/' || path.isEmpty) return await _html(res, _webPage(v, null, req.uri.queryParameters['q']));
       if (seg.length == 2 && seg[0] == 's') return await _html(res, _webPage(v, int.tryParse(seg[1]), null));
-      if (seg.length == 2 && seg[0] == 'file') return await _file(res, v, int.tryParse(seg[1]), download: true);
+      if (seg.length == 2 && seg[0] == 'file') return await _file(req, res, v, int.tryParse(seg[1]), download: true);
       if (seg.length == 2 && seg[0] == 'cover') return await _cover(res, v, int.tryParse(seg[1]), series: false);
       if (seg.length == 2 && seg[0] == 'scover') return await _cover(res, v, int.tryParse(seg[1]), series: true);
       if (seg.isNotEmpty && seg[0] == 'opds') {
@@ -198,19 +207,174 @@ class ShareServer {
     return e != null && _ok(e, v) ? e : null;
   }
 
-  Future<void> _file(HttpResponse res, AccessView v, int? id, {required bool download}) async {
+  Future<void> _file(HttpRequest req, HttpResponse res, AccessView v, int? id, {required bool download}) async {
     final e = _item(id, v);
     if (e == null || !await File(e.path).exists()) {
       res.statusCode = HttpStatus.notFound;
       await res.close();
       return;
     }
-    res.headers.set(HttpHeaders.contentTypeHeader, _mime(e.extension));
-    res.headers.set(HttpHeaders.contentLengthHeader, (await File(e.path).length()).toString());
     if (download) {
       res.headers.set('Content-Disposition', "attachment; filename*=UTF-8''${Uri.encodeComponent(e.fileName)}");
     }
-    await res.addStream(File(e.path).openRead());
+    await _send(req, res, e.path, _mime(e.extension));
+  }
+
+  /// 파일 보내기. Range(이어받기 · 영상 건너뛰기)를 지원한다
+  Future<void> _send(HttpRequest req, HttpResponse res, String path, String type) async {
+    final f = File(path);
+    final len = await f.length();
+    res.headers.set(HttpHeaders.contentTypeHeader, type);
+    res.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+    final m = RegExp(r'^bytes=(\d*)-(\d*)$').firstMatch(req.headers.value(HttpHeaders.rangeHeader)?.trim() ?? '');
+    if (m != null && (m[1]!.isNotEmpty || m[2]!.isNotEmpty)) {
+      int start, end;
+      if (m[1]!.isEmpty) {
+        start = (len - int.parse(m[2]!)).clamp(0, len);
+        end = len - 1;
+      } else {
+        start = int.parse(m[1]!);
+        end = m[2]!.isEmpty ? len - 1 : int.parse(m[2]!).clamp(0, len - 1);
+      }
+      if (start >= len || start > end) {
+        res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        res.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$len');
+        await res.close();
+        return;
+      }
+      res.statusCode = HttpStatus.partialContent;
+      res.headers.set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/$len');
+      res.headers.set(HttpHeaders.contentLengthHeader, '${end - start + 1}');
+      if (req.method != 'HEAD') await res.addStream(f.openRead(start, end + 1));
+      await res.close();
+      return;
+    }
+    res.headers.set(HttpHeaders.contentLengthHeader, '$len');
+    if (req.method != 'HEAD') await res.addStream(f.openRead());
+    await res.close();
+  }
+
+  // ---------------- WebDAV (읽기 전용) ----------------
+  // 폴더 = 묶음, 파일 = 작품 원본. 같은 폴더에 이름이 겹치면 "(번호)" 를 붙인다.
+
+  /// 묶음 [sid] 안의 (보이는 이름, 묶음, 작품)
+  List<(String, Series?, MediaItem?)> davChildren(int? sid, AccessView v) {
+    final used = <String>{};
+    String uniq(String n, int id, String ext) {
+      var x = n.replaceAll(RegExp(r'[\\/]'), '_').trim();
+      if (x.isEmpty) x = '$id';
+      if (!used.add(x.toLowerCase())) {
+        x = ext.isEmpty ? '$x ($id)' : '${x.substring(0, x.length - ext.length)} ($id)$ext';
+        used.add(x.toLowerCase());
+      }
+      return x;
+    }
+
+    return [
+      for (final c in _children(sid, v)) (uniq(c.title, c.id!, ''), c, null),
+      for (final e in _itemsIn(sid, v)) (uniq(e.fileName, e.id!, p.extension(e.fileName)), null, e),
+    ];
+  }
+
+  /// 경로 → (폴더 묶음 | 작품). 없으면 null. 맨 위 폴더는 (null, null)
+  (Series?, MediaItem?)? davResolve(List<String> segs, AccessView v) {
+    Series? cur;
+    for (var i = 0; i < segs.length; i++) {
+      final hit = davChildren(cur?.id, v).where((c) => c.$1 == segs[i]).firstOrNull;
+      if (hit == null) return null;
+      if (hit.$3 != null) return i == segs.length - 1 ? (null, hit.$3) : null;
+      cur = hit.$2;
+    }
+    return (cur, null);
+  }
+
+  static String _x(String s) => const HtmlEscape(HtmlEscapeMode.element).convert(s);
+  static String _httpDate(DateTime t) => HttpDate.format(t.toUtc());
+
+  Future<void> _dav(HttpRequest req, HttpResponse res, AccessView v, List<String> segs) async {
+    res.headers.set('DAV', '1');
+    res.headers.set('MS-Author-Via', 'DAV');
+    switch (req.method) {
+      case 'OPTIONS':
+        res.headers.set(HttpHeaders.allowHeader, 'OPTIONS, GET, HEAD, PROPFIND');
+        await res.close();
+        return;
+      case 'GET' || 'HEAD' || 'PROPFIND':
+        break;
+      default:
+        // 읽기 전용 (지우기 · 올리기 · 이름 바꾸기는 앱에서)
+        res.statusCode = HttpStatus.forbidden;
+        await res.close();
+        return;
+    }
+    final r = davResolve(segs, v);
+    if (r == null) {
+      res.statusCode = HttpStatus.notFound;
+      await res.close();
+      return;
+    }
+    final (folder, item) = r;
+    if (req.method != 'PROPFIND') {
+      if (item == null) {
+        // 폴더를 브라우저로 열면 간단한 목록
+        final rows = davChildren(folder?.id, v)
+            .map((c) => '<li><a href="${Uri.encodeComponent(c.$1)}${c.$3 == null ? '/' : ''}">${_x(c.$1)}${c.$3 == null ? '/' : ''}</a></li>')
+            .join();
+        return _html(res, '<!doctype html><meta charset="utf-8"><title>ARARIFlex WebDAV</title><ul>$rows</ul>');
+      }
+      if (!await File(item.path).exists()) {
+        res.statusCode = HttpStatus.notFound;
+        await res.close();
+        return;
+      }
+      return _send(req, res, item.path, _mime(item.extension));
+    }
+    await req.drain<void>();
+    final depth = req.headers.value('depth') ?? '1';
+    final base = '/dav/${segs.map(Uri.encodeComponent).join('/')}'; // 파일이면 이 주소, 폴더면 끝에 /
+    final sb = StringBuffer('<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:">\n');
+    void folderEntry(String href, String name, DateTime? at) => sb.write('<D:response><D:href>${_x(href)}</D:href><D:propstat><D:prop>'
+        '<D:displayname>${_x(name)}</D:displayname><D:resourcetype><D:collection/></D:resourcetype>'
+        '${at == null ? '' : '<D:getlastmodified>${_httpDate(at)}</D:getlastmodified>'}'
+        '</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>\n');
+    void fileEntry(String href, String name, MediaItem e) {
+      var len = e.size;
+      DateTime? at;
+      try {
+        final st = File(e.path).statSync();
+        len = st.size;
+        at = st.modified;
+      } catch (_) {}
+      sb.write('<D:response><D:href>${_x(href)}</D:href><D:propstat><D:prop>'
+          '<D:displayname>${_x(name)}</D:displayname><D:resourcetype/>'
+          '<D:getcontentlength>$len</D:getcontentlength><D:getcontenttype>${_mime(e.extension)}</D:getcontenttype>'
+          '${at == null ? '' : '<D:getlastmodified>${_httpDate(at)}</D:getlastmodified>'}'
+          '</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>\n');
+    }
+
+    if (item != null) {
+      fileEntry(base, segs.last, item);
+    } else {
+      final self = segs.isEmpty ? '/dav/' : '$base/';
+      folderEntry(self, segs.isEmpty ? 'ARARIFlex' : segs.last, null);
+      if (depth != '0') {
+        final dir = self;
+        for (final (name, s, e) in davChildren(folder?.id, v)) {
+          final href = '$dir${Uri.encodeComponent(name)}';
+          if (e != null) {
+            fileEntry(href, name, e);
+          } else {
+            folderEntry('$href/', name, s?.addedAt);
+          }
+        }
+      }
+    }
+    sb.write('</D:multistatus>');
+    final body = utf8.encode(sb.toString());
+    res.statusCode = 207;
+    res.headers.contentType = ContentType('application', 'xml', charset: 'utf-8');
+    res.headers.contentLength = body.length;
+    res.add(body);
     await res.close();
   }
 

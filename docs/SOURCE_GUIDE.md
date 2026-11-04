@@ -52,8 +52,11 @@
 | `epub_writer.dart` | TXT → EPUB 만들기 (장 자동 나눔, 표지) |
 | `metadata_service.dart` | 책 정보 검색: 카카오 · 네이버 · Google Books · Open Library |
 | `ai_service.dart` | Claude API (선택, 키 필요): 뜻풀이, 원제 찾기, 묶음 정보 |
-| `share_server.dart` | 같은 Wi-Fi 공유: 웹 페이지 · OPDS · 파일 · 표지. 기본 인증, 접속자별 `AccessView`, 로그인 캐시(비밀번호 해시가 느려서) |
+| `share_server.dart` | 같은 Wi-Fi 공유: 웹 페이지 · OPDS · **WebDAV(/dav/)** · 파일(Range) · 표지 · HTTPS. 기본 인증, 접속자별 `AccessView`, 로그인 캐시(비밀번호 해시가 느려서) |
 | `storage_permission.dart` | 안드로이드 모든 파일 접근 요청 (네이티브 채널 `mediashelf/storage`), `hasAllFilesAccess` |
+| `share_cert.dart` | HTTPS 자체 서명 인증서 만들기 · 지문 |
+| `webdav_client.dart` | WebDAV 목록 · 하위 전부 · 받기 · 응답 읽기 |
+| `ai_speakers.dart` | AI 화자 분석 묶음 · 저장 · 이어서 (`AiService.dialogueSpeakers`) |
 | `zip_pages.dart` | 만화 압축을 일꾼 isolate 에서 한 번만 열어 두고 쪽을 하나씩 꺼냄 (`writeContent` 로 메모리 바로 비움) |
 | `file_tools.dart` | 그림 줄이기(`shrinkZip/shrinkImageFile/shrinkBytes`), `optimizeEpub`, PDF `splitPdf/mergePdf/parseRanges/everyN` |
 | `image_pdf.dart` | 그림 → PDF 직접 쓰기 (JPEG 그대로 DCTDecode, 나머지는 JPEG 로), `jpegInfo` |
@@ -88,6 +91,7 @@
 | `settings_page.dart` | 설정 9분류. `_Voice`(자연 음성 받기 · 들어 보기), `_KokoroCard`, `_OcrModelCard`, `_PortableCard`(정보 분류 안) |
 | `share_page.dart` | 공유 서버 켜기 · 주소 · 아이디/비밀번호 · 공용 접속 범위 · 로그 |
 | `detail_page.dart`, `metadata_search_dialog.dart`, `batch_editor_page.dart` | 상세 정보, 메타데이터 통합 검색, 일괄 편집 |
+| `webdav_import.dart` | NAS · WebDAV 에서 가져오기 화면 (서버 저장 · 둘러보기 · 받기 → 가져오기 창) |
 | `history_page.dart`, `ai_chat_sheet.dart` | 열람 기록, AI 도우미 |
 | `tools/tools_page.dart`, `tools/archive_tool_pages.dart`, `tools/convert_tool_pages.dart`, `tools/image_editor.dart` | 파일 도구 목록, 압축 · 텍본 · PDF→텍스트 화면(`ToolRunner` 공통), 이미지→PDF · 해상도 · EPUB 최적화 · PDF 나누기/합치기 화면, 표지 이미지 편집 |
 

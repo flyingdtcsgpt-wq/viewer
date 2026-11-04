@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../app_state.dart';
 import '../services/settings.dart';
+import '../services/share_cert.dart';
 import '../services/share_server.dart';
 
 /// 공유 서버 (BookManager "공유 서버" 탭): Web · OPDS + 서버 로그
@@ -22,6 +24,8 @@ class _SharePageState extends State<SharePage> {
   List<String> _addrs = [];
   String? _addr;
   bool _hidePw = true;
+  bool _starting = false;
+  String? _finger;
 
   ShareServer get _srv => _app.share;
 
@@ -56,10 +60,15 @@ class _SharePageState extends State<SharePage> {
         ..user = _user.text.trim()
         ..password = _pw.text
         ..asUserId = _s.shareAsUser < 0 ? null : _s.shareAsUser;
+      setState(() => _starting = true);
       try {
-        await _srv.start(port);
+        // HTTPS 는 처음 켤 때 인증서를 만든다 (몇 초)
+        await _srv.start(port, https: _s.shareHttps);
+        if (_s.shareHttps) _finger = await ShareCert.fingerprint();
       } catch (e) {
         _toast('켜지 못했습니다: $e (다른 프로그램이 포트를 쓰고 있을 수 있습니다)');
+      } finally {
+        _starting = false;
       }
     }
     if (mounted) setState(() {});
@@ -72,7 +81,8 @@ class _SharePageState extends State<SharePage> {
     if (!_app.isAdmin) return const Scaffold(body: Center(child: Text('관리자만 쓸 수 있습니다')));
     final scheme = Theme.of(context).colorScheme;
     final on = _srv.running;
-    final base = 'http://$_ip:${on ? _srv.port : _port.text}';
+    final secure = on ? _srv.secure : _s.shareHttps;
+    final base = '${secure ? 'https' : 'http'}://$_ip:${on ? _srv.port : _port.text}';
 
     Widget box(String title, List<Widget> children) => Padding(
           padding: const EdgeInsets.only(bottom: 16),
@@ -92,6 +102,25 @@ class _SharePageState extends State<SharePage> {
               ]),
             ),
           ),
+        );
+
+    // 휴대폰 카메라로 찍으면 바로 열리는 QR
+    Widget qr(String u) => Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.all(8),
+              child: QrImageView(data: u, size: 132, backgroundColor: Colors.white),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                on ? '휴대폰 카메라로 찍으면 바로 열립니다.' : '서버를 켜면 이 QR 로 휴대폰에서 바로 열 수 있습니다.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ]),
         );
 
     Widget url(String u) => Row(children: [
@@ -179,26 +208,44 @@ class _SharePageState extends State<SharePage> {
         ]),
         Text('앱 계정 이름과 비밀번호로 로그인하면 그 계정의 접근 권한(폴더 · 종류 · 묶음)이 그대로 적용됩니다.',
             style: Theme.of(context).textTheme.bodySmall),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('HTTPS (암호화)'),
+          subtitle: const Text('같은 Wi-Fi 의 다른 사람이 비밀번호 · 파일을 엿볼 수 없게 합니다. 처음 접속할 때 브라우저가 '
+              '"안전하지 않음" 경고를 띄우면 "고급 › 계속" 을 누르세요 (이 PC 가 직접 만든 인증서라서). '
+              'Windows 탐색기에서 WebDAV 를 연결하려면 HTTPS 를 켜는 것이 좋습니다.'),
+          value: _s.shareHttps,
+          onChanged: on ? null : (v) => setState(() => _s.shareHttps = v),
+        ),
+        if (on && _srv.secure && _finger != null)
+          Text('인증서 지문: $_finger', style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 12),
         FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: on ? Colors.redAccent : null, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16)),
-          onPressed: _toggle,
-          icon: const Icon(Icons.power_settings_new),
-          label: Text(on ? '서버 끄기' : '서버 켜기'),
+          onPressed: _starting ? null : _toggle,
+          icon: _starting
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.power_settings_new),
+          label: Text(_starting ? '켜는 중…' : (on ? '서버 끄기' : '서버 켜기')),
         ),
       ]),
       box('Web 공유 (브라우저 접속)', [
         const Text('브라우저에서 라이브러리를 둘러보고 검색하고 내려받을 수 있습니다.'),
         const SizedBox(height: 8),
         url('$base/'),
+        qr('$base/'),
       ]),
       box('OPDS 공유 (Panels, ComicGlass, KyBook 등)', [
         const Text('리더 앱의 "OPDS 카탈로그 추가"에 아래 주소와 아이디/비밀번호를 넣으세요. 묶음(시리즈) 단위로 탐색하고 검색할 수 있습니다.'),
         const SizedBox(height: 8),
         url('$base/opds'),
       ]),
-      box('준비 중', const [
-        Text('WebDAV 공유, 휴대폰 앱 연동(QR 기기 등록), HTTPS 는 다음 단계에서 추가합니다.', style: TextStyle(color: Colors.grey)),
+      box('WebDAV 공유 (파일 관리자 · 리더 앱 · 다른 ARARIFlex)', [
+        const Text('Solid Explorer · CX 파일 탐색기 · KOReader · Documents 같은 앱, 또는 휴대폰의 ARARIFlex '
+            '("NAS · WebDAV 에서 가져오기")에 아래 주소와 아이디/비밀번호를 넣으면 묶음이 폴더로 보입니다. 읽기 전용입니다.'),
+        const SizedBox(height: 8),
+        url('$base/dav/'),
+        qr('$base/dav/'),
       ]),
     ]);
 

@@ -11,6 +11,7 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
 import '../../services/text_document.dart';
+import '../../services/ai_speakers.dart';
 import '../../services/ambient.dart';
 import '../../services/background_reading.dart';
 import '../../services/kokoro_tts.dart';
@@ -323,22 +324,27 @@ class _TextReaderPageState extends State<TextReaderPage> {
   }
 
   // ---- 책 분석 (인물 순위 · 영어 책인가 · 작은따옴표가 대사인가) ----
-  List<(String, int)>? _found; // 말한 횟수 순 인물
+  List<(String, int)>? _found; // 말한 횟수 순 인물 (규칙 + AI)
+  List<(String, int)> _ruleFound = const []; // 규칙으로만 찾은 인물
   List<String>? _ranked;
   bool _english = false;
   bool _singleDialogue = false;
   Future<void>? _castJob;
   final Map<int, (String?, bool)> _paraInfo = {}; // 블록 → (화자, 대사만인가)
+  Map<int, String> _aiSpk = {}; // AI 가 찾은 화자 (선택, 블록 → 이름)
 
   Future<void> _prepareCast() => _castJob ??= () async {
         final doc = _doc;
         if (doc == null) return;
         final texts = [for (final b in doc.blocks) if (!b.isImage) b.text ?? ''];
         final r = await _analyze(texts);
+        final ai = await AiSpeakers.load(item.id!);
         if (!mounted) return;
         setState(() {
-          _found = r.$1;
-          _ranked = [for (final (n, _) in r.$1) n];
+          _aiSpk = ai;
+          _ruleFound = r.$1;
+          _found = _mergeAi(r.$1, ai);
+          _ranked = [for (final (n, _) in _found!) n];
           _english = r.$2;
           _singleDialogue = r.$3;
           _paraInfo.clear();
@@ -359,18 +365,28 @@ class _TextReaderPageState extends State<TextReaderPage> {
         return (Speakers.scan(texts), english, english && sq > dq * 2 && sq > 10);
       });
 
+  /// 규칙으로 찾은 인물 목록에 AI 가 찾은 인물 · 횟수를 더한다
+  static List<(String, int)> _mergeAi(List<(String, int)> found, Map<int, String> ai) {
+    final c = {for (final (n, k) in found) n: k};
+    for (final n in ai.values) {
+      c[n] = (c[n] ?? 0) + 1;
+    }
+    return c.entries.map((e) => (e.key, e.value)).toList()..sort((a, b) => b.$2.compareTo(a.$2));
+  }
+
   /// 블록 하나의 (화자, 대사만인가). 대사 없는 문단은 화자 ''
   (String?, bool) _infoOf(int i) => _paraInfo[i] ??= () {
         final b = _doc!.blocks[i];
         final t = b.text ?? '';
         if (b.isImage || t.trim().isEmpty) return ('', false);
         final segs = _segments(t, true);
-        return (Speakers.paragraphSpeaker(segs), Speakers.dialogueOnly(segs));
+        final who = Speakers.paragraphSpeaker(segs);
+        return (who == null ? _aiSpk[i] : who, Speakers.dialogueOnly(segs));
       }();
 
   /// 대사 [k] 를 누가 말했나: 지문에서, 없으면 (대사만인 문단이면) 앞 문단들과 주고받기로
   String? _whoSays(List<(int, String)> segs, int k, Settings s, int? block) {
-    final who = Speakers.speakerAt(segs, k);
+    final who = Speakers.speakerAt(segs, k) ?? (block == null ? null : _aiSpk[block]);
     if (who != null || !s.ttsAlternate || block == null || block < 1 || _doc == null || !Speakers.dialogueOnly(segs)) return who;
     return Speakers.alternate([for (var j = block - 1; j >= 0 && j >= block - 10; j--) _infoOf(j)]);
   }
@@ -534,6 +550,15 @@ class _TextReaderPageState extends State<TextReaderPage> {
             ]),
           ),
           actions: [
+            TextButton(
+              onPressed: () async {
+                s.setSpeakerVoices(item.id!, cast); // 고른 목소리는 먼저 저장
+                Navigator.pop(ctx);
+                await _aiAnalyze(s);
+                if (mounted) _castDialog(s);
+              },
+              child: Text(_aiSpk.isEmpty ? 'AI 로 화자 분석' : 'AI 분석 이어서 · 다시'),
+            ),
             if (s.ttsAutoCast)
               TextButton(
                 // 자동으로 붙은 목소리를 그대로 고정 (그 뒤 하나씩 바꾸기 쉽게)
@@ -559,6 +584,108 @@ class _TextReaderPageState extends State<TextReaderPage> {
       ),
     );
     add.dispose();
+  }
+
+  /// AI(Claude API)로 화자를 못 찾은 대사까지 분석 (선택, 요금이 조금 든다). 결과는 책마다 저장
+  Future<void> _aiAnalyze(Settings s) async {
+    final doc = _doc;
+    if (doc == null) return;
+    final ai = _app.ai;
+    if (!ai.enabled) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('AI 화자 분석'),
+          content: const Text('규칙("○○가 말했다")으로 못 찾은 대사를 AI 가 앞뒤 흐름을 보고 누가 말했는지 찾아 줍니다.\n\n'
+              '설정 › AI 도우미에 Claude API 키를 넣으면 쓸 수 있습니다. 책 한 권(30만 자)에 보통 수백 원 안팎이 듭니다. '
+              '기기 안 AI 모델로는 정확도와 속도가 부족해(1GB 넘는 모델, 책 한 권에 몇 시간) 넣지 않았습니다.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('확인'))],
+        ),
+      );
+      return;
+    }
+    final paras = [
+      for (var i = 0; i < doc.blocks.length; i++)
+        if (!doc.blocks[i].isImage && (doc.blocks[i].text ?? '').trim().isNotEmpty) (i, doc.blocks[i].text!.trim()),
+    ];
+    bool hasDialogue(String t) => _segments(t, true).any((e) => e.$1 == 1);
+    final tokens = AiSpeakers.estimateTokens(paras, hasDialogue);
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('AI 로 화자 분석'),
+        content: Text('대사가 있는 부분을 Claude API(${s.aiModel})에 보내 누가 말했는지 묻습니다.\n'
+            '보내는 양: 약 ${(tokens / 1000).round()}천 토큰${_aiSpk.isEmpty ? '' : ' (이미 분석한 곳은 건너뜀)'}.\n'
+            '책 글이 Anthropic 서버로 전송됩니다. 결과는 이 기기에만 저장됩니다.'),
+        actions: [
+          if (_aiSpk.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                await AiSpeakers.clear(item.id!);
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              },
+              child: const Text('처음부터 다시'),
+            ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('분석')),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    var stop = false;
+    final prog = ValueNotifier<(int, int)>((0, 0));
+    Object? err;
+    BuildContext? dctx;
+    final job = AiSpeakers.analyze(
+      bookId: item.id!,
+      ai: ai,
+      paras: paras,
+      hasDialogue: hasDialogue,
+      known: _ranked ?? const [],
+      onProgress: (d, n) => prog.value = (d, n),
+      cancelled: () => stop,
+    ).then<void>((r) => _aiSpk = r, onError: (Object e) => err = e);
+    var closed = false;
+    job.whenComplete(() {
+      closed = true;
+      final c = dctx;
+      if (c != null && c.mounted) Navigator.of(c).pop();
+    });
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        dctx = ctx;
+        if (closed) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          });
+        }
+        return AlertDialog(
+          title: const Text('AI 화자 분석 중'),
+          content: ValueListenableBuilder<(int, int)>(
+            valueListenable: prog,
+            builder: (_, v, _) => Column(mainAxisSize: MainAxisSize.min, children: [
+              LinearProgressIndicator(value: v.$2 == 0 ? null : v.$1 / v.$2),
+              const SizedBox(height: 8),
+              Text(v.$2 == 0 ? '보내는 중…' : '${v.$1} / ${v.$2} 묶음'),
+            ]),
+          ),
+          actions: [TextButton(onPressed: () => stop = true, child: const Text('멈춤'))],
+        );
+      },
+    );
+    await job;
+    prog.dispose();
+    if (!mounted) return;
+    setState(() {
+      _paraInfo.clear();
+      _found = _mergeAi(_ruleFound, _aiSpk);
+      _ranked = [for (final (n, _) in _found!) n];
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(err != null ? 'AI 분석 실패: $err' : 'AI 가 대사 ${_aiSpk.length}곳의 화자를 찾았습니다${stop ? ' (멈춤 — 다시 누르면 이어서)' : ''}'),
+    ));
   }
 
   void _ttsFailed() {
