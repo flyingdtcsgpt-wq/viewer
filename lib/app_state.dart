@@ -506,8 +506,19 @@ class AppState extends ChangeNotifier {
   _DenyIndex _denyIndex(Set<String> denied) => _denyIndexes[denied] ??= _DenyIndex(denied);
 
   /// 다른 사용자의 접근 규칙으로 보기 (공유 서버용)
-  Future<AccessView> accessFor(AppUser? u) async =>
-      AccessView._(this, u == null || u.isAdmin ? const {} : await db.deniedFor(u.id!));
+  /// (같은 데이터 판이면 사용자별로 한 번만 만들어 재사용 — 공유 서버가 요청마다 부른다)
+  final Map<int?, (int, AccessView)> _accessCache = {};
+  Future<AccessView> accessFor(AppUser? u) async {
+    final key = u == null || u.isAdmin ? null : u.id;
+    final hit = _accessCache[key];
+    if (hit != null && hit.$1 == _rev) return hit.$2;
+    final v = AccessView._(this, key == null ? const {} : await db.deniedFor(key));
+    _accessCache[key] = (_rev, v);
+    return v;
+  }
+
+  /// id → 항목 (보이기 규칙 무시, 판마다 한 번)
+  MediaItem? rawItemById(int id) => _memo('rawById', () => {for (final e in _items) e.id!: e})[id];
 
   /// 묶음 아래 모든 권 (보이기 규칙 무시)
   List<MediaItem> itemsUnderSeries(int seriesId) => _itemsUnder(seriesId);

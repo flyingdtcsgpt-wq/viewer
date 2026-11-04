@@ -2,16 +2,15 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:archive/archive_io.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/ext_archive.dart';
+import '../../services/zip_pages.dart';
 import '../../services/settings.dart';
 import 'open_item.dart';
 import 'viewer_chrome.dart';
@@ -29,14 +28,14 @@ class ComicReaderPage extends StatefulWidget {
 class _ComicReaderPageState extends State<ComicReaderPage> {
   late final AppState _app = context.read<AppState>();
   late final Settings _s = context.read<Settings>();
-  InputFileStream? _input;
-  List<ArchiveFile> _files = [];
+  ZipPages? _zip; // CBZ/ZIP: 따로 도는 일꾼이 압축을 열어 두고 쪽을 꺼내 준다
+  final Set<int> _asked = {}; // 꺼내 달라고 이미 부탁한 쪽
   List<String>? _ext; // RAR/7Z: 압축 안 이미지 이름들 (풀지 않고 한 쪽씩 꺼내 읽음)
   PageLoader? _loader;
   // 아직 안 읽힌 쪽 자리에 잠깐 보여줄 투명 그림
   static final _blank = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
   bool _loading = true;
-  int get _n => _ext?.length ?? _files.length;
+  int get _n => _ext?.length ?? _zip?.names.length ?? 0;
   final _cache = <int, Uint8List>{};
   Object? _error;
 
@@ -78,10 +77,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           _trim();
         });
       } else {
-        _input = InputFileStream(item.path);
-        final zip = ZipDecoder().decodeStream(_input!);
-        _files = zip.files.where((f) => f.isFile && imageExts.contains(p.extension(f.name).toLowerCase())).toList()
-          ..sort((a, b) => _natural(a.name, b.name));
+        _zip = await ZipPages.open(item.path);
       }
       _page = (int.tryParse(item.position ?? '') ?? 0).clamp(0, _n == 0 ? 0 : _n - 1);
     } catch (e) {
@@ -94,7 +90,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   void dispose() {
     if (_n > 0) _app.saveProgress(item, '$_page', _progress).then((_) => _app.refresh());
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    _input?.closeSync();
+    _zip?.close();
     _loader?.close();
     _zoom.dispose();
     _strip.dispose();
@@ -111,10 +107,20 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       _loader!.want(i, urgent: (i - _page).abs() <= 2);
       return _blank;
     }
-    final b = _files[i].content;
-    _cache[i] = b;
-    _trim();
-    return b;
+    _want(i);
+    return _blank;
+  }
+
+  /// CBZ/ZIP 쪽을 일꾼에게 부탁 (오면 화면을 다시 그린다)
+  void _want(int i) {
+    final z = _zip;
+    if (z == null || i < 0 || i >= _n || _cache.containsKey(i) || !_asked.add(i)) return;
+    z.read(i).then((b) {
+      _asked.remove(i);
+      if (!mounted || b == null) return;
+      setState(() => _cache[i] = b);
+      _trim();
+    });
   }
 
   /// 메모리 제한: 지금 쪽에서 먼 것부터 버린다
@@ -130,6 +136,12 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   /// 다음 쪽 미리 읽기
   void _prefetch() {
+    if (_zip != null) {
+      for (var k = 1; k <= 4; k++) {
+        _want(_page + k * (_dir >= 0 ? 1 : -1));
+      }
+      return;
+    }
     if (_loader == null) return;
     for (var k = 1; k <= 4; k++) {
       _loader!.want(_page + k * (_dir >= 0 ? 1 : -1));
@@ -786,15 +798,3 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   }
 }
 
-int _natural(String a, String b) {
-  final re = RegExp(r'(\d+)|(\D+)');
-  final ma = re.allMatches(a.toLowerCase()).toList();
-  final mb = re.allMatches(b.toLowerCase()).toList();
-  for (var i = 0; i < ma.length && i < mb.length; i++) {
-    final x = ma[i].group(0)!, y = mb[i].group(0)!;
-    final nx = int.tryParse(x), ny = int.tryParse(y);
-    final c = (nx != null && ny != null) ? nx.compareTo(ny) : x.compareTo(y);
-    if (c != 0) return c;
-  }
-  return ma.length.compareTo(mb.length);
-}

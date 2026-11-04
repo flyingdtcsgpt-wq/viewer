@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:async';
 import 'dart:io';
 
@@ -304,7 +305,10 @@ class _TextReaderPageState extends State<TextReaderPage> {
   Future<void> _castDialog(Settings s) async {
     final doc = _doc;
     if (doc == null) return;
-    final found = Speakers.scan(doc.blocks.where((b) => !b.isImage).map((b) => b.text ?? ''));
+    // 큰 책은 몇 초 걸릴 수 있어 화면이 멈추지 않게 따로 센다
+    final texts = [for (final b in doc.blocks) if (!b.isImage) b.text ?? ''];
+    final found = await Isolate.run(() => Speakers.scan(texts));
+    if (!mounted) return;
     final cast = Map<String, String>.from(s.speakerVoices(item.id!));
     // 예전에 정했지만 이번에 못 찾은 이름도 보여 준다
     final names = [...found.map((e) => e.$1), ...cast.keys.where((k) => !found.any((f) => f.$1 == k))];

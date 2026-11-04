@@ -193,7 +193,10 @@ class ShareServer {
     await res.close();
   }
 
-  MediaItem? _item(int? id, AccessView v) => id == null ? null : app.rawItems.where((e) => e.id == id && _ok(e, v)).firstOrNull;
+  MediaItem? _item(int? id, AccessView v) {
+    final e = id == null ? null : app.rawItemById(id);
+    return e != null && _ok(e, v) ? e : null;
+  }
 
   Future<void> _file(HttpResponse res, AccessView v, int? id, {required bool download}) async {
     final e = _item(id, v);
