@@ -10,6 +10,7 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
 import '../../services/text_document.dart';
+import '../../services/background_reading.dart';
 import '../../services/natural_tts.dart';
 import '../../services/speakers.dart';
 import '../../services/tts_service.dart';
@@ -121,6 +122,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
     }
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _speaking = false;
+    _sleepTick?.cancel();
+    BackgroundReading.stop();
     _tts.dispose();
     _ctrl.dispose();
     _focus.dispose();
@@ -239,6 +242,49 @@ class _TextReaderPageState extends State<TextReaderPage> {
     return out.where((e) => e.$2.trim().isNotEmpty).toList();
   }
 
+  // 취침 타이머: 정한 시각이 되거나(분) 지금 장이 끝나면 읽기를 멈춘다
+  DateTime? _sleepAt;
+  int? _sleepAfterBlock; // 이 블록 앞에서 멈춤 (다음 장 시작)
+  Timer? _sleepTick;
+
+  void _setSleep(int minutes) {
+    _sleepTick?.cancel();
+    setState(() {
+      _sleepAt = null;
+      _sleepAfterBlock = null;
+      if (minutes > 0) {
+        _sleepAt = DateTime.now().add(Duration(minutes: minutes));
+        // 남은 시간 표시를 1분마다 고침
+        _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
+          if (mounted) setState(() {});
+        });
+      } else if (minutes == -1) {
+        final toc = _doc?.toc ?? const <TocEntry>[];
+        final at = _ttsBlock ?? _current;
+        _sleepAfterBlock = toc.map((t) => t.block).where((b) => b > at).firstOrNull ?? _count;
+      }
+    });
+  }
+
+  String get _sleepLabel {
+    if (_sleepAfterBlock != null) return '장 끝';
+    final at = _sleepAt;
+    if (at == null) return '';
+    final left = at.difference(DateTime.now()).inMinutes + 1;
+    return '$left분';
+  }
+
+  /// 취침 시각이 지났거나 장이 끝났으면 true (그리고 타이머를 끈다)
+  bool _sleepDue(int block) {
+    final due = (_sleepAt != null && DateTime.now().isAfter(_sleepAt!)) || (_sleepAfterBlock != null && block >= _sleepAfterBlock!);
+    if (due) {
+      _sleepTick?.cancel();
+      _sleepAt = null;
+      _sleepAfterBlock = null;
+    }
+    return due;
+  }
+
   int _ttsRun = 0; // 새로 읽기 시작하거나 멈추면 바뀜 (이전 읽기 루프는 그만둔다)
 
   /// 한 문단의 읽기 계획: (글, 음성, 속도)
@@ -274,8 +320,13 @@ class _TextReaderPageState extends State<TextReaderPage> {
       _ttsBlock = from ?? _ttsBlock ?? _current;
     });
     bool alive() => mounted && _speaking && run == _ttsRun;
+    BackgroundReading.start(item.title); // 화면을 꺼도 계속 (안드로이드)
     while (alive() && _ttsBlock! < _count) {
       final i = _ttsBlock!;
+      if (_sleepDue(i)) {
+        await _ttsStop();
+        return;
+      }
       final b = _doc!.blocks[i];
       _showBlock(i);
       if (!b.isImage && (b.text ?? '').trim().isNotEmpty) {
@@ -298,7 +349,10 @@ class _TextReaderPageState extends State<TextReaderPage> {
       if (!alive()) return;
       setState(() => _ttsBlock = i + 1);
     }
-    if (mounted && run == _ttsRun) setState(() => _speaking = false);
+    if (mounted && run == _ttsRun) {
+      setState(() => _speaking = false);
+      BackgroundReading.stop();
+    }
   }
 
   /// 책에서 말하는 인물을 찾아 인물마다 목소리 정하기
@@ -380,6 +434,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   }
 
   void _ttsFailed() {
+    BackgroundReading.stop();
     setState(() => _speaking = false);
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('음성을 만들지 못했습니다. 설정 › 읽어주기 음성에서 음성 파일을 확인하거나 다른 음성을 고르세요.')));
@@ -387,6 +442,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
 
   Future<void> _ttsStop({bool reset = false}) async {
     _ttsRun++;
+    BackgroundReading.stop();
     setState(() {
       _speaking = false;
       if (reset) _ttsBlock = null;
@@ -467,6 +523,23 @@ class _TextReaderPageState extends State<TextReaderPage> {
                   PopupMenuItem(value: r, child: Text('${(1 + r * 0.1).toStringAsFixed(1)}x', style: const TextStyle(color: Colors.white))),
               ],
               child: ToolGroup([ToolBtn(label: '${(1 + s.ttsRate * 0.1).toStringAsFixed(1)}x', tooltip: '속도')]),
+            ),
+            PopupMenuButton<int>(
+              tooltip: '취침 타이머',
+              color: toolBg,
+              onSelected: _setSleep,
+              itemBuilder: (_) => [
+                for (final (m, t) in const [(0, '끄기'), (15, '15분 뒤'), (30, '30분 뒤'), (45, '45분 뒤'), (60, '1시간 뒤'), (90, '1시간 30분 뒤'), (-1, '이 장이 끝나면')])
+                  PopupMenuItem(value: m, child: Text(t, style: const TextStyle(color: Colors.white))),
+              ],
+              child: ToolGroup([
+                ToolBtn(
+                  icon: Icons.bedtime,
+                  label: _sleepLabel.isEmpty ? null : _sleepLabel,
+                  tooltip: '취침 타이머',
+                  active: _sleepLabel.isNotEmpty,
+                ),
+              ]),
             ),
             const SizedBox(width: 6),
             voicePick(s.ttsVoice, (v) => s.ttsVoice = v, '기본 음성'),

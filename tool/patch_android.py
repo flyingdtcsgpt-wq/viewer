@@ -10,6 +10,10 @@ perms = [
     ("android.permission.INTERNET", ""),                                  # 책 정보 검색, AI
     ("android.permission.READ_EXTERNAL_STORAGE", ' android:maxSdkVersion="32"'),  # 안드로이드 12 이하 (open_filex 와 같은 값)
     ("android.permission.MANAGE_EXTERNAL_STORAGE", ""),                   # 폴더 등록 시에만 요청 (11+)
+    ("android.permission.FOREGROUND_SERVICE", ""),                        # 화면을 꺼도 소리 내어 읽기
+    ("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK", ""),
+    ("android.permission.WAKE_LOCK", ""),
+    ("android.permission.POST_NOTIFICATIONS", ""),                        # "읽는 중" 알림
 ]
 lines = "".join(f'    <uses-permission android:name="{p}"{extra}/>\n' for p, extra in perms if p not in xml)
 xml = re.sub(r"(<manifest[^>]*>\n)", r"\1" + lines, xml, count=1)
@@ -29,6 +33,9 @@ if "application/epub+zip" not in xml:
     xml = xml[:i] + view + xml[i:]
     # 파일 관리자에서 열어도 앱이 하나만 뜨게 (두 번째 엔진 · DB 동시 사용 방지)
     xml = re.sub(r'android:launchMode="\w+"', 'android:launchMode="singleTask"', xml, count=1)
+# 소리 내어 읽는 동안 앱이 멈추지 않게 하는 서비스
+if "ReadAloudService" not in xml:
+    xml = xml.replace("</application>", '        <service android:name=".ReadAloudService" android:exported="false" android:foregroundServiceType="mediaPlayback"/>\n    </application>', 1)
 # 안드로이드 11+ 에서 음성 엔진(TTS)을 찾으려면 queries 에 적어야 한다
 if "android.intent.action.TTS_SERVICE" not in xml:
     tts_q = '        <intent>\n            <action android:name="android.intent.action.TTS_SERVICE"/>\n        </intent>\n'
@@ -216,6 +223,23 @@ class MainActivity : FlutterActivity() {{
                 result.error("ocr", e.message, null)
             }}
         }}
+        // 화면을 꺼도 읽기가 이어지게: 읽기를 시작하면 알림과 함께 서비스를 켜고, 멈추면 끈다
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/bg").setMethodCallHandler {{ call, result ->
+            val i = Intent(this, ReadAloudService::class.java)
+            try {{
+                when (call.method) {{
+                    "start" -> {{
+                        i.putExtra("title", call.argument<String>("title") ?: "")
+                        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {{
+                            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4712)
+                        }}
+                        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+                    }}
+                    "stop" -> stopService(i)
+                }}
+                result.success(true)
+            }} catch (e: Exception) {{ result.success(false) }}
+        }}
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/tts").setMethodCallHandler {{ call, result ->
             when (call.method) {{
                 "voices" -> withTts {{ ok ->
@@ -336,3 +360,56 @@ if "proguard-rules.pro" not in g:
     assert "proguard-rules.pro" in g
     gradle.write_text(g, encoding="utf-8")
 print("proguard rules added")
+
+# ---- 소리 내어 읽기 서비스 (알림 + 잠깐 깨어 있기) ----
+svc = act.parent / "ReadAloudService.kt"
+svc.write_text(f"""package {pkg}
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+
+class ReadAloudService : Service() {{
+    private var wake: PowerManager.WakeLock? = null
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {{
+        val title = intent?.getStringExtra("title") ?: ""
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= 26) {{
+            nm.createNotificationChannel(NotificationChannel("read_aloud", "소리 내어 읽기", NotificationManager.IMPORTANCE_LOW))
+        }}
+        val open = PendingIntent.getActivity(this, 0, packageManager.getLaunchIntentForPackage(packageName),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, "read_aloud") else @Suppress("DEPRECATION") Notification.Builder(this)
+        val n = b.setContentTitle("소리 내어 읽는 중")
+            .setContentText(title)
+            .setSmallIcon(applicationInfo.icon)
+            .setContentIntent(open)
+            .setOngoing(true)
+            .build()
+        if (Build.VERSION.SDK_INT >= 29) startForeground(4713, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        else startForeground(4713, n)
+        if (wake == null) {{
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "arariflex:read").apply {{ acquire(6 * 60 * 60 * 1000L) }}
+        }}
+        return START_NOT_STICKY
+    }}
+
+    override fun onDestroy() {{
+        wake?.let {{ if (it.isHeld) it.release() }}
+        wake = null
+        super.onDestroy()
+    }}
+}}
+""", encoding="utf-8")
+print("service written", svc)

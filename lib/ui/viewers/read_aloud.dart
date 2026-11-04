@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../services/background_reading.dart';
 import '../../services/natural_tts.dart';
 import '../../services/ocr_service.dart';
 import '../../services/settings.dart';
@@ -49,6 +50,7 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
   @override
   void dispose() {
     _run++;
+    BackgroundReading.stop();
     _tts.dispose();
     super.dispose();
   }
@@ -88,6 +90,7 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
     final run = ++_run;
     final s = context.read<Settings>();
     setState(() => _speaking = true);
+    BackgroundReading.start('');
     var page = widget.currentPage();
     while (mounted && run == _run && page < widget.pageCount) {
       setState(() => _status = '${page + 1}쪽 글자 읽는 중…');
@@ -125,11 +128,13 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
       setState(() {
         _speaking = false;
         _status = '끝까지 읽었습니다';
+        BackgroundReading.stop();
       });
     }
   }
 
   void _fail(String msg) {
+    BackgroundReading.stop();
     if (!mounted) return;
     setState(() {
       _speaking = false;
@@ -139,6 +144,7 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
 
   Future<void> _stop() async {
     _run++;
+    BackgroundReading.stop();
     setState(() {
       _speaking = false;
       _status = '';
