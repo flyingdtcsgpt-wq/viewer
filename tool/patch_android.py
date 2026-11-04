@@ -64,6 +64,10 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import java.util.Locale
 import java.util.UUID
 import com.google.mlkit.vision.common.InputImage
@@ -168,6 +172,76 @@ class MainActivity : FlutterActivity() {{
         }}
     }}
 
+    /// 16비트 PCM WAV(이 앱이 만든 44바이트 머리) → AAC-LC M4A
+    private fun encodeM4a(src: String, dst: String): Boolean {{
+        java.io.RandomAccessFile(src, "r").use {{ f ->
+            val head = ByteArray(44)
+            f.readFully(head)
+            val hb = java.nio.ByteBuffer.wrap(head).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            val channels = hb.getShort(22).toInt().coerceAtLeast(1)
+            val rate = hb.getInt(24)
+            val fmt = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, rate, channels)
+            fmt.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            fmt.setInteger(MediaFormat.KEY_BIT_RATE, 64000)
+            fmt.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+            val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+            val muxer = MediaMuxer(dst, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            var started = false
+            try {{
+                codec.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                codec.start()
+                val info = MediaCodec.BufferInfo()
+                val buf = ByteArray(8192)
+                var track = -1
+                var inputDone = false
+                var outputDone = false
+                var frames = 0L
+                while (!outputDone) {{
+                    if (!inputDone) {{
+                        val ii = codec.dequeueInputBuffer(10000)
+                        if (ii >= 0) {{
+                            val inBuf = codec.getInputBuffer(ii)!!
+                            inBuf.clear()
+                            val want = minOf(buf.size, inBuf.remaining()) / (2 * channels) * (2 * channels)
+                            val n = f.read(buf, 0, want)
+                            val pts = frames * 1000000L / rate
+                            if (n <= 0) {{
+                                codec.queueInputBuffer(ii, 0, 0, pts, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                inputDone = true
+                            }} else {{
+                                inBuf.put(buf, 0, n)
+                                codec.queueInputBuffer(ii, 0, n, pts, 0)
+                                frames += n / (2 * channels)
+                            }}
+                        }}
+                    }}
+                    val oi = codec.dequeueOutputBuffer(info, 10000)
+                    if (oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {{
+                        track = muxer.addTrack(codec.outputFormat)
+                        muxer.start()
+                        started = true
+                    }} else if (oi >= 0) {{
+                        val out = codec.getOutputBuffer(oi)!!
+                        if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) info.size = 0
+                        if (info.size > 0 && started) {{
+                            out.position(info.offset)
+                            out.limit(info.offset + info.size)
+                            muxer.writeSampleData(track, out, info)
+                        }}
+                        codec.releaseOutputBuffer(oi, false)
+                        if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outputDone = true
+                    }}
+                }}
+            }} finally {{
+                try {{ codec.stop() }} catch (e: Exception) {{}}
+                codec.release()
+                try {{ if (started) muxer.stop() }} catch (e: Exception) {{}}
+                muxer.release()
+            }}
+            return started
+        }}
+    }}
+
     private fun ttsStopAll() {{
         tts?.stop()
         ttsPending.values.toList().forEach {{ it.success(false) }}
@@ -265,9 +339,35 @@ class MainActivity : FlutterActivity() {{
                         result.success(false)
                     }}
                 }}
+                // 오디오북 저장: 소리 내지 않고 WAV 파일로
+                "render" -> withTts {{ ok ->
+                    val t = tts
+                    if (!ok || t == null) {{ result.success(false); return@withTts }}
+                    val name = call.argument<String>("voice") ?: ""
+                    val v = if (name.isEmpty()) null else try {{ t.voices?.firstOrNull {{ it.name == name }} }} catch (e: Exception) {{ null }}
+                    if (v != null) t.setVoice(v) else t.setLanguage(Locale.KOREAN)
+                    t.setSpeechRate((call.argument<Double>("rate") ?: 1.0).toFloat())
+                    val id = UUID.randomUUID().toString()
+                    ttsPending[id] = result
+                    val out = java.io.File(call.argument<String>("path") ?: "")
+                    if (t.synthesizeToFile(call.argument<String>("text") ?: "", null, out, id) != TextToSpeech.SUCCESS) {{
+                        ttsPending.remove(id)
+                        result.success(false)
+                    }}
+                }}
                 "stop" -> {{ ttsStopAll(); result.success(null) }}
                 else -> result.notImplemented()
             }}
+        }}
+        // 오디오북: WAV → M4A(AAC) 로 줄이기 (기기 내장 인코더)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/audio").setMethodCallHandler {{ call, result ->
+            if (call.method != "encodeM4a") {{ result.notImplemented(); return@setMethodCallHandler }}
+            val src = call.argument<String>("src") ?: ""
+            val dst = call.argument<String>("dst") ?: ""
+            Thread {{
+                val ok = try {{ encodeM4a(src, dst) }} catch (e: Exception) {{ false }}
+                runOnUiThread {{ result.success(ok) }}
+            }}.start()
         }}
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/storage").setMethodCallHandler {{ call, result ->
             when (call.method) {{

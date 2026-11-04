@@ -15,6 +15,7 @@ import '../../services/natural_tts.dart';
 import '../../services/speakers.dart';
 import '../../services/tts_service.dart';
 import '../cover_tile.dart';
+import 'audiobook_dialog.dart';
 import 'epub_original_page.dart';
 import 'open_item.dart';
 import 'viewer_chrome.dart';
@@ -563,6 +564,18 @@ class _TextReaderPageState extends State<TextReaderPage> {
                 label: Text('인물별 목소리${s.speakerVoices(item.id!).isEmpty ? '' : ' (${s.speakerVoices(item.id!).length})'}'),
               ),
             ]),
+          TextButton.icon(
+            onPressed: _doc == null
+                ? null
+                : () async {
+                    if (_speaking) await _ttsStop();
+                    if (!mounted || _doc == null) return;
+                    await showAudiobookExport(context,
+                        title: item.title, doc: _doc!, currentBlock: _ttsBlock ?? _current, rate: s.ttsRate, plan: (t) => _plan(t, s));
+                  },
+            icon: const Icon(Icons.library_music, size: 18),
+            label: const Text('오디오북으로 저장 (장마다 소리 파일)'),
+          ),
           if (_voices.isEmpty)
             const Text('음성 목록을 읽는 중… (Windows 설정 → 시간 및 언어 → 음성 에서 한국어 음성을 추가할 수 있습니다)',
                 style: TextStyle(color: Colors.white38, fontSize: 11))

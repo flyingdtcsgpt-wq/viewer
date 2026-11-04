@@ -18,6 +18,7 @@ import 'package:media_shelf/db/library_db.dart';
 import 'package:media_shelf/main.dart';
 import 'package:media_shelf/models/entry.dart';
 import 'package:media_shelf/models/media_item.dart';
+import 'package:media_shelf/services/audiobook.dart';
 import 'package:media_shelf/services/auth.dart';
 import 'package:media_shelf/services/cover_service.dart';
 import 'package:media_shelf/services/epub_writer.dart';
@@ -628,6 +629,107 @@ void main() {
           final ok = await TtsService().speak('안녕하세요. 테스트입니다.', voice: sys).timeout(const Duration(seconds: 40), onTimeout: () => false);
           debugPrint('CHECK system tts voice=${TtsService.label(sys)} ok=$ok');
         }
+      });
+    });
+
+    // 오디오북: 가짜 음성으로 이어 붙이기 · 표본률 맞추기 · 이어 만들기를 숫자로 확인하고, 실제 기기 음성과 M4A 변환도 해 본다
+    await step('audiobook', () async {
+      await tester.runAsync(() async {
+        final dir = Directory(p.join((await getTemporaryDirectory()).path, 'ab_test'));
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+        dir.createSync(recursive: true);
+        // a: 44.1kHz 모노 16비트, b: 22.05kHz 스테레오 16비트 (글자당 0.02초)
+        int inFrames(String t, int sr) => (sr * t.length * 0.02).round();
+        Future<String?> fake(String text, String voice, int rate) async {
+          final sr = voice == 'a' ? 44100 : 22050, ch = voice == 'a' ? 1 : 2;
+          final n = inFrames(text, sr);
+          final b = ByteData(44 + n * ch * 2);
+          void str(int o, String v) {
+            for (var i = 0; i < 4; i++) {
+              b.setUint8(o + i, v.codeUnitAt(i));
+            }
+          }
+          str(0, 'RIFF');
+          b.setUint32(4, 36 + n * ch * 2, Endian.little);
+          str(8, 'WAVE');
+          str(12, 'fmt ');
+          b.setUint32(16, 16, Endian.little);
+          b.setUint16(20, 1, Endian.little);
+          b.setUint16(22, ch, Endian.little);
+          b.setUint32(24, sr, Endian.little);
+          b.setUint32(28, sr * ch * 2, Endian.little);
+          b.setUint16(32, ch * 2, Endian.little);
+          b.setUint16(34, 16, Endian.little);
+          str(36, 'data');
+          b.setUint32(40, n * ch * 2, Endian.little);
+          for (var i = 0; i < n; i++) {
+            final v = (sin(i * 2 * pi * 440 / sr) * 12000).round();
+            for (var c = 0; c < ch; c++) {
+              b.setInt16(44 + (i * ch + c) * 2, v, Endian.little);
+            }
+          }
+          final f = File(p.join(dir.path, 'seg_${DateTime.now().microsecondsSinceEpoch}.wav'));
+          await f.writeAsBytes(b.buffer.asUint8List());
+          return f.path;
+        }
+
+        final parts = [
+          AudiobookPart('제1장 시작', ['첫 문단입니다.', '"안녕." 민호가 말했다.']),
+          AudiobookPart('제2장: 끝/마무리?', ['두 번째 장.']),
+        ];
+        List<(String, String, int)> plan(String t) => [
+              for (final x in t.split('"').where((x) => x.trim().isNotEmpty)) (x, t.startsWith('"') && x == t.split('"')[1] ? 'b' : 'a', 0),
+            ];
+        var expected = 0;
+        for (final pt in parts) {
+          for (final para in pt.paragraphs) {
+            for (final (x, v, _) in plan(para)) {
+              final sr = v == 'a' ? 44100 : 22050;
+              expected += (inFrames(x.trim(), sr) * 24000 / sr).floor() + 2880;
+            }
+            expected += 8400;
+          }
+        }
+        final r = await AudiobookMaker(render: fake).make(parts: parts, outDir: dir.path, bookTitle: '시험 책', compress: false, plan: plan);
+        var got = 0;
+        for (final f in r.files) {
+          final pcm = pcmFromWav(await File(f).readAsBytes(), 24000)!;
+          got += pcm.length;
+        }
+        debugPrint('CHECK audiobook files=${r.files.map(p.basename).join('|')} samples=$got expected=$expected failed=${r.failedPieces} playlist=${r.playlist == null ? '-' : p.basename(r.playlist!)}');
+        expect(r.files.map(p.basename).toList(), ['001 제1장 시작.wav', '002 제2장 끝 마무리.wav']);
+        expect(got, expected);
+        final again = await AudiobookMaker(render: fake).make(parts: parts, outDir: dir.path, bookTitle: '시험 책', compress: false, plan: plan);
+        debugPrint('CHECK audiobook resume skipped=${again.skippedParts} files=${again.files.length}');
+        expect(again.skippedParts, 2);
+
+        // 실제 기기 음성 (자연 음성이 없어도 되는 길)
+        final v = await TtsService.voices();
+        final sys = v.where((x) => !NaturalTts.isNatural(x) && !KokoroTts.isKokoro(x)).firstOrNull;
+        if (sys != null) {
+          final w = await AudioRender.toWav('안녕하세요. 오디오북 시험입니다.', sys, 0).timeout(const Duration(seconds: 90), onTimeout: () => null);
+          final pcm = w == null ? null : pcmFromWav(await File(w).readAsBytes(), 24000);
+          var sq = 0.0;
+          for (final x in pcm ?? Int16List(0)) {
+            sq += x * x.toDouble();
+          }
+          final rms = pcm == null || pcm.isEmpty ? 0 : sqrt(sq / pcm.length);
+          debugPrint('CHECK audiobook system voice=${TtsService.label(sys)} ok=${w != null} sec=${((pcm?.length ?? 0) / 24000).toStringAsFixed(2)} rms=${rms.round()}');
+        } else {
+          debugPrint('CHECK audiobook system voice=none');
+        }
+        await AudioRender.closeWorkers();
+
+        // M4A 로 줄이기 (3초 소리)
+        final tone = p.join(dir.path, 'tone.wav');
+        await File(tone).writeAsBytes(NaturalTts.wavBytes(
+            Float32List.fromList([for (var i = 0; i < 72000; i++) sin(i * 2 * pi * 330 / 24000) * 0.4]), 24000));
+        final m4a = p.join(dir.path, 'tone.m4a');
+        final ok = await AudioRender.encodeM4a(tone, m4a);
+        final size = File(m4a).existsSync() ? File(m4a).lengthSync() : 0;
+        final log = AudioRender.lastEncodeLog.replaceAll(RegExp(r'\s+'), ' ');
+        debugPrint('CHECK audiobook m4a ok=$ok size=$size wav=${File(tone).lengthSync()} ${log.length > 300 ? log.substring(0, 300) : log}');
+        dir.deleteSync(recursive: true);
       });
     });
 

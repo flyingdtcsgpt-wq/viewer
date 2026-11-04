@@ -80,6 +80,9 @@ class TtsService {
       ? KokoroTts.instance.synthesize(text, voice, speed: (1 + rate.clamp(-10, 10) * 0.06).clamp(0.5, 2.0), wanted: wanted)
       : NaturalTts.instance.synthesize(text, voice, speed: _speed(rate), wanted: wanted);
 
+  /// AI 모델 음성으로 WAV 파일 만들기 (오디오북 저장용, 재생은 하지 않음)
+  static Future<String> renderModel(String text, String voice, int rate) => _synth(text, _fit(text, voice), rate);
+
   /// 다음에 읽을 글을 미리 만들어 둔다 (자연 음성일 때 끊김 줄이기)
   void prefetch(String text, {String? voice, int rate = 0}) {
     if (voice == null || !_isModel(voice) || text.trim().isEmpty) return;

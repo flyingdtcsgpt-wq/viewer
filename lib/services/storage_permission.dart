@@ -50,3 +50,6 @@ Future<bool> ensureStorageAccess(BuildContext context) async {
   }
   return ok;
 }
+
+/// "모든 파일 관리" 권한이 있는가 (안드로이드 밖에서는 늘 true)
+Future<bool> hasAllFilesAccess() async => !Platform.isAndroid || await _granted();

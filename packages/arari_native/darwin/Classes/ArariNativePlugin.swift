@@ -11,6 +11,7 @@ import FlutterMacOS
 public class ArariNativePlugin: NSObject, FlutterPlugin, AVSpeechSynthesizerDelegate {
   private let synth = AVSpeechSynthesizer()
   private var pending: [ObjectIdentifier: FlutterResult] = [:]
+  private var renderers: [AVSpeechSynthesizer] = [] // 파일로 만드는 중 (끝날 때까지 붙잡아 둠)
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = ArariNativePlugin()
@@ -24,6 +25,8 @@ public class ArariNativePlugin: NSObject, FlutterPlugin, AVSpeechSynthesizerDele
     ocr.setMethodCallHandler { call, result in instance.handleOcr(call, result) }
     let tts = FlutterMethodChannel(name: "mediashelf/tts", binaryMessenger: messenger)
     tts.setMethodCallHandler { call, result in instance.handleTts(call, result) }
+    let audio = FlutterMethodChannel(name: "mediashelf/audio", binaryMessenger: messenger)
+    audio.setMethodCallHandler { call, result in instance.handleAudio(call, result) }
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -74,21 +77,117 @@ public class ArariNativePlugin: NSObject, FlutterPlugin, AVSpeechSynthesizerDele
         return
       }
       stopAll()
-      let u = AVSpeechUtterance(string: text)
-      if let id = args["voice"] as? String, !id.isEmpty, let v = AVSpeechSynthesisVoice(identifier: id) {
-        u.voice = v
-      } else {
-        u.voice = AVSpeechSynthesisVoice(language: "ko-KR")
-      }
-      let rate = (args["rate"] as? Double) ?? 1.0
-      u.rate = Float(min(max(Double(AVSpeechUtteranceDefaultSpeechRate) * rate, Double(AVSpeechUtteranceMinimumSpeechRate)), Double(AVSpeechUtteranceMaximumSpeechRate)))
+      let u = utterance(text, args)
       pending[ObjectIdentifier(u)] = result
       synth.speak(u)
+    case "render":
+      // 오디오북 저장: 소리 내지 않고 WAV 파일로
+      guard let args = call.arguments as? [String: Any], let text = args["text"] as? String, let path = args["path"] as? String else {
+        result(false)
+        return
+      }
+      render(utterance(text, args), path, result)
     case "stop":
       stopAll()
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func utterance(_ text: String, _ args: [String: Any]) -> AVSpeechUtterance {
+    let u = AVSpeechUtterance(string: text)
+    if let id = args["voice"] as? String, !id.isEmpty, let v = AVSpeechSynthesisVoice(identifier: id) {
+      u.voice = v
+    } else {
+      u.voice = AVSpeechSynthesisVoice(language: "ko-KR")
+    }
+    let rate = (args["rate"] as? Double) ?? 1.0
+    u.rate = Float(min(max(Double(AVSpeechUtteranceDefaultSpeechRate) * rate, Double(AVSpeechUtteranceMinimumSpeechRate)), Double(AVSpeechUtteranceMaximumSpeechRate)))
+    return u
+  }
+
+  private func render(_ u: AVSpeechUtterance, _ path: String, _ result: @escaping FlutterResult) {
+    let r = AVSpeechSynthesizer()
+    renderers.append(r)
+    var file: AVAudioFile?
+    var finished = false
+    var wrote = false
+    let url = URL(fileURLWithPath: path)
+    try? FileManager.default.removeItem(at: url)
+    func finish(_ ok: Bool) {
+      if finished { return }
+      finished = true
+      file = nil // 닫아야 머리에 길이가 적힌다
+      DispatchQueue.main.async {
+        self.renderers.removeAll { $0 === r }
+        result(ok)
+      }
+    }
+    r.write(u) { buffer in
+      guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+      if pcm.frameLength == 0 {
+        finish(wrote)
+        return
+      }
+      do {
+        if file == nil {
+          let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: pcm.format.sampleRate,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+          ]
+          file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: pcm.format.commonFormat, interleaved: pcm.format.isInterleaved)
+        }
+        try file?.write(from: pcm)
+        wrote = true
+      } catch {
+        finish(false)
+      }
+    }
+    // 끝 신호(빈 버퍼)가 오지 않는 경우를 대비
+    DispatchQueue.main.asyncAfter(deadline: .now() + 120 + Double(u.speechString.count) / 3) {
+      if !finished { r.stopSpeaking(at: .immediate); finish(wrote) }
+    }
+  }
+
+  // MARK: 오디오 변환 (WAV → M4A)
+  private func handleAudio(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+    guard call.method == "encodeM4a", let args = call.arguments as? [String: Any],
+          let src = args["src"] as? String, let dst = args["dst"] as? String else {
+      result(FlutterMethodNotImplemented)
+      return
+    }
+    DispatchQueue.global(qos: .utility).async {
+      var ok = false
+      do {
+        let input = try AVAudioFile(forReading: URL(fileURLWithPath: src))
+        let fmt = input.processingFormat
+        let outUrl = URL(fileURLWithPath: dst)
+        try? FileManager.default.removeItem(at: outUrl)
+        let settings: [String: Any] = [
+          AVFormatIDKey: kAudioFormatMPEG4AAC,
+          AVSampleRateKey: fmt.sampleRate,
+          AVNumberOfChannelsKey: fmt.channelCount,
+          AVEncoderBitRateKey: 64000,
+        ]
+        var output: AVAudioFile? = try AVAudioFile(forWriting: outUrl, settings: settings, commonFormat: fmt.commonFormat, interleaved: fmt.isInterleaved)
+        if let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 8192) {
+          while input.framePosition < input.length {
+            try input.read(into: buf)
+            if buf.frameLength == 0 { break }
+            try output?.write(from: buf)
+          }
+          ok = true
+        }
+        output = nil
+      } catch {
+        ok = false
+      }
+      DispatchQueue.main.async { result(ok) }
     }
   }
 
