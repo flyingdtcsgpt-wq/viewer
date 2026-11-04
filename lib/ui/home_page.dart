@@ -742,9 +742,9 @@ class _ExternalOpenerState extends State<_ExternalOpener> {
         }
         if (!mounted) return;
         if (item == null) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('이 파일은 열 수 없거나 볼 권한이 없습니다')));
+          ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('이 파일은 열 수 없거나 볼 권한이 없습니다')));
         } else {
-          openItem(context, item);
+          openItem(this.context, item);
         }
         // 기다리는 동안 또 열린 파일이 있으면 이어서
         if (state.pendingOpenPath != null) setState(() {});

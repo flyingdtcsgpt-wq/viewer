@@ -1096,6 +1096,7 @@ class _KokoroCardState extends State<_KokoroCard> {
                 ? null
                 : () async {
                     await KokoroTts.instance.remove();
+                    if (!context.mounted) return;
                     final s = context.read<Settings>();
                     if (KokoroTts.isKokoro(s.ttsVoice)) s.ttsVoice = '';
                     await _refresh();

@@ -45,7 +45,7 @@ class Portable {
       await probe.writeAsString('ok');
       await probe.delete();
     } catch (_) {
-      throw '앱 폴더에 쓸 수 없습니다 (${appDir}).\n설치판(Program Files)은 휴대용으로 만들 수 없으니 포터블 zip 판을 쓰세요.';
+      throw '앱 폴더에 쓸 수 없습니다 ($appDir).\n설치판(Program Files)은 휴대용으로 만들 수 없으니 포터블 zip 판을 쓰세요.';
     }
     final from = Directory((await getApplicationSupportDirectory()).path);
     if (p.equals(from.path, target.path)) return target.path;

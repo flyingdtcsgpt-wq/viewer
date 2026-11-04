@@ -399,10 +399,7 @@ class _PdfSplitMergePageState extends State<PdfSplitMergePage> with ToolRunner {
           child: _mode == 0
               ? ReorderableListView(
                   buildDefaultDragHandles: !running,
-                  onReorder: (a, b) => setState(() {
-                    if (b > a) b--;
-                    _order.insert(b, _order.removeAt(a));
-                  }),
+                  onReorderItem: (a, b) => setState(() => _order.insert(b, _order.removeAt(a))),
                   children: [
                     for (final e in _order)
                       CheckboxListTile(

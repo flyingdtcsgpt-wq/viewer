@@ -677,7 +677,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
               onSelected: (v) async {
                 if (v == '#file') {
                   final r = await FilePicker.pickFiles(type: FileType.audio, dialogTitle: '배경음으로 쓸 소리 파일');
-                  final path = r?.files.single.path;
+                  final path = r.firstOrNull?.path;
                   if (path == null) return;
                   v = path;
                 }

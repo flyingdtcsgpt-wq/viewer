@@ -107,7 +107,7 @@ class ImagePdf {
     return null;
   }
 
-  /// PDF 글자열: UTF-16BE 16진 (<FEFF…>) — 한글 제목도 깨지지 않게
+  /// PDF 글자열: UTF-16BE 16진 (`<FEFF…>`) — 한글 제목도 깨지지 않게
   static String _utf16(String s) {
     final sb = StringBuffer('<FEFF');
     for (final u in s.codeUnits) {

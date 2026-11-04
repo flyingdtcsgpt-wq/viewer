@@ -528,7 +528,7 @@ while (($l = [Console]::In.ReadLine()) -ne $null) {
     [Console]::Out.WriteLine('##OK')
   } catch {
     try { $s.SetOutputToNull() } catch {}
-    [Console]::Out.WriteLine('##ERR')
+    [Console]::Out.WriteLine('##ERR ' + ($_.Exception.Message -replace '\s+', ' '))
   }
   [Console]::Out.Flush()
 }
@@ -574,13 +574,51 @@ while (($l = [Console]::In.ReadLine()) -ne $null) {
           // 응답이 없으면 새로 띄운다
           pr.kill();
           _proc = null;
+          AudioRender.lastRenderLog = '${AudioRender.lastRenderLog} [worker: no reply]'.trim();
+        } else if (!ok) {
+          AudioRender.lastRenderLog = '${AudioRender.lastRenderLog} [worker: ${_lines.first}]'.trim();
         }
-        c.complete(ok && File(out).existsSync() ? out : null);
+        if (ok && File(out).existsSync() && File(out).lengthSync() > 100) {
+          c.complete(out);
+        } else {
+          // 띄워 둔 일꾼이 안 되면, 읽어주기와 같은 방식(한 번에 하나)으로 다시
+          c.complete(await _once(text, voice, rate, out));
+        }
       } catch (_) {
         c.complete(null);
       }
     });
     return c.future;
+  }
+
+  /// PowerShell 을 한 번 띄워 한 조각만 (느리지만 확실)
+  static Future<String?> _once(String text, String voice, int rate, String out) async {
+    final script = StringBuffer()
+      ..write(r'[Console]::InputEncoding=[Text.Encoding]::UTF8; Add-Type -AssemblyName System.Speech; ')
+      ..write(r'$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; ')
+      ..write('\$s.Rate=${rate.clamp(-10, 10)}; ');
+    if (voice.isNotEmpty) script.write("try { \$s.SelectVoice('${voice.replaceAll("'", "''")}') } catch {}; ");
+    script
+      ..write(r'$f=New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(24000,[System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen,[System.Speech.AudioFormat.AudioChannel]::Mono); ')
+      ..write("\$s.SetOutputToWaveFile('${out.replaceAll("'", "''")}', \$f); ")
+      ..write(r'$t=[Console]::In.ReadToEnd(); $s.Speak($t); $s.SetOutputToNull(); $s.Dispose()');
+    try {
+      final pr = await Process.start('powershell', ['-NoProfile', '-Command', script.toString()]);
+      pr.stdin.add(utf8.encode(text));
+      await pr.stdin.close();
+      final err = pr.stderr.transform(utf8.decoder).join();
+      pr.stdout.drain<void>();
+      final code = await pr.exitCode.timeout(Duration(seconds: 60 + text.length ~/ 3), onTimeout: () {
+        pr.kill();
+        return -1;
+      });
+      final e = (await err).trim();
+      if (e.isNotEmpty) AudioRender.lastRenderLog = '${AudioRender.lastRenderLog} [once: $e]'.trim();
+      return code == 0 && File(out).existsSync() && File(out).lengthSync() > 100 ? out : null;
+    } catch (e) {
+      AudioRender.lastRenderLog = '${AudioRender.lastRenderLog} [once: $e]'.trim();
+      return null;
+    }
   }
 
   Future<void> close() async {
