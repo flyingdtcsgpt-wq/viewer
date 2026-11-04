@@ -724,6 +724,7 @@ void main() {
             sq += x * x.toDouble();
           }
           final rms = pcm == null || pcm.isEmpty ? 0 : sqrt(sq / pcm.length);
+          if (pcm == null || pcm.isEmpty) debugPrint('CHECK audiobook render log=${AudioRender.lastRenderLog}');
           debugPrint('CHECK audiobook system voice=${TtsService.label(sys)} ok=${w != null} sec=${((pcm?.length ?? 0) / 24000).toStringAsFixed(2)} rms=${rms.round()}');
         } else {
           debugPrint('CHECK audiobook system voice=none');
@@ -739,7 +740,10 @@ void main() {
         final size = File(m4a).existsSync() ? File(m4a).lengthSync() : 0;
         final log = AudioRender.lastEncodeLog.replaceAll(RegExp(r'\s+'), ' ');
         debugPrint('CHECK audiobook m4a ok=$ok size=$size wav=${File(tone).lengthSync()} ${log.length > 300 ? log.substring(0, 300) : log}');
-        dir.deleteSync(recursive: true);
+        // 정리 (Windows 는 방금 닫은 파일을 잠깐 붙잡고 있을 수 있음)
+        try {
+          dir.deleteSync(recursive: true);
+        } catch (_) {}
       });
     });
 
@@ -844,7 +848,10 @@ void main() {
         expect(r.text.toLowerCase(), contains('bread'));
         // 머리글은 빼야 한다 (글자 인식이 한 쪽에서 다르게 읽을 수 있어 한 번까지는 봐줌)
         expect('TEST BOOK'.allMatches(r.text.toUpperCase()).length, lessThanOrEqualTo(1));
-        dir.deleteSync(recursive: true);
+        // 정리 (Windows 는 방금 닫은 파일을 잠깐 붙잡고 있을 수 있음)
+        try {
+          dir.deleteSync(recursive: true);
+        } catch (_) {}
       });
     });
 
@@ -922,7 +929,10 @@ void main() {
         debugPrint('CHECK tools pdf split=${parts.map(p.basename).toList()} counts=$counts merged=$n/$mn');
         expect(counts, [2, 2]);
         expect(mn, 4);
-        dir.deleteSync(recursive: true);
+        // 정리 (Windows 는 방금 닫은 파일을 잠깐 붙잡고 있을 수 있음)
+        try {
+          dir.deleteSync(recursive: true);
+        } catch (_) {}
       });
     });
 

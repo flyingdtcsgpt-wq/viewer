@@ -420,6 +420,7 @@ class AudioRender {
 
   /// Windows: Media Foundation(MediaTranscoder) 로 AAC 인코딩. 인수: 원본 WAV, 저장 폴더, 파일 이름
   static String lastEncodeLog = '';
+  static String lastRenderLog = '';
   static const _winEncode = r'''
 param([string]$src, [string]$dir, [string]$name)
 $ErrorActionPreference = 'Stop'
@@ -481,7 +482,11 @@ while (($l = [Console]::In.ReadLine()) -ne $null) {
 
   Future<Process> _start() async {
     if (_proc != null) return _proc!;
-    final pr = await Process.start('powershell', ['-NoProfile', '-Command', _script]);
+    final ps = File(p.join(Directory.systemTemp.path, 'arari_voice_file_v1.ps1'));
+    // Windows PowerShell 5.1 은 BOM 이 있어야 UTF-8 로 읽는다
+    await ps.writeAsBytes([0xEF, 0xBB, 0xBF, ...utf8.encode(_script)]);
+    final pr = await Process.start('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps.path]);
+    pr.stdin.encoding = utf8; // 한글 글을 그대로 (기본은 시스템 인코딩이라 깨짐)
     pr.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((l) {
       if (!l.startsWith('##')) return;
       _lines.add(l);
@@ -493,7 +498,7 @@ while (($l = [Console]::In.ReadLine()) -ne $null) {
       _wake?.complete();
       _wake = null;
     });
-    pr.stderr.drain<void>();
+    pr.stderr.transform(utf8.decoder).listen((e) => AudioRender.lastRenderLog = (AudioRender.lastRenderLog + e).trim());
     return _proc = pr;
   }
 
