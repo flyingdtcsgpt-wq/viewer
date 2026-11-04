@@ -91,6 +91,15 @@ class LibraryDb {
     } catch (_) {}
   }
 
+  /// 여러 항목을 한 번에 넣기 (id 를 채워 준다)
+  Future<void> insertMany(List<MediaItem> items) async {
+    await _db.transaction((txn) async {
+      for (final e in items) {
+        e.id = await txn.insert('items', e.toMap(), conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+    });
+  }
+
   /// 여러 항목을 한 번에 저장 (하나의 트랜잭션: 수만 개도 몇 초)
   Future<void> updateMany(Iterable<MediaItem> items) async {
     final list = items.toList();

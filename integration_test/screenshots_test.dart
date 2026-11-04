@@ -496,6 +496,84 @@ void main() {
       });
     });
 
+    // 큰 서재: 2만 권 · 2천 묶음을 넣고 자주 하는 동작의 시간을 잰다 (PC 에서만)
+    if (Platform.isWindows || Platform.isMacOS) {
+      await step('scale', () async {
+        await tester.runAsync(() async {
+          final sw = Stopwatch()..start();
+          final made = <MediaItem>[];
+          final seriesIds = <int>[];
+          for (var g = 0; g < 2000; g++) {
+            final se = await state.createSeries('큰서재 시리즈 $g');
+            seriesIds.add(se.id!);
+          }
+          for (var i = 0; i < 20000; i++) {
+            made.add(MediaItem(
+              path: p.join(tmp.path, 'scale', 'big_${i ~/ 10}', '큰서재 $i권.cbz'),
+              kind: i % 5 == 0 ? MediaKind.book : MediaKind.comic,
+              title: '큰서재 책 $i',
+              size: 1000 + i,
+            )
+              ..seriesId = seriesIds[i % 2000]
+              ..volume = (i ~/ 2000 + 1).toDouble());
+          }
+          await state.db.insertMany(made);
+          await state.load();
+          debugPrint('CHECK scale insert+load ${sw.elapsedMilliseconds}ms items=${state.rawItems.length}');
+          int t(void Function() f) {
+            final w = Stopwatch()..start();
+            f();
+            return w.elapsedMilliseconds;
+          }
+
+          state.setFilter(kind: MediaKind.comic);
+          final first = t(() => state.entries.length);
+          final again = t(() => state.entries.length);
+          final counts = t(() {
+            for (final k in [null, ...MediaKind.values]) {
+              state.count(k);
+            }
+            for (final c in Collection.values) {
+              state.collectionCount(c);
+            }
+          });
+          final e0 = state.entries.first;
+          final focus = t(() {
+            state.focus(e0);
+            state.entries.length;
+            state.count(null);
+          });
+          state.query = '시리즈 19';
+          final search = t(() => state.entries.length);
+          state.query = '';
+          state.selectAll();
+          final sel = state.selected.length;
+          final selMs = t(() => state.selectedItemsDeep.length);
+          state.clearSelection();
+          debugPrint('CHECK scale entries first=${first}ms cached=${again}ms counts=${counts}ms focus=${focus}ms search=${search}ms selectAll($sel) items=${selMs}ms');
+          // 숨김과 상관없는 대량 이동: 운영체제 숨김 명령을 부르지 않아야 빠르다
+          final w = Stopwatch()..start();
+          await state.moveItems(made.take(5000), seriesIds.first);
+          debugPrint('CHECK scale move5000=${w.elapsedMilliseconds}ms');
+          // 가족 계정(제한)으로 보기
+          final fam = state.users.firstWhere((u) => !u.isAdmin);
+          await state.setAccess(fam, ['k:image', 's:${seriesIds[5]}'], allowed: false);
+          final view = await state.accessFor(fam);
+          final rv = t(() => state.rawItems.where(view.item).length);
+          debugPrint('CHECK scale restricted-pass=${rv}ms');
+          state.setFilter(clearKind: true);
+          // 정리: 큰 서재 항목은 지운다 (다음 단계 화면에 섞이지 않게)
+          final w2 = Stopwatch()..start();
+          await state.removeMany(items: made);
+          for (final id in seriesIds) {
+            final se = state.seriesById(id);
+            if (se != null) await state.deleteSeries(se);
+          }
+          debugPrint('CHECK scale remove=${w2.elapsedMilliseconds}ms');
+        });
+      });
+    }
+
     // 자연 음성: 모델을 받아 한국어를 합성해 보고, 소리가 실제로 나는지 숫자로 확인한다
     if (Platform.environment['TTS_CHECK'] == '1' || const bool.fromEnvironment('TTS_CHECK')) {
       await step('natural tts', () async {
