@@ -132,14 +132,18 @@ class AudiobookMaker {
                 String? wav;
                 try {
                   wav = await _render(text.trim(), voice, rate);
-                  if (wav != null) pcm = pcmFromWav(await File(wav).readAsBytes(), sampleRate);
+                  if (wav != null) {
+                    final got = pcmFromWav(await File(wav).readAsBytes(), sampleRate);
+                    if (got != null && got.length >= sampleRate ~/ 20) pcm = got;
+                  }
                 } catch (_) {
                 } finally {
                   if (wav != null) File(wav).delete().ignore();
                 }
               }
               if (_cancel) break;
-              if (pcm == null) {
+              // 소리가 없는 파일(그 음성이 읽지 못하는 언어 등)도 실패로 본다
+              if (pcm == null || pcm.length < sampleRate ~/ 20) {
                 failed++;
                 if (++fails >= 12) throw const AudiobookError('음성을 만들지 못했습니다. 다른 음성을 골라 보세요.');
                 continue;

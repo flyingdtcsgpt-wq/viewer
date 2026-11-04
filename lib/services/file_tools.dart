@@ -89,9 +89,8 @@ class FileTools {
       out = bg;
     }
     final data = asJpg ? img.encodeJpg(out, quality: o.quality) : img.encodePng(out, level: 9);
-    // 크기를 줄이지 않았는데 더 커지면 원본이 낫다
-    if (data.length >= src.length && !resize) return null;
-    if (data.length >= src.length && resize && !asJpg) return null;
+    // 용량을 아끼는 도구이므로 더 작아질 때만 바꾼다
+    if (data.length >= src.length) return null;
     return (data, asJpg && !isJpg ? '.jpg' : e);
   }
 
@@ -143,11 +142,11 @@ class FileTools {
       }
       return (changed, images);
     }, onProgress);
-    if (r.$1 == 0) {
+    final after = await File(tmp).length();
+    if (r.$1 == 0 || after >= before) {
       await File(tmp).delete();
       return (before: before, after: before, changed: 0, images: r.$2);
     }
-    final after = await File(tmp).length();
     await _swap(path, tmp, backup);
     return (before: before, after: after, changed: r.$1, images: r.$2);
   }

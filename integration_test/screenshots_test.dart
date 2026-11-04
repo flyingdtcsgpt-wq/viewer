@@ -711,8 +711,14 @@ void main() {
         final v = await TtsService.voices();
         final sys = v.where((x) => !NaturalTts.isNatural(x) && !KokoroTts.isKokoro(x)).firstOrNull;
         if (sys != null) {
-          final w = await AudioRender.toWav('안녕하세요. 오디오북 시험입니다.', sys, 0).timeout(const Duration(seconds: 90), onTimeout: () => null);
-          final pcm = w == null ? null : pcmFromWav(await File(w).readAsBytes(), 24000);
+          // 영어 전용 음성(서버 Windows 의 David 등)은 한국어를 읽지 못해 빈 소리 → 영어로도 해 본다
+          Int16List? pcm;
+          String? w;
+          for (final t in ['안녕하세요. 오디오북 시험입니다.', 'Hello. This is an audiobook test.']) {
+            w = await AudioRender.toWav(t, sys, 0).timeout(const Duration(seconds: 90), onTimeout: () => null);
+            pcm = w == null ? null : pcmFromWav(await File(w).readAsBytes(), 24000);
+            if ((pcm?.length ?? 0) > 2400) break;
+          }
           var sq = 0.0;
           for (final x in pcm ?? Int16List(0)) {
             sq += x * x.toDouble();
@@ -849,12 +855,15 @@ void main() {
         if (dir.existsSync()) dir.deleteSync(recursive: true);
         dir.createSync(recursive: true);
         img.Image big(int seed) {
+          // 사진처럼 잡음이 섞인 그림 (PNG 로는 크고 JPEG 로는 작아지는 실제 만화 · 사진에 가깝게)
+          final rnd = Random(seed);
           final im = img.Image(width: 2400, height: 1600);
           for (final px in im) {
+            final n = rnd.nextInt(48);
             px
-              ..r = (px.x * 255 ~/ 2400 + seed * 40) % 256
-              ..g = (px.y * 255 ~/ 1600)
-              ..b = ((px.x + px.y) ~/ 20 * 37 + seed) % 256;
+              ..r = (px.x * 200 ~/ 2400 + n + seed * 40) % 256
+              ..g = (px.y * 200 ~/ 1600 + n)
+              ..b = ((px.x + px.y) ~/ 9 + n) % 256;
           }
           return im;
         }
