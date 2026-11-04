@@ -1121,11 +1121,34 @@ class StatusBar extends StatelessWidget {
         mode(2, Icons.view_agenda, '카드 목록 보기'),
         const SizedBox(width: 12),
         Text('항목 크기', style: Theme.of(context).textTheme.bodySmall),
-        SizedBox(
-          width: 160,
-          child: Slider(min: 140, max: 360, value: s.coverSize.clamp(140, 360), onChanged: s.viewMode == 1 ? (v) => s.coverSize = v : null),
-        ),
+        SizedBox(width: 160, child: _SizeSlider(enabled: s.viewMode == 1)),
       ]),
+    );
+  }
+}
+
+/// 항목 크기: 끄는 동안은 이 막대만 움직이고, 손을 떼면 저장 (끌 때마다 목록 전체를 다시 그리지 않게)
+class _SizeSlider extends StatefulWidget {
+  final bool enabled;
+  const _SizeSlider({required this.enabled});
+  @override
+  State<_SizeSlider> createState() => _SizeSliderState();
+}
+
+class _SizeSliderState extends State<_SizeSlider> {
+  double? _drag;
+  @override
+  Widget build(BuildContext context) {
+    final s = context.read<Settings>();
+    return Slider(
+      min: 140,
+      max: 360,
+      value: (_drag ?? s.coverSize).clamp(140, 360),
+      onChanged: widget.enabled ? (v) => setState(() => _drag = v) : null,
+      onChangeEnd: (v) {
+        s.coverSize = v;
+        setState(() => _drag = null);
+      },
     );
   }
 }

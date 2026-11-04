@@ -67,7 +67,69 @@ class LibraryDb {
         }
       },
     );
+    await db._tune();
     return db;
+  }
+
+  /// 큰 라이브러리용: 빠른 쓰기 모드, 지울 때 쓰는 색인, 끝없이 늘어나는 열람 기록 줄이기
+  Future<void> _tune() async {
+    for (final sql in [
+      'PRAGMA journal_mode=WAL',
+      'PRAGMA synchronous=NORMAL',
+      'CREATE INDEX IF NOT EXISTS idx_history_item ON history(item_id)',
+      'CREATE INDEX IF NOT EXISTS idx_progress_item ON user_progress(item_id)',
+      'CREATE INDEX IF NOT EXISTS idx_denied_target ON denied(target)',
+    ]) {
+      try {
+        await _db.rawQuery(sql); // PRAGMA 는 결과를 돌려주므로 rawQuery
+      } catch (_) {}
+    }
+    try {
+      // 기록이 많이 쌓였을 때만: 사용자마다 최근 5000건만 남긴다
+      final n = Sqflite.firstIntValue(await _db.rawQuery('SELECT COUNT(*) FROM history')) ?? 0;
+      if (n > 50000) await _db.execute('DELETE FROM history WHERE id NOT IN (SELECT id FROM history h2 WHERE h2.user_id = history.user_id ORDER BY opened_at DESC LIMIT 5000)');
+    } catch (_) {}
+  }
+
+  /// 여러 항목을 한 번에 저장 (하나의 트랜잭션: 수만 개도 몇 초)
+  Future<void> updateMany(Iterable<MediaItem> items) async {
+    final list = items.toList();
+    if (list.isEmpty) return;
+    await _db.transaction((txn) async {
+      final b = txn.batch();
+      for (final e in list) {
+        b.update('items', e.toMap(), where: 'id = ?', whereArgs: [e.id]);
+      }
+      await b.commit(noResult: true);
+    });
+  }
+
+  /// 여러 묶음을 한 번에 저장
+  Future<void> updateSeriesMany(Iterable<Series> list) async {
+    final l = list.toList();
+    if (l.isEmpty) return;
+    await _db.transaction((txn) async {
+      final b = txn.batch();
+      for (final s in l) {
+        b.update('series', s.toMap(), where: 'id = ?', whereArgs: [s.id]);
+      }
+      await b.commit(noResult: true);
+    });
+  }
+
+  /// 여러 항목을 한 번에 지우기 (진행률 · 기록 · 권한 포함)
+  Future<void> deleteMany(List<int> ids) async {
+    if (ids.isEmpty) return;
+    await _db.transaction((txn) async {
+      for (var i = 0; i < ids.length; i += 500) {
+        final chunk = ids.sublist(i, ids.length < i + 500 ? ids.length : i + 500);
+        final marks = List.filled(chunk.length, '?').join(',');
+        await txn.delete('items', where: 'id IN ($marks)', whereArgs: chunk);
+        await txn.delete('user_progress', where: 'item_id IN ($marks)', whereArgs: chunk);
+        await txn.delete('history', where: 'item_id IN ($marks)', whereArgs: chunk);
+        await txn.delete('denied', where: 'target IN ($marks)', whereArgs: [for (final id in chunk) 'i:$id']);
+      }
+    });
   }
 
   static Future<void> _createSeries(Database db) async {

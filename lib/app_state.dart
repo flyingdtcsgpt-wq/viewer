@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -75,11 +76,12 @@ class AppState extends ChangeNotifier {
     landing = false;
     selected.clear();
     focusedKey = null;
-    notifyListeners();
+    _viewChanged();
   }
 
   /// 폴더 안 (하위 폴더 수, 파일 수)
-  (int, int) libraryCounts(String root) {
+  (int, int) libraryCounts(String root) => _memo('lib|$root', () => _libraryCounts(root));
+  (int, int) _libraryCounts(String root) {
     final dirs = <String>{};
     var files = 0;
     final sep = Platform.pathSeparator;
@@ -124,14 +126,14 @@ class AppState extends ChangeNotifier {
     if (_back.isEmpty) return;
     _fwd.add(_nav);
     _apply(_back.removeLast());
-    notifyListeners();
+    _viewChanged();
   }
 
   void goForward() {
     if (_fwd.isEmpty) return;
     _back.add(_nav);
     _apply(_fwd.removeLast());
-    notifyListeners();
+    _viewChanged();
   }
 
   void setCollection(Collection c) {
@@ -142,12 +144,12 @@ class AppState extends ChangeNotifier {
     landing = false;
     selected.clear();
     focusedKey = null;
-    notifyListeners();
+    _viewChanged();
   }
 
   void setRecursive(bool v) {
     recursive = v;
-    notifyListeners();
+    _viewChanged();
   }
 
   /// 한 번 클릭: 고르기(상세 표시). 다중 선택은 Ctrl+클릭
@@ -156,7 +158,7 @@ class AppState extends ChangeNotifier {
     selected
       ..clear()
       ..add(e.key);
-    notifyListeners();
+    _viewChanged();
   }
 
   Entry? get focusedEntry {
@@ -165,7 +167,8 @@ class AppState extends ChangeNotifier {
     return entries.where((e) => e.key == k).firstOrNull;
   }
 
-  int collectionCount(Collection c) => _collectionEntries(c).length;
+  int collectionCount(Collection c) =>
+      _memo('col|${c.index}|$kindFilter|$favoritesOnly|$tagFilter', () => _collectionEntries(c).length);
 
   List<Entry> _collectionEntries(Collection c) {
     final items = allItems.where(_passes);
@@ -213,8 +216,9 @@ class AppState extends ChangeNotifier {
   // ---------------- 쪽수 / 평점 ----------------
 
   /// 쪽수를 모르면 파일을 열어 세고 저장 (만화 zip, PDF)
+  final Set<int> _pagesTried = {}; // 한 번 세어 봤으면 (실패해도) 다시 열지 않는다
   Future<void> ensurePages(MediaItem e) async {
-    if (e.pages != null) return;
+    if (e.pages != null || e.id == null || !_pagesTried.add(e.id!)) return;
     final n = await covers.pageCount(e);
     if (n == null) return;
     e.pages = n;
@@ -316,12 +320,36 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  /// 데이터 판 번호: 항목 · 묶음 · 권한 · 숨김이 바뀔 때마다 올라간다 (파생 값 캐시의 기준)
+  int _rev = 0;
+
+  /// 데이터가 바뀌었다: 묶음 색인 · 보이는 항목 · 개수 등을 다음에 쓸 때 다시 계산
   @override
   void notifyListeners() {
+    _rev++;
     _tree = null; // 묶음 색인 다시 만들기
     _seriesWithAccess = null;
+    _visibleCache = null;
+    _hiddenChain.clear();
+    _derivedCache.clear();
     super.notifyListeners();
   }
+
+  /// 보기만 바뀌었다 (고르기 · 초점 · 필터 · 검색어 · 정렬 · 이동): 데이터 캐시는 그대로 두고 화면만 다시
+  void _viewChanged() => super.notifyListeners();
+
+  /// 스캔 · 가져오기 중 진행 알림: 파일마다 부르지만 0.3초에 한 번만 화면을 다시 그린다
+  DateTime _lastProgress = DateTime.fromMillisecondsSinceEpoch(0);
+  void _progress({bool force = false}) {
+    final now = DateTime.now();
+    if (!force && now.difference(_lastProgress) < const Duration(milliseconds: 300)) return;
+    _lastProgress = now;
+    notifyListeners();
+  }
+
+  /// 한 판 안에서 같은 계산을 다시 하지 않도록 (키 → 값)
+  final Map<String, Object> _derivedCache = {};
+  T _memo<T extends Object>(String key, T Function() make) => (_derivedCache[key] ??= make()) as T;
 
   // =====================================================================
   //  묶음(시리즈) 트리
@@ -340,7 +368,7 @@ class AppState extends ChangeNotifier {
   late final ShareServer share = ShareServer(this);
 
   /// 보이기 규칙을 무시한 전체 트리 (내부 정리용)
-  LibraryTree get rawTree => LibraryTree.build(_items, _series.values);
+  LibraryTree get rawTree => _memo('rawTree', () => LibraryTree.build(_items, _series.values));
 
   // =====================================================================
   //  로그인
@@ -445,31 +473,35 @@ class AppState extends ChangeNotifier {
   //  보이기 규칙: 접근 권한(사용자별) + 숨김(비밀번호)
   // =====================================================================
 
-  /// 이 묶음 또는 상위 묶음 중 하나라도 조건을 만족하는가
-  bool _anyAncestor(int? seriesId, bool Function(Series) test) {
-    final seen = <int>{};
-    var cur = seriesId;
-    while (cur != null && seen.add(cur)) {
-      final s = _series[cur];
-      if (s == null) return false;
-      if (test(s)) return true;
-      cur = s.parentId;
-    }
-    return false;
+  /// 묶음 id → 그 묶음이나 상위 묶음이 숨김인가 (판마다 한 번 계산해 둠)
+  final Map<int, bool> _hiddenChain = {};
+  bool _hiddenUp(int? id) {
+    if (id == null) return false;
+    final hit = _hiddenChain[id];
+    if (hit != null) return hit;
+    _hiddenChain[id] = false; // 순환 방지
+    final s = _series[id];
+    final v = s != null && (s.hidden || _hiddenUp(s.parentId));
+    return _hiddenChain[id] = v;
   }
 
-  bool isHiddenItem(MediaItem e) => e.hidden || _anyAncestor(e.seriesId, (s) => s.hidden);
-  bool isHiddenSeries(Series s) => _anyAncestor(s.id, (x) => x.hidden);
+  bool isHiddenItem(MediaItem e) => e.hidden || _hiddenUp(e.seriesId);
+  bool isHiddenSeries(Series s) => _hiddenUp(s.id);
 
   bool canAccessItem(MediaItem e) => _accessItem(e, _denied);
   bool canAccessSeries(Series s) =>
       _denied.isEmpty ||
-      (!_anyAncestor(s.id, (x) => _denied.contains('s:${x.id}')) &&
-          (!_scopedDenial || (_seriesWithAccess ??= _computeSeriesAccess()).contains(s.id)));
+      (!_denyIndex(_denied).seriesUp(this, s.id) && (!_scopedDenial || (_seriesWithAccess ??= _computeSeriesAccess()).contains(s.id)));
 
-  bool _accessItem(MediaItem e, Set<String> denied) =>
-      denied.isEmpty ||
-      (!denied.contains('i:${e.id}') && !_deniedByScope(e, denied) && !_anyAncestor(e.seriesId, (s) => denied.contains('s:${s.id}')));
+  bool _accessItem(MediaItem e, Set<String> denied) {
+    if (denied.isEmpty) return true;
+    final d = _denyIndex(denied);
+    return !d.items.contains(e.id) && !_deniedByScope(e, denied) && !d.seriesUp(this, e.seriesId);
+  }
+
+  /// 막힌 목록(문자열 키)을 빠르게 찾는 모양으로 (같은 목록이면 한 번만 만듦)
+  final Expando<_DenyIndex> _denyIndexes = Expando();
+  _DenyIndex _denyIndex(Set<String> denied) => _denyIndexes[denied] ??= _DenyIndex(denied);
 
   /// 다른 사용자의 접근 규칙으로 보기 (공유 서버용)
   Future<AccessView> accessFor(AppUser? u) async =>
@@ -482,12 +514,12 @@ class AppState extends ChangeNotifier {
   bool get _scopedDenial => _isScoped(_denied);
   static bool _isScoped(Set<String> d) => d.any((x) => x.startsWith('f:') || x.startsWith('k:'));
   bool _deniedByScope(MediaItem e, [Set<String>? denied]) {
-    for (final d in denied ?? _denied) {
-      if (d == 'k:${e.kind.name}') return true;
-      if (d.startsWith('f:')) {
-        final f = d.substring(2);
-        if (p.equals(f, e.path) || p.isWithin(f, e.path)) return true;
-      }
+    final d = _denyIndex(denied ?? _denied);
+    if (d.kinds.contains(e.kind)) return true;
+    if (d.folders.isEmpty) return false;
+    final path = Platform.isWindows || Platform.isMacOS ? e.path.toLowerCase() : e.path;
+    for (final f in d.folders) {
+      if (path == f.$1 || path.startsWith(f.$2)) return true;
     }
     return false;
   }
@@ -541,18 +573,20 @@ class AppState extends ChangeNotifier {
 
   /// 숨김 켜기/끄기 (관리자). 파일도 OS 에서 숨김 속성으로 바꾼다.
   Future<void> setHidden({Iterable<MediaItem> items = const [], Iterable<Series> series = const [], required bool hidden}) async {
-    final affected = <MediaItem>{};
+    final affected = <MediaItem>{...items};
+    for (final s in series) {
+      affected.addAll(_itemsUnder(s.id!));
+    }
+    final before = _hiddenBefore(affected);
     for (final e in items) {
       e.hidden = hidden;
-      await db.update(e);
-      affected.add(e);
     }
     for (final s in series) {
       s.hidden = hidden;
-      await db.updateSeries(s);
-      affected.addAll(_itemsUnder(s.id!));
     }
-    await _syncOsHidden(affected);
+    await db.updateMany(items);
+    await db.updateSeriesMany(series);
+    await _syncOsHiddenChanged(before);
     if (hidden && !hiddenUnlocked) selected.clear();
     notifyListeners();
   }
@@ -571,7 +605,20 @@ class AppState extends ChangeNotifier {
   }
 
   /// 실제 파일의 숨김 속성 맞추기 (Windows: attrib, macOS: chflags)
+  /// 바꾸기 전 숨김 상태 (바뀐 파일만 운영체제 숨김 속성을 고치려고)
+  Map<MediaItem, bool> _hiddenBefore(Iterable<MediaItem> items) {
+    _hiddenChain.clear();
+    return {for (final e in items) e: isHiddenItem(e)};
+  }
+
+  /// 숨김 상태가 실제로 바뀐 파일만 운영체제 속성을 고친다 (수만 개를 옮겨도 숨김과 상관없으면 아무것도 안 함)
+  Future<void> _syncOsHiddenChanged(Map<MediaItem, bool> before) async {
+    _hiddenChain.clear();
+    await _syncOsHidden([for (final x in before.entries) if (isHiddenItem(x.key) != x.value) x.key]);
+  }
+
   Future<void> _syncOsHidden(Iterable<MediaItem> items) async {
+    _hiddenChain.clear(); // 묶음 숨김이 방금 바뀌었을 수 있다
     for (final e in items) {
       final h = isHiddenItem(e);
       try {
@@ -621,7 +668,7 @@ class AppState extends ChangeNotifier {
     focusedKey = null;
     if (id != null) landing = false;
     selected.clear();
-    notifyListeners();
+    _viewChanged();
   }
 
   /// 한 단계 위로. 이미 맨 위면 false
@@ -646,8 +693,12 @@ class AppState extends ChangeNotifier {
   /// 검색/즐겨찾기/태그 필터 중이면 묶음 없이 평평하게 보여준다
   bool get flatMode => query.isNotEmpty || favoritesOnly || tagFilter != null;
 
-  /// 그리드에 보일 칸들
-  List<Entry> get entries {
+  /// 그리드에 보일 칸들 (같은 데이터 판 · 같은 보기 조건이면 다시 계산하지 않음)
+  List<Entry> get entries => _memo(
+      'entries|$currentSeriesId|${collection.index}|$libraryPath|$recursive|$query|${sortBy.index}|$kindFilter|$favoritesOnly|$tagFilter',
+      () => List<Entry>.unmodifiable(_computeEntries()));
+
+  List<Entry> _computeEntries() {
     if (collection != Collection.none) return _collectionEntries(collection);
     final lib = libraryPath;
     if (lib != null) {
@@ -733,8 +784,8 @@ class AppState extends ChangeNotifier {
   // ---------------- 첫 화면 줄들 ----------------
 
   /// 이어서 보기: 읽다 만 것 (최근 연 순)
-  List<MediaItem> get continueWatching => allItems.where((e) => e.progress > 0.0 && e.progress < 0.98).toList()
-    ..sort((a, b) => (b.lastOpened?.millisecondsSinceEpoch ?? 0).compareTo(a.lastOpened?.millisecondsSinceEpoch ?? 0));
+  List<MediaItem> get continueWatching => _memo('continue', () => allItems.where((e) => e.progress > 0.0 && e.progress < 0.98).toList()
+    ..sort((a, b) => (b.lastOpened?.millisecondsSinceEpoch ?? 0).compareTo(a.lastOpened?.millisecondsSinceEpoch ?? 0)));
 
   /// 맨 위 칸들(묶음 + 낱권) 중 [kind] 가 들어 있는 것, 최근 추가순
   List<Entry> rootEntries({MediaKind? kind, int limit = 24}) {
@@ -826,23 +877,26 @@ class AppState extends ChangeNotifier {
 
   Future<void> moveItems(Iterable<MediaItem> items, int? seriesId) async {
     final s = seriesById(seriesId);
-    for (final e in items) {
+    final list = items.toList();
+    final before = _hiddenBefore(list);
+    for (final e in list) {
       e
         ..seriesId = seriesId
         ..series = s?.title;
       e.volume ??= parseName(e.path).volume;
-      await db.update(e);
     }
-    await _syncOsHidden(items);
+    await db.updateMany(list); // 한 번에 저장
+    await _syncOsHiddenChanged(before);
     notifyListeners();
   }
 
   /// 묶음을 다른 묶음 아래로 (자기 하위로는 못 옮김)
   Future<bool> moveSeries(Series s, int? parentId) async {
     if (parentId != null && isAncestor(s.id!, parentId)) return false;
+    final before = _hiddenBefore(_itemsUnder(s.id!));
     s.parentId = parentId;
     await db.updateSeries(s);
-    await _syncOsHidden(_itemsUnder(s.id!));
+    await _syncOsHiddenChanged(before);
     notifyListeners();
     return true;
   }
@@ -872,18 +926,21 @@ class AppState extends ChangeNotifier {
 
   void toggleSelect(Entry e) {
     if (!selected.remove(e.key)) selected.add(e.key);
-    notifyListeners();
+    _viewChanged();
   }
 
   void clearSelection() {
     selected.clear();
-    notifyListeners();
+    _viewChanged();
   }
 
   void selectAll() {
     selected.addAll(entries.map((e) => e.key));
-    notifyListeners();
+    _viewChanged();
   }
+
+  /// id → 보이는 항목 (판마다 한 번)
+  Map<int, MediaItem> get _byId => _memo('byId', () => {for (final e in allItems) e.id!: e});
 
   (List<Series>, List<MediaItem>) _selection() {
     final ss = <Series>[], ii = <MediaItem>[];
@@ -893,7 +950,7 @@ class AppState extends ChangeNotifier {
         final s = _series[id];
         if (s != null && canSeeSeries(s)) ss.add(s);
       } else {
-        final i = _items.where((e) => e.id == id && canSeeItem(e)).firstOrNull;
+        final i = _byId[id];
         if (i != null) ii.add(i);
       }
     }
@@ -978,15 +1035,16 @@ class AppState extends ChangeNotifier {
         await db.updateSeries(s);
         raw = rawTree;
       }
+      final before = _hiddenBefore(g.map((x) => x.$1));
       for (final (e, n) in g) {
         e
           ..seriesId = s.id
           ..series = s.title
           ..volume ??= n.volume;
-        await db.update(e);
         moved++;
       }
-      await _syncOsHidden(g.map((x) => x.$1));
+      await db.updateMany(g.map((x) => x.$1));
+      await _syncOsHiddenChanged(before);
     }
     _tree = null;
     await _nestSpinOffs();
@@ -1033,7 +1091,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// 지금 사용자에게 보이는 항목 전부 (AI, 중복 확인 등에 사용 — 숨김/차단 제외)
-  List<MediaItem> get allItems => _items.where(canSeeItem).toList();
+  List<MediaItem>? _visibleCache;
+  List<MediaItem> get allItems => _visibleCache ??= List.unmodifiable(_items.where(canSeeItem));
 
   List<MediaItem> get visible {
     final q = query.toLowerCase();
@@ -1064,11 +1123,17 @@ class AppState extends ChangeNotifier {
     return list;
   }
 
-  Set<String> get allTags => {for (final e in allItems) ...e.tags};
+  Set<String> get allTags => _memo('tags', () => {for (final e in allItems) ...e.tags});
 
   int count(MediaKind? k) {
-    final all = allItems;
-    return k == null ? all.length : all.where((e) => e.kind == k).length;
+    final counts = _memo('kindCounts', () {
+      final m = <MediaKind?, int>{null: allItems.length};
+      for (final e in allItems) {
+        m[e.kind] = (m[e.kind] ?? 0) + 1;
+      }
+      return m;
+    });
+    return counts[k] ?? 0;
   }
 
   /// 첫 화면으로
@@ -1084,7 +1149,7 @@ class AppState extends ChangeNotifier {
     tagFilter = null;
     query = '';
     selected.clear();
-    notifyListeners();
+    _viewChanged();
   }
 
   void setFilter({MediaKind? kind, bool clearKind = false, bool? favorites, String? tag, bool clearTag = false}) {
@@ -1099,18 +1164,28 @@ class AppState extends ChangeNotifier {
     if (favorites != null) favoritesOnly = favorites;
     if (clearTag) tagFilter = null;
     if (tag != null) tagFilter = tag;
-    notifyListeners();
+    _viewChanged();
   }
 
+  /// 검색어: 글자를 칠 때마다가 아니라 잠깐 멈췄을 때 찾는다
+  Timer? _queryTimer;
   void setQuery(String q) {
-    query = q;
-    if (q.isNotEmpty) landing = false;
-    notifyListeners();
+    _queryTimer?.cancel();
+    if (q.isEmpty) {
+      query = q;
+      _viewChanged();
+      return;
+    }
+    _queryTimer = Timer(const Duration(milliseconds: 200), () {
+      query = q;
+      landing = false;
+      _viewChanged();
+    });
   }
 
   void setSort(SortBy s) {
     sortBy = s;
-    notifyListeners();
+    _viewChanged();
   }
 
   // ---------------- 스캔 / 가져오기 ----------------
@@ -1141,7 +1216,7 @@ class AppState extends ChangeNotifier {
           if (kindForPath(ent.path) == null) continue;
           found++;
           scanStatus = '스캔 중 ($found): ${p.basename(ent.path)}';
-          notifyListeners();
+          _progress(); // 파일마다가 아니라 0.3초에 한 번 화면 갱신
           try {
             if (await _importFile(ent.path, StorageMode.reference)) added++;
           } catch (_) {
@@ -1181,7 +1256,7 @@ class AppState extends ChangeNotifier {
       for (final path in paths) {
         if (kindForPath(path) == null) continue;
         scanStatus = '가져오는 중: ${p.basename(path)}';
-        notifyListeners();
+        _progress(); // 파일마다가 아니라 0.3초에 한 번 화면 갱신
         try {
           if (await _importFile(path, settings.defaultStorage)) added++;
         } catch (_) {}
@@ -1362,7 +1437,7 @@ class AppState extends ChangeNotifier {
       for (var i = 0; i < picked.length; i++) {
         final c = picked[i];
         scanStatus = '추가 중 (${i + 1}/${picked.length}): ${p.basename(c.path)}';
-        notifyListeners();
+        _progress(); // 파일마다가 아니라 0.3초에 한 번 화면 갱신
         try {
           final item = await _addFile(c.path, opt.mode, root: opt.targetRoot, hidden: opt.hidden);
           if (item != null) {
@@ -1409,10 +1484,15 @@ class AppState extends ChangeNotifier {
               return cache[relDir] = s.id!;
             }
 
+            // 같은 묶음으로 갈 것끼리 모아서 한 번에 옮긴다
+            final groups = <int, List<MediaItem>>{};
             for (final e in made.entries) {
               var rel = p.relative(p.dirname(e.value), from: base);
               if (rel == '.') rel = '';
-              await moveItems([e.key], await seriesFor(rel));
+              (groups[await seriesFor(rel)] ??= []).add(e.key);
+            }
+            for (final g in groups.entries) {
+              await moveItems(g.value, g.key);
             }
             if (opt.hidden) await setHidden(series: [root], hidden: true);
           }
@@ -1571,6 +1651,7 @@ class AppState extends ChangeNotifier {
       }
     }
     var failed = 0;
+    final gone = <MediaItem>{};
     for (final e in targets) {
       if (deleteFile) {
         try {
@@ -1582,8 +1663,12 @@ class AppState extends ChangeNotifier {
           continue; // 파일을 못 지웠으면 목록에도 남겨둔다
         }
       }
-      await db.delete(e.id!);
-      _items.remove(e);
+      gone.add(e);
+    }
+    await db.deleteMany([for (final e in gone) e.id!]);
+    _items.removeWhere(gone.contains); // 한 번에 (하나씩 빼면 항목 수의 제곱만큼 걸림)
+    for (final e in gone) {
+      covers.forget(e);
     }
     for (final id in seriesIds) {
       await db.deleteSeries(id);
@@ -1784,8 +1869,56 @@ class AccessView {
 
   bool series(Series s) {
     if (denied.isEmpty) return true;
-    if (_app._anyAncestor(s.id, (x) => denied.contains('s:${x.id}'))) return false;
+    if (_app._denyIndex(denied).seriesUp(_app, s.id)) return false;
     if (!AppState._isScoped(denied)) return true;
     return (_seriesOk ??= _app._computeSeriesAccess(denied)).contains(s.id);
   }
 }
+
+/// 막힌 목록을 빠르게 찾는 모양: 항목 id · 묶음 id · 종류 · 폴더
+class _DenyIndex {
+  final Set<int> items = {}, series = {};
+  final Set<MediaKind> kinds = {};
+  final List<(String, String)> folders = []; // (폴더, 폴더+구분자) — Windows · 맥은 소문자
+  _DenyIndex(Set<String> denied) {
+    final fold = Platform.isWindows || Platform.isMacOS;
+    for (final d in denied) {
+      if (d.length < 3) continue;
+      final v = d.substring(2);
+      switch (d.substring(0, 2)) {
+        case 'i:':
+          final id = int.tryParse(v);
+          if (id != null) items.add(id);
+        case 's:':
+          final id = int.tryParse(v);
+          if (id != null) series.add(id);
+        case 'k:':
+          final k = MediaKind.values.where((x) => x.name == v).firstOrNull;
+          if (k != null) kinds.add(k);
+        case 'f:':
+          var f = p.normalize(v);
+          if (fold) f = f.toLowerCase();
+          final sep = Platform.pathSeparator;
+          folders.add((f, f.endsWith(sep) ? f : '$f$sep'));
+      }
+    }
+  }
+
+  // 묶음 id → 그 묶음이나 상위 묶음이 막혔는가 (데이터 판마다 다시)
+  int _rev = -1;
+  final Map<int, bool> _up = {};
+  bool seriesUp(AppState app, int? id) {
+    if (series.isEmpty || id == null) return false;
+    if (_rev != app._rev) {
+      _up.clear();
+      _rev = app._rev;
+    }
+    final hit = _up[id];
+    if (hit != null) return hit;
+    _up[id] = false; // 순환 방지
+    final s = app._series[id];
+    final v = series.contains(id) || (s != null && seriesUp(app, s.parentId));
+    return _up[id] = v;
+  }
+}
+

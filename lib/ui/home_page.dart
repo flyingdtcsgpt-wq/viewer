@@ -296,7 +296,8 @@ class _Sidebar extends StatelessWidget {
       // 맨 위 묶음들 (폴더처럼)
       if (state.tree.children[null]?.isNotEmpty ?? false) ...[
         section('묶음'),
-        for (final s in [...state.tree.children[null]!]..sort((a, b) => a.title.compareTo(b.title)))
+        // 묶음이 아주 많으면 앞의 60개만 (나머지는 "모든 묶음 보기")
+        for (final s in ([...state.tree.children[null]!]..sort((a, b) => a.title.compareTo(b.title))).take(60))
           item(
             Icons.folder,
             s.title,
@@ -304,6 +305,11 @@ class _Sidebar extends StatelessWidget {
             selected: state.breadcrumb.firstOrNull?.id == s.id && state.collection == Collection.none,
             trailing: '${state.statsOf(s).allItems}',
           ),
+        if (state.tree.children[null]!.length > 60)
+          item(Icons.more_horiz, '모든 묶음 보기 (${state.tree.children[null]!.length})', act(() {
+            state.enterSeries(null);
+            state.setFilter(clearKind: true);
+          })),
       ],
 
       if (admin && inDrawer) ...[

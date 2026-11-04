@@ -35,6 +35,13 @@ class CoverService {
     await _dir.create(recursive: true);
   }
 
+  /// 항목을 지울 때 그 항목용으로 만든 표지 파일도 지운다 (원본 그림 자체는 건드리지 않음)
+  void forget(MediaItem e) {
+    final c = e.coverPath;
+    if (c == null || c == e.path || !p.isWithin(_dir.path, c)) return;
+    File(c).delete().catchError((_) => File(c));
+  }
+
   String _target(String key, String ext) =>
       p.join(_dir.path, '${sha1.convert(utf8.encode(key)).toString()}$ext');
 
