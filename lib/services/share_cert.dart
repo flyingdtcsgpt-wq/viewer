@@ -49,7 +49,8 @@ class ShareCert {
   /// 인증서 지문 앞부분 (휴대폰 경고 화면의 지문과 같은지 확인용)
   static Future<String> fingerprint() async {
     final (cert, _) = await load();
-    final b64 = cert.split('\n').where((l) => !l.startsWith('-----')).join();
+    // 줄바꿈이 \r\n 인 PEM 도 있어 머리 · 꼬리 줄과 모든 공백을 뺀다
+    final b64 = cert.replaceAll(RegExp(r'-----[A-Z ]+-----'), '').replaceAll(RegExp(r'\s'), '');
     final h = sha256.convert(base64.decode(b64)).bytes;
     return [for (final b in h.take(8)) b.toRadixString(16).padLeft(2, '0').toUpperCase()].join(':');
   }
