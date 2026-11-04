@@ -22,10 +22,13 @@ import 'package:media_shelf/services/audiobook.dart';
 import 'package:media_shelf/services/auth.dart';
 import 'package:media_shelf/services/cover_service.dart';
 import 'package:media_shelf/services/epub_writer.dart';
+import 'package:media_shelf/services/file_tools.dart';
+import 'package:media_shelf/services/image_pdf.dart';
 import 'package:media_shelf/services/kokoro_tts.dart';
 import 'package:media_shelf/services/natural_tts.dart';
 import 'package:media_shelf/services/ocr_service.dart';
 import 'package:media_shelf/services/paddle_ocr.dart';
+import 'package:media_shelf/services/pdf_text.dart';
 import 'package:media_shelf/services/settings.dart';
 import 'package:media_shelf/services/tts_service.dart';
 import 'package:media_shelf/ui/admin_page.dart';
@@ -37,6 +40,7 @@ import 'package:media_shelf/ui/tools/tools_page.dart';
 import 'package:media_shelf/ui/viewers/comic_reader_page.dart';
 import 'package:media_shelf/ui/viewers/text_reader_page.dart';
 import 'package:path/path.dart' as p;
+import 'package:pdfrx/pdfrx.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -778,6 +782,138 @@ void main() {
           debugPrint('CHECK paddle ko="${r[ko]}" en="${r[en]}" took=${sw.elapsedMilliseconds}ms');
           expect(r[ko] ?? '', contains('풍차'));
         }
+      });
+    });
+
+    // PDF → 텍스트: 글을 그린 그림으로 "스캔 PDF" 를 만들고 (이미지 → PDF), 글자 인식으로 다시 꺼낸다
+    await step('pdf text', () async {
+      await tester.runAsync(() async {
+        // 쪽 합치기 규칙 (쪽 번호 · 머리글 빼기, 끊긴 문장 잇기, 장 제목은 따로)
+        final joined = PdfText.joinPages([
+          '시험 책\n제1장 바람\n언덕 위에는 오래된\n풍차가 있었다.\n1',
+          '시험 책\n아이들은 그 풍차가\n밤마다 노래한다고\n- 2 -',
+          '시험 책\n믿었다.\n제2장 밤\n그날 밤은 조용했다.\n3',
+          '시험 책\n끝.\n4',
+        ]);
+        debugPrint('CHECK pdftext join=${jsonEncode(joined)}');
+        expect(joined, '제1장 바람\n언덕 위에는 오래된 풍차가 있었다.\n아이들은 그 풍차가 밤마다 노래한다고 믿었다.\n제2장 밤\n그날 밤은 조용했다.\n끝.');
+
+        final dir = Directory(p.join((await getTemporaryDirectory()).path, 'pdf_test'));
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+        dir.createSync(recursive: true);
+        Future<Uint8List> page(List<String> lines) async {
+          final rec = ui.PictureRecorder();
+          final c = Canvas(rec);
+          c.drawRect(const Rect.fromLTWH(0, 0, 1240, 1754), Paint()..color = Colors.white);
+          var y = 120.0;
+          for (final l in lines) {
+            final tp = TextPainter(
+              text: TextSpan(text: l, style: const TextStyle(color: Colors.black, fontSize: 46)),
+              textDirection: TextDirection.ltr,
+            )..layout(maxWidth: 1100);
+            tp.paint(c, Offset(70, y));
+            y += 110;
+          }
+          final im = await rec.endRecording().toImage(1240, 1754);
+          final bd = await im.toByteData(format: ui.ImageByteFormat.png);
+          return bd!.buffer.asUint8List();
+        }
+
+        final pages = [
+          await page(['THE TEST BOOK', 'The quick brown fox jumps', 'over the lazy dog.', '', '', '', '', '', '', '', '', '', '', '1']),
+          await page(['THE TEST BOOK', 'A small boat sails', 'across the quiet lake.', '', '', '', '', '', '', '', '', '', '', '2']),
+          await page(['THE TEST BOOK', 'Every morning the baker', 'sells warm bread.', '', '', '', '', '', '', '', '', '', '', '3']),
+          await page(['THE TEST BOOK', 'The end.', '', '', '', '', '', '', '', '', '', '', '', '4']),
+        ];
+        final pdf = p.join(dir.path, 'scan.pdf');
+        final n = await ImagePdf.write(pdf, pages.length, (i) async => pages[i], title: '스캔 시험');
+        debugPrint('CHECK imagepdf pages=$n size=${File(pdf).lengthSync()}');
+        expect(n, 4);
+        final sw = Stopwatch()..start();
+        final r = await PdfText.convert(pdf);
+        final flat = r.text.replaceAll('\n', ' | ');
+        debugPrint('CHECK pdftext pages=${r.pages} ocr=${r.ocrPages} empty=${r.emptyPages} took=${sw.elapsedMilliseconds}ms text="$flat"');
+        expect(r.pages, 4);
+        expect(r.text.toLowerCase(), contains('fox'));
+        expect(r.text.toLowerCase(), contains('bread'));
+        // 머리글은 빼야 한다 (글자 인식이 한 쪽에서 다르게 읽을 수 있어 한 번까지는 봐줌)
+        expect('TEST BOOK'.allMatches(r.text.toUpperCase()).length, lessThanOrEqualTo(1));
+        dir.deleteSync(recursive: true);
+      });
+    });
+
+    // 파일 도구: 만화 그림 줄이기 · EPUB 최적화 · PDF 나누기/합치기
+    await step('file tools', () async {
+      await tester.runAsync(() async {
+        final dir = Directory(p.join((await getTemporaryDirectory()).path, 'tools_test'));
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+        dir.createSync(recursive: true);
+        img.Image big(int seed) {
+          final im = img.Image(width: 2400, height: 1600);
+          for (final px in im) {
+            px
+              ..r = (px.x * 255 ~/ 2400 + seed * 40) % 256
+              ..g = (px.y * 255 ~/ 1600)
+              ..b = ((px.x + px.y) ~/ 20 * 37 + seed) % 256;
+          }
+          return im;
+        }
+
+        // CBZ: PNG 3장 + 글 파일
+        final cbz = p.join(dir.path, 'big.cbz');
+        final arc = Archive();
+        for (var i = 0; i < 3; i++) {
+          final b = img.encodePng(big(i), level: 1);
+          arc.addFile(ArchiveFile.noCompress('p${i + 1}.png', b.length, b));
+        }
+        arc.addFile(ArchiveFile.string('info.txt', 'hello'));
+        File(cbz).writeAsBytesSync(ZipEncoder().encode(arc));
+        final r = await FileTools.shrinkZip(cbz, const ShrinkOptions(maxSide: 1600, quality: 80, toJpeg: true), backup: true);
+        final after = ZipDecoder().decodeBytes(File(cbz).readAsBytesSync());
+        final names = after.files.map((f) => f.name).toList();
+        final first = img.decodeImage(after.findFile('p1.jpg')!.content)!;
+        debugPrint('CHECK tools shrinkZip changed=${r.changed}/${r.images} ${r.before}→${r.after} names=$names w=${first.width} bak=${File('$cbz.bak').existsSync()}');
+        expect(r.changed, 3);
+        expect(r.after, lessThan(r.before));
+        expect(names, containsAll(['p1.jpg', 'p2.jpg', 'p3.jpg', 'info.txt']));
+        expect(first.width, 1600);
+
+        // EPUB: 큰 표지 → 최적화
+        final txt = p.join(dir.path, 'novel.txt');
+        File(txt).writeAsStringSync('제1장 시작\n${'가나다라마바사 ' * 400}\n제2장 끝\n끝.');
+        final cover = img.encodeJpg(big(9), quality: 95);
+        final epub = await EpubWriter.fromTxt(txt, title: '시험', cover: cover);
+        final r2 = await FileTools.optimizeEpub(epub, const ShrinkOptions(maxSide: 1200, quality: 80), backup: false);
+        final ez = ZipDecoder().decodeBytes(File(epub).readAsBytesSync());
+        final coverOut = ez.files.where((f) => f.name.toLowerCase().endsWith('.jpg') || f.name.toLowerCase().endsWith('.jpeg')).first;
+        final cw = img.decodeImage(coverOut.content)!.width;
+        debugPrint('CHECK tools epub changed=${r2.changed}/${r2.images} ${r2.before}→${r2.after} first=${ez.files.first.name} cover=$cw');
+        expect(ez.files.first.name, 'mimetype');
+        expect(r2.after, lessThan(r2.before));
+        expect(cw, 1200);
+
+        // PDF: 4쪽 → 2쪽씩 나누기 → 다시 합치기
+        final pagesJpg = [for (var i = 0; i < 4; i++) img.encodeJpg(img.copyResize(big(i), width: 600), quality: 80)];
+        final pdf = p.join(dir.path, 'four.pdf');
+        await ImagePdf.write(pdf, 4, (i) async => pagesJpg[i]);
+        expect(FileTools.parseRanges('1-2, 3-', 4), [[1, 2], [3, 4]]);
+        expect(FileTools.parseRanges('5', 4), isNull);
+        final parts = await FileTools.splitPdf(pdf, FileTools.everyN(2, 4));
+        final counts = <int>[];
+        for (final x in parts) {
+          final d = await PdfDocument.openFile(x);
+          counts.add(d.pages.length);
+          d.dispose();
+        }
+        final merged = p.join(dir.path, 'merged.pdf');
+        final n = await FileTools.mergePdf(parts, merged);
+        final md = await PdfDocument.openFile(merged);
+        final mn = md.pages.length;
+        md.dispose();
+        debugPrint('CHECK tools pdf split=${parts.map(p.basename).toList()} counts=$counts merged=$n/$mn');
+        expect(counts, [2, 2]);
+        expect(mn, 4);
+        dir.deleteSync(recursive: true);
       });
     });
 

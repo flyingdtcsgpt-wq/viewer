@@ -1,8 +1,5 @@
-import 'dart:isolate';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:provider/provider.dart';
@@ -10,7 +7,7 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
-import '../../services/ocr_service.dart';
+import '../../services/pdf_text.dart';
 import 'open_item.dart';
 import 'read_aloud.dart';
 import 'viewer_chrome.dart';
@@ -39,22 +36,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   Future<String> _pageText(int i) async {
     final doc = _doc;
     if (doc == null || i < 0 || i >= doc.pages.length) return '';
-    final page = doc.pages[i];
-    final raw = (await page.loadText())?.fullText ?? '';
-    if (raw.replaceAll(RegExp(r'\s'), '').length >= 15 || !OcrService.supported) return OcrService.tidy(raw);
-    final scale = 2600 / math.max(page.width, page.height);
-    final im = await page.render(fullWidth: page.width * scale, fullHeight: page.height * scale, backgroundColor: 0xffffffff);
-    if (im == null) return OcrService.tidy(raw);
-    try {
-      final w = im.width, h = im.height;
-      final px = Uint8List.fromList(im.pixels);
-      final png = await Isolate.run(() => img.encodePng(
-          img.Image.fromBytes(width: w, height: h, bytes: px.buffer, numChannels: 4, order: img.ChannelOrder.bgra),
-          level: 1));
-      return OcrService.tidy(await OcrService.recognizeBytes(png));
-    } finally {
-      im.dispose();
-    }
+    return PdfText.pageText(doc.pages[i]);
   }
 
   MediaItem get item => widget.item;

@@ -5,19 +5,22 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/archive_tools.dart';
 import '../../services/epub_writer.dart';
+import '../../services/ocr_service.dart';
+import '../../services/pdf_text.dart';
 import '../browser.dart' show fileSize;
 import '../cover_tile.dart';
 import '../metadata_search_dialog.dart';
 import 'image_editor.dart';
 
 /// 도구 공통: 대상 표 + 실행 버튼 + 진행 표시
-mixin _Runner<T extends StatefulWidget> on State<T> {
+mixin ToolRunner<T extends StatefulWidget> on State<T> {
   bool running = false;
   double progress = 0;
   String log = '';
@@ -49,7 +52,7 @@ mixin _Runner<T extends StatefulWidget> on State<T> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('완료: 성공 $ok · 실패 $fail${backup ? ' (원본은 .bak 으로 남겼습니다)' : ''}')));
   }
 
-  Widget bottomBar(String label, VoidCallback? onRun, {List<Widget> extra = const []}) => Container(
+  Widget bottomBar(String label, VoidCallback? onRun, {List<Widget> extra = const [], bool showBackup = true}) => Container(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           if (running) LinearProgressIndicator(value: progress),
@@ -64,8 +67,10 @@ mixin _Runner<T extends StatefulWidget> on State<T> {
             ),
           const SizedBox(height: 8),
           Row(children: [
-            Checkbox(value: backup, onChanged: running ? null : (v) => setState(() => backup = v ?? true)),
-            const Text('원본 파일 백업 (.bak)'),
+            if (showBackup) ...[
+              Checkbox(value: backup, onChanged: running ? null : (v) => setState(() => backup = v ?? true)),
+              const Text('원본 파일 백업 (.bak)'),
+            ],
             ...extra,
             const Spacer(),
             FilledButton.icon(
@@ -89,7 +94,7 @@ class FlattenToolPage extends StatefulWidget {
   State<FlattenToolPage> createState() => _FlattenToolPageState();
 }
 
-class _FlattenToolPageState extends State<FlattenToolPage> with _Runner {
+class _FlattenToolPageState extends State<FlattenToolPage> with ToolRunner {
   final _entries = <String, List<ZipEntry>>{};
   late final Set<MediaItem> _checked = {...widget.items};
   NamePattern _pattern = NamePattern.keep;
@@ -205,7 +210,7 @@ class RenameToolPage extends StatefulWidget {
   State<RenameToolPage> createState() => _RenameToolPageState();
 }
 
-class _RenameToolPageState extends State<RenameToolPage> with _Runner {
+class _RenameToolPageState extends State<RenameToolPage> with ToolRunner {
   NamePattern _pattern = NamePattern.pad3;
   int _start = 0;
   late final Set<MediaItem> _checked = {...widget.items};
@@ -391,7 +396,7 @@ class CoverToolPage extends StatefulWidget {
   State<CoverToolPage> createState() => _CoverToolPageState();
 }
 
-class _CoverToolPageState extends State<CoverToolPage> with _Runner {
+class _CoverToolPageState extends State<CoverToolPage> with ToolRunner {
   late final Set<MediaItem> _checked = {...widget.items};
   late MediaItem _cur = widget.items.first;
   Uint8List? _newCover;
@@ -613,7 +618,7 @@ class TxtCleanPage extends StatefulWidget {
   State<TxtCleanPage> createState() => _TxtCleanPageState();
 }
 
-class _TxtCleanPageState extends State<TxtCleanPage> with _Runner {
+class _TxtCleanPageState extends State<TxtCleanPage> with ToolRunner {
   late final Set<MediaItem> _checked = {...widget.items};
   bool _collapse = true;
 
@@ -658,7 +663,7 @@ class TxtToEpubPage extends StatefulWidget {
   State<TxtToEpubPage> createState() => _TxtToEpubPageState();
 }
 
-class _TxtToEpubPageState extends State<TxtToEpubPage> with _Runner {
+class _TxtToEpubPageState extends State<TxtToEpubPage> with ToolRunner {
   late final Set<MediaItem> _checked = {...widget.items};
   bool _auto = true;
   bool _cover = true;
@@ -705,6 +710,145 @@ class _TxtToEpubPageState extends State<TxtToEpubPage> with _Runner {
               if (_addToLibrary && made.isNotEmpty) app.importFiles(made);
             });
           }, extra: const [Text('  (원본은 바뀌지 않음)')]),
+        ]),
+      );
+}
+
+// =====================================================================
+//  PDF → 텍스트 (스캔본은 글자 인식)
+// =====================================================================
+class PdfToTextPage extends StatefulWidget {
+  final List<MediaItem> items;
+  const PdfToTextPage({super.key, required this.items});
+  @override
+  State<PdfToTextPage> createState() => _PdfToTextPageState();
+}
+
+class _PdfToTextPageState extends State<PdfToTextPage> with ToolRunner {
+  late final Set<MediaItem> _checked = {...widget.items};
+  bool _epub = true;
+  bool _addToLibrary = true;
+  bool _stop = false;
+  String _now = '';
+
+  /// 원본 옆에 쓸 수 없으면(휴대폰의 읽기 전용 폴더 등) 앱 문서 폴더로
+  Future<String> _target(MediaItem e, String ext) async {
+    final base = p.basenameWithoutExtension(e.path);
+    Future<String> free(String dir) async {
+      var out = p.join(dir, '$base$ext');
+      for (var k = 2; await File(out).exists(); k++) {
+        out = p.join(dir, '$base (글자${k == 2 ? '' : ' $k'})$ext');
+      }
+      return out;
+    }
+
+    final beside = await free(p.dirname(e.path));
+    try {
+      await File(beside).writeAsString('');
+      return beside;
+    } catch (_) {
+      final d = Directory(p.join((await getApplicationDocumentsDirectory()).path, 'ARARIFlex 변환'));
+      await d.create(recursive: true);
+      return free(d.path);
+    }
+  }
+
+  Future<void> _run() async {
+    final app = context.read<AppState>();
+    final list = _checked.toList();
+    final made = <String>[];
+    _stop = false;
+    setState(() {
+      running = true;
+      progress = 0;
+      log = '';
+    });
+    var ok = 0, fail = 0;
+    for (var i = 0; i < list.length && !_stop; i++) {
+      final e = list[i];
+      try {
+        final r = await PdfText.convert(e.path, cancelled: () => _stop, onPage: (d, n) {
+          if (!mounted) return;
+          setState(() {
+            _now = '${e.fileName} · $d / $n쪽';
+            progress = (i + (n == 0 ? 1 : d / n)) / list.length;
+          });
+        });
+        if (r.cancelled) break;
+        if (r.text.replaceAll(RegExp(r'\s'), '').isEmpty) throw '글자를 찾지 못했습니다';
+        final txt = await _target(e, '.txt');
+        await File(txt).writeAsString(r.text);
+        var out = txt;
+        if (_epub) {
+          final cover = e.coverPath != null && await File(e.coverPath!).exists() ? await File(e.coverPath!).readAsBytes() : null;
+          out = await EpubWriter.fromTxt(txt, title: e.title, author: e.author, cover: cover);
+          await File(txt).delete();
+        }
+        made.add(out);
+        ok++;
+        log = '${e.fileName} → ${p.basename(out)} (${r.pages}쪽 중 글자 인식 ${r.ocrPages}쪽${r.emptyPages > 0 ? ', 빈 쪽 ${r.emptyPages}' : ''}, ${r.text.length}자)\n$log';
+      } on OcrUnavailable catch (err) {
+        fail++;
+        log = '${e.fileName}: ${err.message}\n$log';
+      } catch (err) {
+        fail++;
+        log = '${e.fileName}: 실패 — $err\n$log';
+      }
+      if (mounted) setState(() => progress = (i + 1) / list.length);
+    }
+    if (_addToLibrary && made.isNotEmpty) await app.importFiles(made);
+    if (!mounted) return;
+    setState(() {
+      running = false;
+      _now = '';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${_stop ? '멈춤' : '완료'}: 성공 $ok · 실패 $fail')));
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('PDF → 텍스트')),
+        body: Column(children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('PDF 의 글을 TXT · EPUB 으로 꺼냅니다. 스캔한 PDF(그림뿐인 쪽)는 기기 안 글자 인식으로 읽습니다. '
+                '쪽 번호와 되풀이되는 머리글은 빼고, 줄바꿈으로 끊긴 문장은 잇습니다. 원본 PDF 는 그대로 둡니다.'),
+          ),
+          SwitchListTile(
+            title: const Text('EPUB 으로 만들기'),
+            subtitle: const Text('끄면 TXT 로 저장합니다. "제1장" 같은 줄로 목차를 만듭니다'),
+            value: _epub,
+            onChanged: running ? null : (v) => setState(() => _epub = v),
+          ),
+          SwitchListTile(
+            title: const Text('만든 파일을 라이브러리에 추가'),
+            subtitle: const Text('소설로 등록되어 소리 내어 읽기 · 오디오북 저장을 쓸 수 있습니다'),
+            value: _addToLibrary,
+            onChanged: running ? null : (v) => setState(() => _addToLibrary = v),
+          ),
+          const Divider(),
+          Expanded(
+            child: ListView(children: [
+              for (final e in widget.items)
+                CheckboxListTile(
+                  value: _checked.contains(e),
+                  onChanged: running ? null : (v) => setState(() => v! ? _checked.add(e) : _checked.remove(e)),
+                  secondary: SizedBox(width: 36, height: 50, child: CoverImage(item: e)),
+                  title: Text(e.title),
+                  subtitle: Text('${e.fileName} · ${fileSize(e.size)}${e.pages == null ? '' : ' · ${e.pages}쪽'}'),
+                ),
+            ]),
+          ),
+          if (_now.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text(_now, style: const TextStyle(fontSize: 12))),
+          bottomBar(
+            running ? '변환 중…' : '변환 (${_checked.length}개)',
+            _checked.isEmpty ? null : _run,
+            extra: [
+              if (running) TextButton(onPressed: () => setState(() => _stop = true), child: const Text('멈춤')),
+              const Text('  (원본은 바뀌지 않음)'),
+            ],
+            showBackup: false,
+          ),
         ]),
       );
 }

@@ -154,8 +154,8 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 ## 6. 알려진 한계 · 다음 할 일
 - 한국어 OCR 은 CI 에서 검증 못 함(서버 Windows 에 인식기 없음). 실제 한국어 Windows 에서 확인 필요
 - 만화 말풍선 OCR 은 읽는 순서가 틀릴 수 있음(시험 기능)
-- Android: 자연 음성(ONNX)·OCR(ML Kit) 미구현 → 진행 중 (8장)
-- PDF 나누기/합치기, EPUB 편집기, WebDAV, 휴대폰 연동(QR), 이미지 해상도 변경 도구
+- EPUB 편집기, TXT → PDF(한글 글꼴을 넣어야 함), AI 화질 향상은 만들지 않기로 하고 도구 목록에서 뺐다 (11-04)
+- WebDAV, 휴대폰 연동(QR)
 - 공유 서버는 HTTP(암호화 없음) — 같은 Wi-Fi 전용
 
 ## 7. 작업 이력 요약
@@ -221,3 +221,33 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   eSpeak NG 는 CI 가 GitHub release msi 를 풀어 `tools/espeak-ng` 에 동봉 (GPL-3, 별도 프로그램). `ESPEAK_NG_PATH` 환경변수로 덮어쓰기 가능.
   음성 이름 `kk:af_heart`, 미국(a) · 영국(b) 28가지. 한글이 섞인 글에 Kokoro 를 고르면 `st:F1` 로 바꿔 읽음
 - 소리 내어 읽기 범위: 소설만 (TXT · EPUB · PDF). 만화 · 그림 뷰어에서는 뺐다 (사용자 요청)
+
+## 11. 큰 서재 성능 · 취침 타이머 · 오디오북 · 파일 도구 (11-04)
+- 성능: `AppState._rev`(데이터 판) 마다 파생값을 `_memo` 로 한 번만 계산, 보기만 바뀌면 `_viewChanged()`(캐시 유지).
+  권한은 `_DenyIndex`(O(1)), DB 는 WAL · 색인 · 묶음 트랜잭션(`insertMany/updateMany/deleteMany`), 표지는 isolate 에서 480px.
+  CI "scale" 단계(2만 항목 · 2천 묶음): 목록 85ms(두 번째 0ms) · 전체 선택 38ms · 5천 개 이동 0.27초 · 전부 삭제 1.1초
+- 취침 타이머: `text_reader_page.dart` `_setSleep/_sleepDue` (분, 또는 -1 = 다음 차례 블록 앞에서 멈춤)
+- 화면 꺼도 읽기(안드로이드): `BackgroundReading`(`mediashelf/bg`) → `ReadAloudService`(foreground mediaPlayback + 알림 + PARTIAL_WAKE_LOCK 6시간).
+  읽기 · 오디오북 만들기 시작에 start, 멈춤 · 끝 · 실패 · dispose 에 stop
+- 오디오북: `lib/services/audiobook.dart`
+  - `AudiobookMaker.make`: 부분(장)마다 `plan(문단)` → (글, 음성, 속도) 조각 → `AudioRender.toWav` → `pcmFromWav`(어떤 WAV 든 24kHz 모노 16비트로) →
+    `NNN 제목.wav.part` 에 이어 쓰기(조각 사이 0.12초, 문단 사이 0.35초) → 머리 길이 채움 → `.wav` → `encodeM4a` 성공하면 `.m4a`.
+    이미 `.m4a/.wav` 가 있으면 건너뜀(이어 만들기). 범위 밖 장은 빈 자리로 넘겨 번호가 늘 같다. 끝에 `제목.m3u8`
+  - 글 → WAV: 모델 음성(`st:`/`kk:`)은 `TtsService.renderModel`; Windows 기기 음성은 PowerShell 하나를 띄워 두고 JSON 한 줄씩(`_WinVoices`,
+    System.Speech `SetOutputToWaveFile` 24kHz); macOS `say -o --data-format=LEI16@24000`; 안드로이드 `TextToSpeech.synthesizeToFile`(`mediashelf/tts` render);
+    iOS `AVSpeechSynthesizer.write` → AVAudioFile(`arari_native`)
+  - WAV → M4A: Windows `MediaTranscoder`(PowerShell `.ps1`, AAC 96kbps 모노), 안드로이드 MediaCodec AAC-LC 64kbps + MediaMuxer,
+    macOS · iOS AVAudioFile AAC 64kbps (`mediashelf/audio` encodeM4a). 실패하면 WAV 그대로
+  - 화면: `lib/ui/viewers/audiobook_dialog.dart` (범위 · 형식 · 위치 → 진행 창, 멈춤, 결과)
+- PDF → 텍스트: `lib/services/pdf_text.dart`. 글자 15자 이상 쪽은 PDF 글, 아니면 2600px PNG 로 그려 6쪽씩 묶어 `OcrService.recognizeFiles`.
+  `joinPages`: 쪽 위아래 2줄 중 쪽 번호 · 여러 쪽(≥3, ≥30%)에 되풀이되는 짧은 줄(숫자 무시) 제거, 문장부호로 안 끝나면 다음 줄과 이음,
+  `chapterRe` 줄(제1장 …)은 따로 → EPUB 목차. PDF 뷰어 읽어주기도 `PdfText.pageText` 를 같이 씀
+- 이미지 → PDF: `lib/services/image_pdf.dart` 직접 쓰는 PDF 1.4 (JPEG 는 DCTDecode 로 그대로, 그 밖은 JPEG 로, 쪽 너비 595pt).
+  만화는 `ZipPages`(일꾼 isolate) 로 한 쪽씩 읽어 파일로 바로 씀
+- 파일 도구: `lib/services/file_tools.dart` — `shrinkZip`(그림만 다시 만들고 나머지는 압축된 채로 옮김, 확장자가 바뀌면 이름 겹침 방지),
+  `shrinkImageFile`(형식 유지), `optimizeEpub`(mimetype 맨 앞 무압축, 그림 이름 유지, 글은 deflate 9, 안 줄면 원본 유지),
+  `splitPdf/mergePdf`(pdfrx `PdfDocument.createNew` + `pages` + `encodePdf`). 진행 상황은 isolate → SendPort.
+  isolate 로 보내는 함수는 `_run` 처럼 따로 만든다(같은 자리의 화면 콜백이 같이 보내지지 않게)
+- 화면: `lib/ui/tools/convert_tool_pages.dart`, `archive_tool_pages.dart`(`ToolRunner` 공통, `PdfToTextPage`), `tools_page.dart` 목록
+- CI 확인: integration_test 의 `audiobook`(가짜 음성으로 표본 수 정확히 · 이어 만들기 · 실제 기기 음성 · M4A), `pdf text`(쪽 합치기 규칙 ·
+  그림으로 만든 스캔 PDF 를 글자 인식), `file tools`(CBZ PNG→JPEG 1600px, EPUB 표지 1200px · mimetype 맨 앞, PDF 4쪽 → 2+2 → 합쳐 4)

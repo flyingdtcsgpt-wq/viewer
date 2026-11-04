@@ -53,7 +53,11 @@
 | `metadata_service.dart` | 책 정보 검색: 카카오 · 네이버 · Google Books · Open Library |
 | `ai_service.dart` | Claude API (선택, 키 필요): 뜻풀이, 원제 찾기, 묶음 정보 |
 | `share_server.dart` | 같은 Wi-Fi 공유: 웹 페이지 · OPDS · 파일 · 표지. 기본 인증, 접속자별 `AccessView`, 로그인 캐시(비밀번호 해시가 느려서) |
-| `storage_permission.dart` | 안드로이드 모든 파일 접근 요청 (네이티브 채널 `mediashelf/storage`) |
+| `storage_permission.dart` | 안드로이드 모든 파일 접근 요청 (네이티브 채널 `mediashelf/storage`), `hasAllFilesAccess` |
+| `zip_pages.dart` | 만화 압축을 일꾼 isolate 에서 한 번만 열어 두고 쪽을 하나씩 꺼냄 (`writeContent` 로 메모리 바로 비움) |
+| `file_tools.dart` | 그림 줄이기(`shrinkZip/shrinkImageFile/shrinkBytes`), `optimizeEpub`, PDF `splitPdf/mergePdf/parseRanges/everyN` |
+| `image_pdf.dart` | 그림 → PDF 직접 쓰기 (JPEG 그대로 DCTDecode, 나머지는 JPEG 로), `jpegInfo` |
+| `pdf_text.dart` | PDF → 글: 쪽 글 / 스캔 쪽은 그려서 글자 인식(6쪽씩), `joinPages`(쪽 번호 · 머리글 빼기, 줄 잇기, 장 제목 유지) |
 
 ## 4. 소리 내어 읽기 · 글자 인식
 
@@ -65,6 +69,8 @@
 | `speakers.dart` | 대사 화자 찾기(규칙): "…" 민호가 속삭였다 / 민호가 말했다. "…". `speakerAt`, `scan`(등장인물 목록) |
 | `ocr_service.dart` | 글자 인식 진입점 `recognizeFiles/recognizeBytes`. Windows: PaddleOCR(있으면) → Windows OCR(PowerShell+WinRT). 안드로이드(ML Kit) · 애플(Vision): 채널 `mediashelf/ocr`. 긴 그림은 2600px 조각(80px 겹침). `tidy`(줄 잇기) |
 | `paddle_ocr.dart` | PaddleOCR PP-OCRv5 한국어: 모델 목록에서 골라 받기, DB 검출 → 상자 → 높이 48 인식 → CTC 디코딩 → 줄 합치기 |
+| `audiobook.dart` | 오디오북 저장: `AudiobookMaker.make`(장마다 조각 합성 → 24kHz 모노로 이어 붙임 → M4A, 이어 만들기, m3u8), `pcmFromWav`(어떤 WAV 든 변환), `AudioRender`(플랫폼별 글 → WAV · WAV → M4A), `_WinVoices`(PowerShell 하나로 System.Speech 파일 출력) |
+| `background_reading.dart` | 안드로이드 화면 꺼도 읽기: `mediashelf/bg` start/stop → `ReadAloudService` |
 
 ## 5. 화면 (lib/ui)
 
@@ -82,7 +88,7 @@
 | `share_page.dart` | 공유 서버 켜기 · 주소 · 아이디/비밀번호 · 공용 접속 범위 · 로그 |
 | `detail_page.dart`, `metadata_search_dialog.dart`, `batch_editor_page.dart` | 상세 정보, 메타데이터 통합 검색, 일괄 편집 |
 | `history_page.dart`, `ai_chat_sheet.dart` | 열람 기록, AI 도우미 |
-| `tools/tools_page.dart`, `tools/archive_tool_pages.dart`, `tools/image_editor.dart` | 파일 도구 모음, 각 도구 화면, 표지 이미지 편집(자르기 · 회전 · 밝기) |
+| `tools/tools_page.dart`, `tools/archive_tool_pages.dart`, `tools/convert_tool_pages.dart`, `tools/image_editor.dart` | 파일 도구 목록, 압축 · 텍본 · PDF→텍스트 화면(`ToolRunner` 공통), 이미지→PDF · 해상도 · EPUB 최적화 · PDF 나누기/합치기 화면, 표지 이미지 편집 |
 
 ### 뷰어 (lib/ui/viewers)
 | 파일 | 하는 일 |
@@ -90,8 +96,9 @@
 | `open_item.dart` | 종류별 뷰어 고르기 `viewerFor`, `openItem`, 다음 권 버튼 |
 | `viewer_chrome.dart` | 공통 도구줄 부품 `ToolGroup/ToolBtn`, 설정 패널, 색 `toolActive`(빨강) |
 | `comic_reader_page.dart` | 만화: 한장/두장/스크롤, 맞춤, 방향(기본 오른쪽→왼쪽), 효과, 썸네일, 책갈피, RAR(PageLoader) |
-| `text_reader_page.dart` | ★ 소설 TXT/EPUB: 목차/하이라이트/검색, 테마, 글꼴. 읽어주기: `_plan`(서술/대사/속마음 + 인물 목소리), `_ttsPlay`(실행 토큰 `_ttsRun`), `_castDialog`(인물별 목소리), `readAloud` 시작 옵션 |
-| `pdf_reader_page.dart` | PDF(pdfrx) + 쪽 단위 읽어주기 `ReadAloudBar`, `_pageText`(글자 없으면 그려서 OCR) |
+| `text_reader_page.dart` | ★ 소설 TXT/EPUB: 목차/하이라이트/검색, 테마, 글꼴. 읽어주기: `_plan`(서술/대사/속마음 + 인물 목소리), `_ttsPlay`(실행 토큰 `_ttsRun`), 취침 타이머 `_setSleep/_sleepDue`, `_castDialog`(인물별 목소리), `readAloud` 시작 옵션 |
+| `audiobook_dialog.dart` | 오디오북으로 저장 창: `audiobookParts`(차례로 나누기), `defaultAudiobookDir`, 진행 · 멈춤 · 결과 |
+| `pdf_reader_page.dart` | PDF(pdfrx) + 쪽 단위 읽어주기 `ReadAloudBar`, `_pageText` → `PdfText.pageText` |
 | `read_aloud.dart` | 쪽 단위 읽어주기 막대 (PDF 용) |
 | `epub_original_page.dart` | EPUB 원본 스타일(Windows WebView2) |
 | `image_viewer_page.dart`, `video_player_page.dart` | 그림(슬라이드쇼), 영상(media_kit: 자막 · 음성 트랙 · 배속 · 이어보기) |
