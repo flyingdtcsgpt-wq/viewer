@@ -225,7 +225,9 @@ class FileTools {
   /// "1-10, 15, 20-" 같은 쪽 범위 → 쪽 번호(1부터) 묶음들. 잘못되면 null
   static List<List<int>>? parseRanges(String spec, int pages) {
     final out = <List<int>>[];
-    for (final raw in spec.split(RegExp(r'[,;\s]+'))) {
+    // "1 - 10" 처럼 대시 양옆에 띄어쓰기를 해도 한 묶음으로
+    final tidy = spec.replaceAllMapped(RegExp(r'\s*([-~])\s*'), (m) => m[1]!);
+    for (final raw in tidy.split(RegExp(r'[,;\s]+'))) {
       final t = raw.trim();
       if (t.isEmpty) continue;
       final m = RegExp(r'^(\d*)\s*[-~]\s*(\d*)$').firstMatch(t);

@@ -34,7 +34,7 @@ class _WebDavImportPageState extends State<WebDavImportPage> {
   WebDavClient? _client;
   String _path = '/';
   List<DavEntry> _entries = [];
-  final Set<String> _picked = {}; // 고른 파일 · 폴더 경로
+  final Map<String, DavEntry> _picked = {}; // 고른 파일 · 폴더 (경로 → 항목, 다른 폴더로 옮겨 가도 남음)
   bool _busy = false;
   String _status = '';
   bool _stop = false;
@@ -152,12 +152,10 @@ class _WebDavImportPageState extends State<WebDavImportPage> {
     var failed = 0;
     try {
       final files = <DavEntry>[];
-      for (final x in _picked) {
-        if (x.endsWith('/')) {
-          files.addAll(await c.walk(x, _wanted, cancelled: () => _stop));
-        } else {
-          final e = _entries.where((e) => e.path == x).firstOrNull;
-          if (e != null) files.add(e);
+      final seen = <String>{};
+      for (final x in _picked.values) {
+        for (final e in x.dir ? await c.walk(x.path, _wanted, cancelled: () => _stop) : [x]) {
+          if (seen.add(e.path)) files.add(e); // 폴더와 그 안 파일을 같이 골라도 한 번만
         }
       }
       final base = c.base.path.replaceAll(RegExp(r'/+$'), '');
@@ -275,9 +273,9 @@ class _WebDavImportPageState extends State<WebDavImportPage> {
           onPressed: _busy
               ? null
               : () => setState(() {
-                    final all = files.every((e) => _picked.contains(e.path));
+                    final all = files.every((e) => _picked.containsKey(e.path));
                     for (final e in files) {
-                      all ? _picked.remove(e.path) : _picked.add(e.path);
+                      all ? _picked.remove(e.path) : _picked[e.path] = e;
                     }
                   }),
           child: const Text('이 폴더 파일 모두'),
@@ -290,8 +288,8 @@ class _WebDavImportPageState extends State<WebDavImportPage> {
             if (e.dir)
               ListTile(
                 leading: Checkbox(
-                  value: _picked.contains(e.path),
-                  onChanged: _busy ? null : (v) => setState(() => v! ? _picked.add(e.path) : _picked.remove(e.path)),
+                  value: _picked.containsKey(e.path),
+                  onChanged: _busy ? null : (v) => setState(() => v! ? _picked[e.path] = e : _picked.remove(e.path)),
                 ),
                 title: Text(e.name),
                 subtitle: const Text('폴더 · 고르면 안의 파일 전부'),
@@ -300,8 +298,8 @@ class _WebDavImportPageState extends State<WebDavImportPage> {
               )
             else if (_wanted(e))
               CheckboxListTile(
-                value: _picked.contains(e.path),
-                onChanged: _busy ? null : (v) => setState(() => v! ? _picked.add(e.path) : _picked.remove(e.path)),
+                value: _picked.containsKey(e.path),
+                onChanged: _busy ? null : (v) => setState(() => v! ? _picked[e.path] = e : _picked.remove(e.path)),
                 title: Text(e.name),
                 subtitle: Text(fileSize(e.size)),
               ),

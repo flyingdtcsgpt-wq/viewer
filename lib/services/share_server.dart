@@ -227,7 +227,8 @@ class ShareServer {
     res.headers.set(HttpHeaders.contentTypeHeader, type);
     res.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
     final m = RegExp(r'^bytes=(\d*)-(\d*)$').firstMatch(req.headers.value(HttpHeaders.rangeHeader)?.trim() ?? '');
-    if (m != null && (m[1]!.isNotEmpty || m[2]!.isNotEmpty)) {
+    // 빈 파일은 Range 를 무시하고 그냥 보낸다 (범위 계산이 성립하지 않음)
+    if (len > 0 && m != null && (m[1]!.isNotEmpty || m[2]!.isNotEmpty)) {
       int start, end;
       if (m[1]!.isEmpty) {
         start = (len - int.parse(m[2]!)).clamp(0, len);
@@ -337,23 +338,25 @@ class ShareServer {
         '<D:displayname>${_x(name)}</D:displayname><D:resourcetype><D:collection/></D:resourcetype>'
         '${at == null ? '' : '<D:getlastmodified>${_httpDate(at)}</D:getlastmodified>'}'
         '</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>\n');
-    void fileEntry(String href, String name, MediaItem e) {
-      var len = e.size;
-      DateTime? at;
-      try {
-        final st = File(e.path).statSync();
-        len = st.size;
-        at = st.modified;
-      } catch (_) {}
+    // 목록에는 DB 에 있는 크기 · 추가 날짜를 쓴다 (파일마다 디스크를 읽으면 큰 폴더 · 느린 드라이브에서 멈춤)
+    void fileEntry(String href, String name, MediaItem e, {FileStat? st}) {
+      final len = st?.size ?? e.size;
+      final DateTime at = st?.modified ?? e.addedAt;
       sb.write('<D:response><D:href>${_x(href)}</D:href><D:propstat><D:prop>'
           '<D:displayname>${_x(name)}</D:displayname><D:resourcetype/>'
           '<D:getcontentlength>$len</D:getcontentlength><D:getcontenttype>${_mime(e.extension)}</D:getcontenttype>'
-          '${at == null ? '' : '<D:getlastmodified>${_httpDate(at)}</D:getlastmodified>'}'
+          '<D:getlastmodified>${_httpDate(at)}</D:getlastmodified>'
           '</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>\n');
     }
 
     if (item != null) {
-      fileEntry(base, segs.last, item);
+      // 파일 하나만 물으면 실제 크기를 (받기 전 확인용)
+      FileStat? st;
+      try {
+        st = await File(item.path).stat();
+        if (st.type == FileSystemEntityType.notFound) st = null;
+      } catch (_) {}
+      fileEntry(base, segs.last, item, st: st);
     } else {
       final self = segs.isEmpty ? '/dav/' : '$base/';
       folderEntry(self, segs.isEmpty ? 'ARARIFlex' : segs.last, null);

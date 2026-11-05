@@ -851,6 +851,25 @@ void main() {
         expect(onePcm.length, expected);
         expect(left, ['시험 책.wav']);
 
+        // "지금 장만" + 한 파일: 범위 밖 장(001)은 합치지도 지우지도 않는다
+        var exp2 = 0;
+        for (final para in parts[1].paragraphs) {
+          for (final (x, v, _) in plan(para)) {
+            final sr = v == 'a' ? 44100 : 22050;
+            exp2 += (inFrames(x.trim(), sr) * 24000 / sr).floor() + 2880;
+          }
+          exp2 += 8400;
+        }
+        final onlyDir = p.join(dir.path, 'only');
+        await AudiobookMaker(render: fake).make(parts: parts, outDir: onlyDir, bookTitle: '시험 책', compress: false, plan: plan);
+        final only = await AudiobookMaker(render: fake).make(
+            parts: [AudiobookPart(parts[0].title, const []), parts[1]], outDir: onlyDir, bookTitle: '하나만', compress: false, single: true, plan: plan);
+        final onlyPcm = pcmFromWav(await File(only.files.single).readAsBytes(), 24000)!;
+        final kept = File(p.join(onlyDir, '001 제1장 시작.wav')).existsSync();
+        debugPrint('CHECK audiobook only-chapter samples=${onlyPcm.length} expected=$exp2 kept001=$kept');
+        expect(onlyPcm.length, exp2);
+        expect(kept, isTrue);
+
         // 실제 기기 음성 (자연 음성이 없어도 되는 길)
         final v = await TtsService.voices();
         final sys = v.where((x) => !NaturalTts.isNatural(x) && !KokoroTts.isKokoro(x)).firstOrNull;
@@ -1058,6 +1077,8 @@ void main() {
         await ImagePdf.write(pdf, 4, (i) async => pagesJpg[i]);
         expect(FileTools.parseRanges('1-2, 3-', 4), [[1, 2], [3, 4]]);
         expect(FileTools.parseRanges('5', 4), isNull);
+        // 대시 양옆 띄어쓰기
+        expect(FileTools.parseRanges('1 - 2 , 3 ~ 4', 4), [[1, 2], [3, 4]]);
         final parts = await FileTools.splitPdf(pdf, FileTools.everyN(2, 4));
         final counts = <int>[];
         for (final x in parts) {

@@ -332,6 +332,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   Future<void>? _castJob;
   final Map<int, (String?, bool)> _paraInfo = {}; // 블록 → (화자, 대사만인가)
   Map<int, String> _aiSpk = {}; // AI 가 찾은 화자 (선택, 블록 → 이름)
+  double? _bgmDrag; // 배경음 볼륨 막대를 끄는 중인 값
 
   Future<void> _prepareCast() => _castJob ??= () async {
         final doc = _doc;
@@ -645,22 +646,25 @@ class _TextReaderPageState extends State<TextReaderPage> {
       onProgress: (d, n) => prog.value = (d, n),
       cancelled: () => stop,
     ).then<void>((r) => _aiSpk = r, onError: (Object e) => err = e);
-    var closed = false;
+    // 진행 창은 꼭 한 번만 닫는다 (창이 다시 그려져도 두 번 닫아 뷰어까지 닫히지 않게)
+    var closed = false, popped = false;
+    void close() {
+      final c = dctx;
+      if (popped || c == null || !c.mounted) return;
+      popped = true;
+      Navigator.of(c).pop();
+    }
+
     job.whenComplete(() {
       closed = true;
-      final c = dctx;
-      if (c != null && c.mounted) Navigator.of(c).pop();
+      close();
     });
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
         dctx = ctx;
-        if (closed) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (ctx.mounted) Navigator.of(ctx).pop();
-          });
-        }
+        if (closed) WidgetsBinding.instance.addPostFrameCallback((_) => close());
         return AlertDialog(
           title: const Text('AI 화자 분석 중'),
           content: ValueListenableBuilder<(int, int)>(
@@ -831,11 +835,16 @@ class _TextReaderPageState extends State<TextReaderPage> {
               SizedBox(
                 width: 160,
                 child: Slider(
-                  value: s.ttsBgmVolume.toDouble(),
+                  value: _bgmDrag ?? s.ttsBgmVolume.toDouble(),
                   max: 100,
+                  // 끄는 동안은 소리만 바꾸고, 놓을 때 한 번 저장
                   onChanged: (v) {
-                    s.ttsBgmVolume = v.round();
+                    setState(() => _bgmDrag = v);
                     Ambient.setVolume(v.round());
+                  },
+                  onChangeEnd: (v) {
+                    s.ttsBgmVolume = v.round();
+                    setState(() => _bgmDrag = null);
                   },
                 ),
               ),

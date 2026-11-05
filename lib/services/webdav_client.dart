@@ -94,11 +94,15 @@ class WebDavClient {
   Future<List<DavEntry>> walk(String path, bool Function(DavEntry) want, {bool Function()? cancelled}) async {
     final out = <DavEntry>[];
     final todo = [path];
+    // 이미 연 폴더는 다시 열지 않는다 (자기 자신을 다른 꼴의 주소로 돌려주는 서버에서 끝없이 돌지 않게)
+    String key(String x) => Uri.decodeFull(x).replaceAll(RegExp(r'/+'), '/').replaceAll(RegExp(r'/$'), '').toLowerCase();
+    final seen = {key(path)};
+    final files = <String>{};
     while (todo.isNotEmpty && !(cancelled?.call() ?? false)) {
       for (final e in await list(todo.removeLast())) {
         if (e.dir) {
-          todo.add(e.path);
-        } else if (want(e)) {
+          if (seen.add(key(e.path))) todo.add(e.path);
+        } else if (want(e) && files.add(key(e.path))) {
           out.add(e);
         }
       }

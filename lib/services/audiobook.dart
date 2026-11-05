@@ -94,6 +94,7 @@ class AudiobookMaker {
     final total = parts.fold(0, (a, b) => a + b.chars);
     final sw = Stopwatch()..start();
     final files = <String>[];
+    final madeNow = <String>{}; // 이번에 새로 만든 장 파일 (한 파일로 합친 뒤 이것만 지운다)
     final lengths = <String, Duration>{};
     var done = 0, skipped = 0, failed = 0, samplesAll = 0;
     var compressedAll = compress;
@@ -110,8 +111,9 @@ class AudiobookMaker {
             .where((f) => f.existsSync() && f.lengthSync() > 1024)
             .firstOrNull;
         if (part.paragraphs.isEmpty) {
-          // 범위 밖 자리 (번호를 맞추려고 둔 것): 이미 만든 파일만 목록에 넣는다
-          if (had != null) files.add(had.path);
+          // 범위 밖 자리 (번호를 맞추려고 둔 것): 장마다 저장일 때만 이미 만든 파일을 목록에 넣는다
+          // (한 파일로 합칠 때는 고른 범위만 합친다)
+          if (had != null && !single) files.add(had.path);
           continue;
         }
         if (had != null) {
@@ -125,6 +127,7 @@ class AudiobookMaker {
         final tmp = File('$base.wav.part');
         final raf = await tmp.open(mode: FileMode.write);
         var samples = 0;
+        var written = false;
         try {
           await raf.writeFrom(NaturalTts.wavBytes(Float32List(0), sampleRate)); // 머리 (길이는 끝에 채움)
           var inPart = 0;
@@ -176,8 +179,11 @@ class AudiobookMaker {
           await raf.writeFrom(_u32(36 + bytes));
           await raf.setPosition(40);
           await raf.writeFrom(_u32(bytes));
+          written = true;
         } finally {
           await raf.close();
+          // 실패로 멈추면 반쯤 만든 파일을 남기지 않는다
+          if (!written) await tmp.delete().catchError((_) => tmp);
         }
         if (_cancel) {
           await tmp.delete().catchError((_) => tmp);
@@ -198,6 +204,7 @@ class AudiobookMaker {
           }
         }
         files.add(outPath);
+        madeNow.add(outPath);
         lengths[outPath] = Duration(milliseconds: samples * 1000 ~/ sampleRate);
         report(i);
       }
@@ -246,7 +253,7 @@ class AudiobookMaker {
           compressedAll = false;
         }
       }
-      for (final f in files) {
+      for (final f in madeNow) {
         await File(f).delete().catchError((_) => File(f));
       }
       return AudiobookResult([result], Duration(milliseconds: bytes ~/ 2 * 1000 ~/ sampleRate), skipped, failed, wantM4a && ok, false, null);
@@ -505,6 +512,7 @@ exit 0
 /// Windows 기기 음성(System.Speech) 을 파일로: PowerShell 하나를 띄워 두고 줄마다 일을 준다 (조각마다 새로 띄우면 느림)
 class _WinVoices {
   Process? _proc;
+  bool _broken = false; // 띄워 둔 일꾼이 한 번 안 되면 그 뒤로는 바로 한 번씩 띄우는 방식으로
   final _lines = <String>[];
   Completer<void>? _wake;
   Future<void> _queue = Future.value();
@@ -559,6 +567,10 @@ while (($l = [Console]::In.ReadLine()) -ne $null) {
   Future<String?> render(String text, String voice, int rate, String out) {
     final c = Completer<String?>();
     _queue = _queue.then((_) async {
+      if (_broken) {
+        c.complete(await _once(text, voice, rate, out));
+        return;
+      }
       try {
         final pr = await _start();
         _lines.clear();
@@ -581,11 +593,17 @@ while (($l = [Console]::In.ReadLine()) -ne $null) {
         if (ok && File(out).existsSync() && File(out).lengthSync() > 100) {
           c.complete(out);
         } else {
-          // 띄워 둔 일꾼이 안 되면, 읽어주기와 같은 방식(한 번에 하나)으로 다시
+          // 띄워 둔 일꾼이 안 되면, 읽어주기와 같은 방식(한 번에 하나)으로 다시. 다음 조각부터는 일꾼을 건너뛴다
+          _broken = true;
+          final pr2 = _proc;
+          _proc = null;
+          pr2?.kill();
           c.complete(await _once(text, voice, rate, out));
         }
       } catch (_) {
-        c.complete(null);
+        // 일꾼을 띄우지 못함 → 한 번씩 띄우는 방식으로
+        _broken = true;
+        if (!c.isCompleted) c.complete(await _once(text, voice, rate, out));
       }
     });
     return c.future;
