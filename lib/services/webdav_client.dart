@@ -70,7 +70,7 @@ class WebDavClient {
   /// PROPFIND 응답(XML) → 목록. 자기 자신([selfPath])은 뺀다
   static List<DavEntry> parse(String xml, String selfPath) {
     final doc = XmlDocument.parse(xml);
-    String norm(String s) => Uri.decodeFull(s).replaceAll(RegExp(r'/+$'), '');
+    String norm(String s) => _decode(s).replaceAll(RegExp(r'/+$'), '');
     final self = norm(selfPath);
     final out = <DavEntry>[];
     for (final r in doc.findAllElements('response', namespaceUri: '*')) {
@@ -81,9 +81,9 @@ class WebDavClient {
       if (norm(path) == self) continue;
       final dir = r.findAllElements('collection', namespaceUri: '*').isNotEmpty;
       final shown = r.findAllElements('displayname', namespaceUri: '*').firstOrNull?.innerText.trim() ?? '';
-      final last = Uri.decodeFull(path.replaceAll(RegExp(r'/+$'), '').split('/').last);
+      final last = _decode(path.replaceAll(RegExp(r'/+$'), '').split('/').last);
       final size = int.tryParse(r.findAllElements('getcontentlength', namespaceUri: '*').firstOrNull?.innerText.trim() ?? '') ?? 0;
-      final full = Uri.decodeFull(path);
+      final full = _decode(path);
       out.add(DavEntry(dir && !full.endsWith('/') ? '$full/' : full, shown.isNotEmpty ? shown : last, dir, size));
     }
     out.sort((a, b) => a.dir != b.dir ? (a.dir ? -1 : 1) : a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -95,7 +95,7 @@ class WebDavClient {
     final out = <DavEntry>[];
     final todo = [path];
     // 이미 연 폴더는 다시 열지 않는다 (자기 자신을 다른 꼴의 주소로 돌려주는 서버에서 끝없이 돌지 않게)
-    String key(String x) => Uri.decodeFull(x).replaceAll(RegExp(r'/+'), '/').replaceAll(RegExp(r'/$'), '').toLowerCase();
+    String key(String x) => _decode(x).replaceAll(RegExp(r'/+'), '/').replaceAll(RegExp(r'/$'), '').toLowerCase();
     final seen = {key(path)};
     final files = <String>{};
     while (todo.isNotEmpty && !(cancelled?.call() ?? false)) {
@@ -141,6 +141,15 @@ class WebDavClient {
     } finally {
       c.close(force: true);
     }
+  }
+}
+
+/// 주소 풀기. 이미 풀린 글(파일 이름에 % 가 든 경우 등)이면 그대로
+String _decode(String s) {
+  try {
+    return Uri.decodeFull(s);
+  } catch (_) {
+    return s;
   }
 }
 
