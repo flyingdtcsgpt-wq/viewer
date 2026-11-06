@@ -52,6 +52,7 @@
       <div id="chatTitle" class="ttl"></div>
       <div id="chatSub" class="sub"></div>
     </div>
+    <button id="authChip" class="authchip" hidden title="이 프로젝트를 구독(OAuth) / API 키 중 무엇으로 돌릴지">구독</button>
     <button id="toolsToggle" class="icon small" aria-label="도구 표시">⚙</button>
   </header>
   <div id="msgs" class="msgs"></div>
@@ -75,6 +76,12 @@
       <select id="newProject"></select>
     </label>
     <input id="newPath" placeholder="또는 폴더 경로 직접 입력">
+    <label>실행 방식 (이 프로젝트)
+      <select id="newAuth">
+        <option value="sub">구독 (OAuth 로그인)</option>
+        <option value="api">API 키</option>
+      </select>
+    </label>
     <label>권한 <select id="newMode"></select></label>
     <textarea id="newPrompt" rows="4" placeholder="무엇을 시킬까요?"></textarea>
     <p id="newErr" class="err"></p>

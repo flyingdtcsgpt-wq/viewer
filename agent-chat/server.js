@@ -10,6 +10,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const { Store } = require('./lib/sources');
 const { Runner, CLAUDE_MODES, CODEX_MODES, ID_RE } = require('./lib/runner');
+const { ProjectAuth } = require('./lib/auth');
 
 const HOME = process.env.AGENT_CHAT_HOME || path.join(os.homedir(), '.agent-chat');
 const CONFIG_FILE = path.join(HOME, 'config.json');
@@ -36,7 +37,18 @@ function loadConfig() {
   return c;
 }
 
+// 바뀐 설정(API 키 · 프로젝트별 구독/API)만 파일에 다시 쓴다 (환경변수로 바꾼 포트 등은 쓰지 않음)
+function saveConfig() {
+  let c = {};
+  try { c = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch { /* 새로 */ }
+  for (const k of ['anthropicApiKey', 'openaiApiKey', 'projectAuth']) c[k] = config[k];
+  fs.mkdirSync(HOME, { recursive: true });
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(c, null, 2), { mode: 0o600 });
+}
+
 const config = loadConfig();
+const auth = new ProjectAuth(config, saveConfig, HOME);
+auth.refresh();
 const store = new Store();
 const runner = new Runner(config);
 runner.setMaxListeners(100);
@@ -102,7 +114,7 @@ function projects() {
   for (const p of config.projects) if (p && fs.existsSync(p)) seen.set(p, 0);
   for (const s of store.list(300)) if (s.cwd && !seen.has(s.cwd)) seen.set(s.cwd, s.mtime);
   return [...seen.keys()].filter(p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } })
-    .map(p => ({ path: p, name: path.basename(p) || p }));
+    .map(p => ({ path: p, name: path.basename(p) || p, auth: auth.mode(p) }));
 }
 
 // 실시간: 기록 파일이 바뀌거나 답변이 흘러나오면 바로 휴대폰으로 (Server-Sent Events)
@@ -115,17 +127,18 @@ function stream(req, res, q) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', ...SEC_HEADERS });
   res.write('retry: 2000\n\n');
   const out = (ev, data) => res.write(`event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`);
-  let epoch = -1, rev = -1, from = -1, title = '', active = null, jobKey = '';
+  let epoch = -1, rev = -1, from = -1, title = '', active = null, jobKey = '', authMode = '';
   const tickFile = () => {
     const m = store.messages(agent, id);
     if (!m) return;
     const f = Math.max(0, m.items.length - limit);
     const isActive = Date.now() - m.mtime < 20000;
-    if (m.epoch === epoch && m.rev === rev && f === from && m.title === title && isActive === active) return;
+    const am = auth.mode(m.cwd);
+    if (m.epoch === epoch && m.rev === rev && f === from && m.title === title && isActive === active && am === authMode) return;
     const full = m.epoch !== epoch || f !== from;
     const items = full ? m.items.slice(f) : m.items.filter(it => it.v > rev && it.n >= f);
-    epoch = m.epoch; rev = m.rev; from = f; title = m.title; active = isActive;
-    out('msgs', { full, epoch, total: m.items.length, from: f, items, title: m.title, cwd: m.cwd, active: isActive });
+    epoch = m.epoch; rev = m.rev; from = f; title = m.title; active = isActive; authMode = am;
+    out('msgs', { full, epoch, total: m.items.length, from: f, items, title: m.title, cwd: m.cwd, active: isActive, auth: am });
   };
   const tickJob = () => {
     const j = runner.job(agent, id);
@@ -154,7 +167,7 @@ async function api(req, res, url) {
       const active = Date.now() - s.mtime < 20000;
       // 폰에서 시킨 작업이 막 끝난 직후의 "최근에 쓰임" 은 작업 중으로 치지 않는다
       const justEnded = !!(j && !j.running && j.endedAt && s.mtime <= j.endedAt + 3000);
-      return { ...s, running, active, busy: running || (active && !justEnded), error: (j && !j.running && j.error) || '' };
+      return { ...s, running, active, busy: running || (active && !justEnded), error: (j && !j.running && j.error) || '', auth: auth.mode(s.cwd) };
     });
     return send(req, res, 200, { sessions: list });
   }
@@ -176,10 +189,12 @@ async function api(req, res, url) {
   if (p === '/api/stream' && req.method === 'GET') return stream(req, res, q);
   if (p === '/api/projects' && req.method === 'GET') return send(req, res, 200, { projects: projects() });
   if (p === '/api/info' && req.method === 'GET') {
-    return send(req, res, 200, { bins: runner.bins(), modes: { claude: CLAUDE_MODES.slice(0, 4), codex: CODEX_MODES }, host: os.hostname() });
+    const k = auth.keys();
+    return send(req, res, 200, { bins: runner.bins(), modes: { claude: CLAUDE_MODES.slice(0, 4), codex: CODEX_MODES }, host: os.hostname(), keys: { anthropic: k.anthropic, openai: k.openai } });
   }
   if (req.method !== 'POST') return send(req, res, 404, { error: '없는 주소' });
   const body = await readBody(req);
+  if (p === '/api/project-auth') return send(req, res, 200, auth.set(String(body.cwd || ''), body.mode));
   const agent = agentOf(body.agent);
   if (!agent) return send(req, res, 400, { error: '에이전트를 골라 주세요' });
   if (p === '/api/send') {
@@ -187,11 +202,13 @@ async function api(req, res, url) {
     if (!ID_RE.test(id)) return send(req, res, 400, { error: '세션 id 가 이상합니다' });
     const m = store.messages(agent, id);
     const cwd = (m && m.cwd) || '';
-    const r = await runner.start(agent, { id, cwd, prompt: body.prompt, mode: body.mode });
+    const r = await runner.start(agent, { id, cwd, prompt: body.prompt, mode: body.mode, env: auth.env(agent, cwd) });
     return send(req, res, 200, r);
   }
   if (p === '/api/new') {
-    const r = await runner.start(agent, { id: null, cwd: String(body.cwd || ''), prompt: body.prompt, mode: body.mode });
+    const cwd = String(body.cwd || '');
+    if (body.auth === 'api' || body.auth === 'sub') { if (auth.mode(cwd) !== body.auth) auth.set(cwd, body.auth); }
+    const r = await runner.start(agent, { id: null, cwd, prompt: body.prompt, mode: body.mode, env: auth.env(agent, cwd) });
     return send(req, res, 200, r);
   }
   if (p === '/api/stop') {
@@ -207,9 +224,16 @@ const server = http.createServer(async (req, res) => {
   try { url = new URL(req.url, 'http://x'); } catch { return send(req, res, 400, { error: '주소 오류' }); }
   try {
     // PC 에서만: 휴대폰 연결 QR (토큰이 들어 있으므로 이 PC 의 브라우저에서만 열린다)
-    if (url.pathname === '/connect' || url.pathname === '/api/connect-info') {
+    if (url.pathname === '/connect' || url.pathname === '/api/connect-info' || url.pathname === '/api/local/keys') {
       if (!isLocal(req)) return send(req, res, 403, 'PC 에서만 열 수 있습니다', 'text/plain; charset=utf-8');
       if (url.pathname === '/api/connect-info') return send(req, res, 200, connectInfo());
+      if (url.pathname === '/api/local/keys' && req.method === 'POST') {
+        // 다른 사이트가 이 PC 의 브라우저를 이용해 키를 바꾸지 못하게: JSON 으로만, 같은 출처에서만
+        if (!/^application\/json/.test(req.headers['content-type'] || '')) return send(req, res, 415, { error: 'JSON 만' });
+        const origin = req.headers.origin;
+        if (origin && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return send(req, res, 403, { error: '다른 사이트에서는 안 됩니다' });
+        return send(req, res, 200, auth.setKeys(await readBody(req)));
+      }
     }
     if (!url.pathname.startsWith('/api/')) {
       const s = STATIC[url.pathname];
@@ -283,6 +307,8 @@ function connectInfo() {
     pairCode: p.code,
     pairExp: p.exp,
     lastPaired,
+    keys: auth.keys(),
+    apiProjects: auth.apiProjects(),
     addresses: addresses().filter(a => a.kind !== 'virtual').map(a => ({ kind: a.kind, label: label[a.kind], address: a.address })),
     urls: addresses().map(a => ({ kind: a.kind, label: label[a.kind], name: a.name, url: `http://${a.address}:${config.port}/#t=${config.token}` })),
   };

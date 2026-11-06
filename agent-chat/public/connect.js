@@ -45,6 +45,29 @@
     }
   };
   showPair(d);
+
+  // API 키 (이 PC 에서만)
+  const showKeys = info => {
+    const k = info.keys || {};
+    $('kA').textContent = k.anthropic ? '저장됨 ' + k.anthropicMasked : '없음';
+    $('kO').textContent = k.openai ? '저장됨 ' + k.openaiMasked : '없음';
+    const ps = info.apiProjects || [];
+    $('apiProj').textContent = ps.length ? 'API 로 돌리는 프로젝트: ' + ps.join(', ') : 'API 로 돌리는 프로젝트: 없음 (모두 구독)';
+  };
+  showKeys(d);
+  const saveKeys = async body => {
+    $('keyMsg').textContent = '';
+    try {
+      const r = await fetch('/api/local/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { $('keyMsg').textContent = j.error || ('오류 ' + r.status); return; }
+      $('keyA').value = ''; $('keyO').value = '';
+      $('keyMsg').textContent = '저장했습니다';
+      showKeys(await (await fetch('/api/connect-info', { cache: 'no-store' })).json());
+    } catch (e) { $('keyMsg').textContent = e.message; }
+  };
+  $('keySave').onclick = () => saveKeys({ anthropic: $('keyA').value.trim() || null, openai: $('keyO').value.trim() || null });
+  $('keyDel').onclick = () => { if (confirm('저장된 API 키를 모두 지울까요? API 로 정한 프로젝트는 키를 다시 넣을 때까지 실행되지 않습니다.')) saveKeys({ anthropic: '', openai: '' }); };
   setInterval(async () => { try { showPair(await (await fetch('/api/connect-info', { cache: 'no-store' })).json()); } catch { /* 서버 꺼짐 */ } }, 3000);
   document.getElementById('foot').textContent = `PC: ${d.host} · 포트 ${d.port} · QR 에는 접속 토큰이 들어 있으니 남에게 보여 주지 마세요.`;
 })();

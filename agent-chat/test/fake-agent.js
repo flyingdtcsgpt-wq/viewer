@@ -18,7 +18,7 @@ process.stdin.on('end', () => {
     const f = path.join(dir, id + '.jsonl');
     const w = o => fs.appendFileSync(f, JSON.stringify(o) + '\n');
     const out = o => process.stdout.write(JSON.stringify(o) + '\n');
-    const answer = 'echo: ' + input + ' mode=' + args[args.indexOf('--permission-mode') + 1];
+    const answer = 'echo: ' + input + ' mode=' + args[args.indexOf('--permission-mode') + 1] + (process.env.ANTHROPIC_API_KEY ? ' auth=api:' + process.env.ANTHROPIC_API_KEY : '');
     w({ type: 'user', cwd: process.cwd(), sessionId: id, message: { role: 'user', content: input } });
     out({ type: 'stream_event', event: { type: 'message_start' } });
     // 글자 단위로 흘려보내기 (실시간 표시 시험)
@@ -47,6 +47,6 @@ process.stdin.on('end', () => {
     console.log(JSON.stringify({ type: 'thread.started', thread_id: id }));
     if (!existing) w({ type: 'session_meta', payload: { id, cwd: process.cwd(), originator: 'codex_exec' } });
     w({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: input }] } });
-    w({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'codex: ' + input + ' args=' + args.join(' ') }] } });
+    w({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'codex: ' + input + ' args=' + args.join(' ') + (process.env.CODEX_API_KEY ? ' auth=api:' + process.env.CODEX_API_KEY : '') }] } });
   }
 });

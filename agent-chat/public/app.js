@@ -92,7 +92,9 @@
     box.replaceChildren(...list.map(s => {
       const b = el('button', 'sess');
       const top = el('div', 'top');
-      top.append(el('span', 'badge ' + s.agent, s.agent === 'claude' ? 'Claude' : 'Codex'), el('span', '', s.project || ''), el('span', 'grow'));
+      top.append(el('span', 'badge ' + s.agent, s.agent === 'claude' ? 'Claude' : 'Codex'), el('span', '', s.project || ''));
+      if (s.auth === 'api') top.append(el('span', 'badge api', 'API'));
+      top.append(el('span', 'grow'));
       if (s.busy ?? (s.running || s.active)) top.append(el('span', 'dot'));
       top.append(el('span', '', ago(s.mtime)));
       b.append(top, el('div', 'name', s.title), el('div', 'pv', (s.lastRole === 'user' ? '나: ' : '') + (s.preview || '')));
@@ -130,8 +132,30 @@
     $('chatSub').textContent = agent === 'claude' ? 'Claude' : 'Codex';
     fillModes($('mode'), agent);
     $('status').hidden = true;
+    $('authChip').hidden = true;
     connect();
   }
+  // 프로젝트별 구독 / API
+  function showAuth(c) {
+    const b = $('authChip');
+    b.hidden = !c.cwd;
+    b.textContent = c.auth === 'api' ? 'API' : '구독';
+    b.classList.toggle('api', c.auth === 'api');
+  }
+  $('authChip').onclick = async () => {
+    const c = cur;
+    if (!c || !c.cwd) return;
+    const next = c.auth === 'api' ? 'sub' : 'api';
+    const name = c.cwd.split(/[\\/]/).filter(Boolean).pop();
+    const msg = `"${name}" 프로젝트를 ${next === 'api' ? 'API 키' : '구독(OAuth 로그인)'} 로 바꿀까요?\n\n` +
+      '• Claude: 이 폴더의 VS Code 창도 같이 바뀝니다 (VS Code 에서는 새 대화부터 적용)\n' +
+      '• Codex: 휴대폰에서 시키는 작업만 바뀝니다 (VS Code 의 Codex 는 PC 로그인 그대로)';
+    if (!confirm(msg)) return;
+    try {
+      const r = await api('/api/project-auth', { cwd: c.cwd, mode: next });
+      c.auth = r.mode; showAuth(c);
+    } catch (e) { if (e.message !== '401') alert(e.message); }
+  };
   $('toolsToggle').onclick = () => {
     hideTools = !hideTools; store.set('ac_hideTools', hideTools ? '1' : '0');
     $('msgs').classList.toggle('hide-tools', hideTools);
@@ -191,6 +215,7 @@
     // 폰 화면은 좁으니 폴더 이름만 (전체 경로는 길게 누르면 보이는 title 로)
     if (d.cwd) { $('chatSub').textContent = (c.agent === 'claude' ? 'Claude · ' : 'Codex · ') + d.cwd.split(/[\\/]/).filter(Boolean).pop(); $('chatSub').title = d.cwd; }
     c.active = d.active;
+    if (d.cwd) { c.cwd = d.cwd; c.auth = d.auth || 'sub'; showAuth(c); }
     if (d.full) {
       // 다시 받은 전체 목록: 이미 그린 것은 그대로 두고 바뀐 것만 고친다
       if (d.epoch !== c.epoch || d.from !== c.from) { c.rendered.clear(); box.replaceChildren(); }
@@ -334,12 +359,17 @@
     try {
       const d = await api('/api/projects');
       const last = store.get('ac_lastProject', '');
-      sel.replaceChildren(...d.projects.map(p => { const o = el('option', '', p.name + '  —  ' + p.path); o.value = p.path; return o; }));
+      projAuth = new Map(d.projects.map(p => [p.path, p.auth || 'sub']));
+      sel.replaceChildren(...d.projects.map(p => { const o = el('option', '', (p.auth === 'api' ? '[API] ' : '') + p.name + '  —  ' + p.path); o.value = p.path; return o; }));
       if (!d.projects.length) sel.replaceChildren(el('option', '', '(최근 폴더 없음: 아래에 경로 입력)'));
       if (d.projects.some(p => p.path === last)) sel.value = last;
+      $('newAuth').value = projAuth.get(sel.value) || 'sub';
     } catch (e) { $('newErr').textContent = e.message; }
     $('newPrompt').focus();
   };
+  let projAuth = new Map();
+  $('newProject').onchange = () => { $('newAuth').value = projAuth.get($('newProject').value) || 'sub'; };
+  $('newPath').oninput = () => { const v = $('newPath').value.trim(); $('newAuth').value = projAuth.get(v || $('newProject').value) || 'sub'; };
   $('newCancel').onclick = () => { $('sheet').hidden = true; };
   $('sheet').onclick = e => { if (e.target === $('sheet')) $('sheet').hidden = true; };
   $('newForm').onsubmit = async e => {
@@ -350,7 +380,7 @@
     const btn = e.submitter || $('newForm').querySelector('.primary');
     btn.disabled = true; $('newErr').textContent = '시작하는 중…';
     try {
-      const r = await api('/api/new', { agent: newAgent, cwd, prompt, mode: $('newMode').value });
+      const r = await api('/api/new', { agent: newAgent, cwd, prompt, mode: $('newMode').value, auth: $('newAuth').value });
       store.set('ac_lastProject', cwd);
       $('newPrompt').value = ''; $('newPath').value = '';
       $('sheet').hidden = true;

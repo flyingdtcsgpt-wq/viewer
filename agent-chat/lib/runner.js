@@ -127,12 +127,12 @@ function buildArgs(agent, { id, isNew, mode }, config) {
 
 function quoteWin(a) { return /^[\w.:=/\\-]+$/.test(a) ? a : '"' + String(a).replace(/"/g, '') + '"'; }
 
-function launch(bin, args, cwd) {
+function launch(bin, args, cwd, env) {
   let cmd = bin, argv = args, shell = false;
   if (/\.(c|m)?js$/i.test(bin)) { cmd = process.execPath; argv = [bin, ...args]; }
   else if (isWin && /\.(cmd|bat)$/i.test(bin)) { shell = true; cmd = quoteWin(bin); argv = args.map(quoteWin); }
   return spawn(cmd, argv, {
-    cwd, env: process.env, shell, windowsHide: true, detached: !isWin, stdio: ['pipe', 'pipe', 'pipe'],
+    cwd, env: env || process.env, shell, windowsHide: true, detached: !isWin, stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
 
@@ -163,7 +163,7 @@ class Runner extends EventEmitter {
   changed(job) { job.v++; if (job.id) this.emit('change', job.agent + ':' + job.id); }
 
   // 반환: Promise<{id, queued?}>  (새 Codex 세션은 id 가 정해질 때까지 기다린다)
-  start(agent, { id, cwd, prompt, mode }) {
+  start(agent, { id, cwd, prompt, mode, env }) {
     if (agent !== 'claude' && agent !== 'codex') throw httpError(400, '알 수 없는 에이전트');
     const modes = agent === 'claude' ? CLAUDE_MODES : CODEX_MODES;
     if (!modes.includes(mode)) mode = modes[0];
@@ -182,13 +182,13 @@ class Runner extends EventEmitter {
     const bin = resolveBin(agent, this.config);
     if (!bin) throw httpError(500, `${agent} 프로그램을 찾지 못했습니다. config.json 의 ${agent}Bin 에 경로를 적어 주세요`);
     if (isNew && agent === 'claude') id = crypto.randomUUID();
-    return this.run(agent, bin, { id, isNew, cwd, prompt, mode, queue: [] });
+    return this.run(agent, bin, { id, isNew, cwd, prompt, mode, env, queue: [] });
   }
 
-  run(agent, bin, { id, isNew, cwd, prompt, mode, queue }) {
-    const child = launch(bin, buildArgs(agent, { id, isNew, mode }, this.config), cwd);
+  run(agent, bin, { id, isNew, cwd, prompt, mode, env, queue }) {
+    const child = launch(bin, buildArgs(agent, { id, isNew, mode }, this.config), cwd, env);
     const job = {
-      agent, id, cwd, bin, child, startedAt: Date.now(), out: Buffer.alloc(0), err: Buffer.alloc(0), done: false,
+      agent, id, cwd, bin, env, child, startedAt: Date.now(), out: Buffer.alloc(0), err: Buffer.alloc(0), done: false,
       live: { text: '', tool: '' }, v: 0, queue,
     };
     if (id) this.jobs.set(agent + ':' + id, job);
@@ -251,7 +251,7 @@ class Runner extends EventEmitter {
       // 줄 서 있던 메시지를 이어서 (멈춤 · 오류면 버린다)
       if (job.queue.length && !job.stopped && !job.error) {
         const next = job.queue.shift();
-        try { this.run(agent, job.bin, { id: job.id, isNew: false, cwd: job.cwd, prompt: next.prompt, mode: next.mode, queue: job.queue }); } catch (e) { job.error = e.message; }
+        try { this.run(agent, job.bin, { id: job.id, isNew: false, cwd: job.cwd, prompt: next.prompt, mode: next.mode, env: job.env, queue: job.queue }); } catch (e) { job.error = e.message; }
       }
     };
 

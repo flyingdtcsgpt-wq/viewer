@@ -25,6 +25,16 @@
     </section>
     <h2 class="qr-title">QR 로 연결</h2>
     <div id="codes" class="codes"></div>
+    <section class="keys">
+      <h2>API 키 <small class="muted">(프로젝트를 API 로 돌릴 때만 필요)</small></h2>
+      <p class="muted">휴대폰의 대화 화면 위 <b>구독 / API</b> 버튼으로 프로젝트마다 고릅니다. 키는 이 PC 의 설정 파일에만 저장되고, 프로젝트 폴더에는 남지 않습니다.</p>
+      <label>Anthropic (Claude) <span id="kA" class="st"></span></label>
+      <input id="keyA" type="password" autocomplete="off" placeholder="sk-ant-… (비워 두면 안 바뀜)">
+      <label>OpenAI (Codex) <span id="kO" class="st"></span></label>
+      <input id="keyO" type="password" autocomplete="off" placeholder="sk-… (비워 두면 안 바뀜)">
+      <div><button id="keySave">저장</button> <button id="keyDel" class="secondary">키 모두 지우기</button> <span id="keyMsg" class="st"></span></div>
+      <p class="muted" id="apiProj"></p>
+    </section>
     <p class="muted" id="foot"></p>
   </main>
 </body>

@@ -280,6 +280,78 @@ test('숫자 연결 코드: 맞으면 토큰, 한 번만, 5번 틀리면 폐기'
   } finally { child.kill(); }
 });
 
+test('프로젝트별 구독 / API: Claude 는 폴더 설정 파일 + 폰 작업에 키, Codex 는 폰 작업에만, 구독은 키를 지움', async () => {
+  const http = require('http');
+  const { execFileSync } = require('child_process');
+  const proj = path.join(tmp, 'api-proj');
+  fs.mkdirSync(path.join(proj, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(proj, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { allow: ['Bash(ls)'] } }));
+  const { child, call, port } = await startServer('claude');
+  const local = (p, body) => new Promise((res, rej) => {
+    const r = http.request({ host: '127.0.0.1', port, path: p, method: 'POST', headers: { Host: `127.0.0.1:${port}`, 'Content-Type': 'application/json' } }, x => {
+      let b = ''; x.on('data', d => { b += d; }); x.on('end', () => res({ status: x.statusCode, body: JSON.parse(b || '{}') }));
+    });
+    r.on('error', rej); r.write(JSON.stringify(body)); r.end();
+  });
+  try {
+    // 키 없이 API 로는 못 바꿈
+    let r = await call('/api/project-auth', { cwd: proj, mode: 'api' });
+    assert.strictEqual(r.status, 400);
+    // 키는 이 PC(localhost)에서만, 형식 확인
+    assert.strictEqual((await local('/api/local/keys', { anthropic: 'nope' })).status, 400);
+    r = await local('/api/local/keys', { anthropic: 'sk-ant-test-AAAA', openai: 'sk-test-BBBB' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.anthropic, true);
+    assert.ok(!JSON.stringify(r.body).includes('sk-ant-test-AAAA'), '키 전체를 돌려주지 않음');
+    // API 로 바꾸면 Claude 프로젝트 설정에 apiKeyHelper (원래 있던 설정은 그대로)
+    r = await call('/api/project-auth', { cwd: proj, mode: 'api' });
+    assert.strictEqual(r.status, 200);
+    const sf = path.join(proj, '.claude', 'settings.local.json');
+    let st = JSON.parse(fs.readFileSync(sf, 'utf8'));
+    assert.deepStrictEqual(st.permissions, { allow: ['Bash(ls)'] });
+    assert.match(st.apiKeyHelper, /print-key\.js/);
+    assert.ok(!fs.readFileSync(sf, 'utf8').includes('sk-ant-test-AAAA'), '프로젝트 폴더에 키가 남지 않음');
+    // apiKeyHelper 명령이 실제로 키를 출력 (Claude Code 가 하는 것처럼 셸로 실행)
+    const out = execFileSync(process.platform === 'win32' ? 'cmd' : 'sh', process.platform === 'win32' ? ['/d', '/s', '/c', `"${st.apiKeyHelper}"`] : ['-c', st.apiKeyHelper], { encoding: 'utf8' });
+    assert.strictEqual(out, 'sk-ant-test-AAAA');
+    // 목록 · 새 대화: API 프로젝트에서 폰 작업에 키가 붙는다
+    r = await call('/api/new', { agent: 'claude', cwd: proj, prompt: '키?', mode: 'plan' });
+    const nid = r.body.id;
+    await waitFor(async () => { const x = await call(`/api/messages?agent=claude&id=${nid}`); return x.body.items && x.body.items.some(i => i.text === 'echo: 키? mode=plan auth=api:sk-ant-test-AAAA'); });
+    const list = (await call('/api/sessions')).body.sessions;
+    assert.strictEqual(list.find(s => s.id === nid).auth, 'api');
+    // 구독으로 되돌리면 apiKeyHelper 만 빠지고, 폰 작업에 키가 붙지 않는다 (환경에 키가 있어도 지움)
+    r = await call('/api/project-auth', { cwd: proj, mode: 'sub' });
+    st = JSON.parse(fs.readFileSync(sf, 'utf8'));
+    assert.strictEqual(st.apiKeyHelper, undefined);
+    assert.deepStrictEqual(st.permissions, { allow: ['Bash(ls)'] });
+    r = await call('/api/send', { agent: 'claude', id: nid, prompt: '이제?', mode: 'plan' });
+    await waitFor(async () => { const x = await call(`/api/messages?agent=claude&id=${nid}`); return x.body.items.some(i => i.text === 'echo: 이제? mode=plan'); });
+    // 다른 apiKeyHelper 가 이미 있으면 건드리지 않는다
+    const other = path.join(tmp, 'other-proj');
+    fs.mkdirSync(path.join(other, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(other, '.claude', 'settings.local.json'), JSON.stringify({ apiKeyHelper: 'my-own-helper' }));
+    assert.strictEqual((await call('/api/project-auth', { cwd: other, mode: 'api' })).status, 409);
+  } finally { child.kill(); }
+});
+
+test('Codex 프로젝트를 API 로: 폰 작업에만 CODEX_API_KEY', async () => {
+  const http = require('http');
+  const proj = path.join(tmp, 'codex-api-proj');
+  fs.mkdirSync(proj, { recursive: true });
+  const { child, call, port } = await startServer('codex');
+  const local = body => new Promise((res, rej) => {
+    const r = http.request({ host: '127.0.0.1', port, path: '/api/local/keys', method: 'POST', headers: { Host: `127.0.0.1:${port}`, 'Content-Type': 'application/json' } }, x => { x.resume(); x.on('end', () => res(x.statusCode)); });
+    r.on('error', rej); r.write(JSON.stringify(body)); r.end();
+  });
+  try {
+    assert.strictEqual(await local({ openai: 'sk-test-CCCC' }), 200);
+    const r = await call('/api/new', { agent: 'codex', cwd: proj, prompt: '키?', mode: 'read-only', auth: 'api' });
+    assert.strictEqual(r.status, 200);
+    await waitFor(async () => { const x = await call(`/api/messages?agent=codex&id=${r.body.id}`); return x.body.items && x.body.items.some(i => /auth=api:sk-test-CCCC$/.test(i.text || '')); });
+  } finally { child.kill(); }
+});
+
 test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {
   const { npmShimTarget, decode } = require('../lib/runner');
   const npm = path.join(tmp, 'npm');
