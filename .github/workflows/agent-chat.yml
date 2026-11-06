@@ -63,12 +63,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem dist
       - name: Install silently and check the server
+        timeout-minutes: 10
         run: |
           $setup = (Get-ChildItem dist\AgentChat-*-windows-setup.exe)[0].FullName
           Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=firewall' -Wait
           $app = "${env:ProgramFiles}\Agent Chat"
           if (-not (Test-Path "$app\runtime\node.exe")) { throw "node.exe 가 설치되지 않음" }
-          Start-Process wscript.exe -ArgumentList "`"$app\run-hidden.vbs`"" -Wait
+          (Start-Process wscript.exe -ArgumentList "`"$app\run-hidden.vbs`"" -PassThru).WaitForExit()
           $ok = $false
           for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
             try { $r = Invoke-WebRequest http://127.0.0.1:8790/ -UseBasicParsing; $ok = $r.StatusCode -eq 200 } catch { Start-Sleep -Milliseconds 500 }
@@ -82,7 +83,7 @@ jobs:
           try { Invoke-WebRequest http://127.0.0.1:8790/api/sessions -UseBasicParsing; throw "토큰 없이 열림" } catch { if ($_.Exception.Response.StatusCode.value__ -ne 401) { throw $_ } }
           $rule = netsh advfirewall firewall show rule name="Agent Chat"
           if ($LASTEXITCODE -ne 0) { throw "방화벽 규칙 없음" }
-          Start-Process wscript.exe -ArgumentList "`"$app\stop.vbs`" /quiet" -Wait
+          (Start-Process wscript.exe -ArgumentList "`"$app\stop.vbs`" /quiet" -PassThru).WaitForExit()
           Start-Sleep 1
           try { Invoke-WebRequest http://127.0.0.1:8790/ -UseBasicParsing -TimeoutSec 2; throw "서버가 안 꺼짐" } catch { if ($_.Exception.Message -eq "서버가 안 꺼짐") { throw $_ } }
           Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
