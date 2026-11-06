@@ -22,6 +22,8 @@ function oneLine(s, n = 140) {
   s = String(s || '').replace(/\s+/g, ' ').trim();
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
+// Windows 의 \\?\C:\... 같은 긴 경로 표시는 떼어 낸다
+function normCwd(c) { return String(c).replace(/^\\\\\?\\(UNC\\)?/, (_, unc) => (unc ? '\\\\' : '')); }
 function json(v) { try { return JSON.stringify(v, null, 1); } catch { return String(v); } }
 
 // 파일에서 state.offset 이후에 새로 붙은 "완성된 줄"만 읽는다(쓰는 중인 마지막 줄은 다음에).
@@ -60,6 +62,7 @@ class BaseParser {
     this.keep = keep;
     this.items = [];
     this.tools = new Map();
+    this.rev = 0; // 항목이 바뀔 때마다 올라가는 번호 (실시간으로 바뀐 것만 보내려고)
     this.meta = { cwd: '', title: '', firstUser: '', last: '', lastRole: '' };
   }
   push(item) {
@@ -72,9 +75,11 @@ class BaseParser {
     const prev = this.items[this.items.length - 1];
     if (item.role === 'assistant' && item.mid && prev && prev.role === 'assistant' && prev.mid === item.mid) {
       prev.text += '\n\n' + item.text;
+      prev.v = ++this.rev;
       return;
     }
     item.n = this.items.length;
+    item.v = ++this.rev;
     this.items.push(item);
     if (item.toolId) this.tools.set(item.toolId, item);
   }
@@ -84,6 +89,7 @@ class BaseParser {
     if (!t) return;
     t.output = cut(output, TOOL_OUT_MAX);
     t.status = isError ? 'error' : 'done';
+    t.v = ++this.rev;
   }
   feedLine(line) {
     let o;
@@ -132,7 +138,7 @@ function cleanClaudeUser(s) {
 class ClaudeParser extends BaseParser {
   feed(o) {
     const m = this.meta;
-    if (o.cwd && !m.cwd) m.cwd = o.cwd;
+    if (o.cwd && !m.cwd) m.cwd = normCwd(o.cwd);
     switch (o.type) {
       case 'ai-title': if (o.aiTitle) m.aiTitle = o.aiTitle; return;
       case 'custom-title': if (o.customTitle) m.customTitle = o.customTitle; return;
@@ -227,11 +233,11 @@ class CodexParser extends BaseParser {
     const ts = o.timestamp;
     if (t === 'session_meta') {
       m.id = p.id || p.session_id || m.id;
-      if (p.cwd) m.cwd = p.cwd;
+      if (p.cwd) m.cwd = normCwd(p.cwd);
       if (p.originator) m.originator = p.originator;
       return;
     }
-    if (t === 'turn_context') { if (p.cwd && !m.cwd) m.cwd = p.cwd; return; }
+    if (t === 'turn_context') { if (p.cwd && !m.cwd) m.cwd = normCwd(p.cwd); return; }
     if (t === 'event_msg') {
       if (p.type === 'error' && p.message) this.push({ role: 'system', text: p.message, ts, error: true });
       else if (p.type === 'turn_aborted') this.push({ role: 'system', text: '작업이 중단됨', ts });
@@ -402,10 +408,10 @@ class Store {
     try { mtime = fs.statSync(e.file).mtimeMs; } catch { /* 지워짐 */ }
     const m = t.parser.meta;
     if (agent === 'codex') { const n = codexThreadNames().get(id); if (n) m.threadName = n; }
-    return { items: t.parser.items, epoch: t.epoch, offset: t.state.offset, mtime, title: t.parser.title(), cwd: m.cwd };
+    return { items: t.parser.items, rev: t.parser.rev, epoch: t.epoch, offset: t.state.offset, mtime, title: t.parser.title(), cwd: m.cwd };
   }
 }
 
 module.exports = {
-  Store, ClaudeParser, CodexParser, readNewLines, claudeHome, codexHome, listClaudeFiles, listCodexFiles,
+  normCwd, Store, ClaudeParser, CodexParser, readNewLines, claudeHome, codexHome, listClaudeFiles, listCodexFiles,
 };

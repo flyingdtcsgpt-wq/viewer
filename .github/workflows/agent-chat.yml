@@ -1,0 +1,26 @@
+name: agent-chat
+
+on:
+  push:
+    paths: ['agent-chat/**', '.github/workflows/agent-chat.yml']
+  pull_request:
+    paths: ['agent-chat/**', '.github/workflows/agent-chat.yml']
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        node: [18, 22]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: agent-chat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test

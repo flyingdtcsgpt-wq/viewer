@@ -17,9 +17,25 @@ process.stdin.on('end', () => {
     fs.mkdirSync(dir, { recursive: true });
     const f = path.join(dir, id + '.jsonl');
     const w = o => fs.appendFileSync(f, JSON.stringify(o) + '\n');
+    const out = o => process.stdout.write(JSON.stringify(o) + '\n');
+    const answer = 'echo: ' + input + ' mode=' + args[args.indexOf('--permission-mode') + 1];
     w({ type: 'user', cwd: process.cwd(), sessionId: id, message: { role: 'user', content: input } });
-    w({ type: 'assistant', cwd: process.cwd(), message: { id: 'm' + Date.now(), role: 'assistant', content: [{ type: 'text', text: 'echo: ' + input + ' mode=' + args[args.indexOf('--permission-mode') + 1] }] } });
-    process.stdout.write('echo: ' + input);
+    out({ type: 'stream_event', event: { type: 'message_start' } });
+    // 글자 단위로 흘려보내기 (실시간 표시 시험)
+    const parts = answer.match(/.{1,6}/gs);
+    const delay = input.includes('SLOW') ? 400 : 120;
+    let k = 0;
+    const tick = () => {
+      if (k < parts.length) {
+        out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: parts[k++] } } });
+        return setTimeout(tick, delay);
+      }
+      const msg = { id: 'm' + Date.now() + Math.random(), role: 'assistant', content: [{ type: 'text', text: answer }] };
+      out({ type: 'assistant', message: msg });
+      w({ type: 'assistant', cwd: process.cwd(), message: msg });
+      out({ type: 'result', subtype: 'success', is_error: false, result: answer });
+    };
+    tick();
   } else {
     const resume = args[1] === 'resume';
     const id = resume ? args[args.length - 2] : crypto.randomUUID();

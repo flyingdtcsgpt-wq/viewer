@@ -106,11 +106,11 @@ test('목록: 두 에이전트 세션이 최근 순으로', () => {
 });
 
 // ---------- 서버 끝까지 (가짜 claude/codex 로) ----------
-async function startServer(kind) {
+async function startServer(kind, extra = {}) {
   const home = path.join(tmp, 'home-' + kind);
   fs.mkdirSync(home, { recursive: true });
   const fake = path.join(__dirname, 'fake-agent.js');
-  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ token: 'test-token-1234567890', port: 0, host: '127.0.0.1', claudeBin: fake, codexBin: fake }));
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ token: 'test-token-1234567890', port: 0, host: '127.0.0.1', claudeBin: fake, codexBin: fake, ...extra }));
   const port = 18000 + Math.floor(Math.random() * 2000);
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
     env: { ...process.env, AGENT_CHAT_HOME: home, AGENT_CHAT_PORT: String(port), FAKE_KIND: kind }, stdio: ['ignore', 'pipe', 'pipe'],
@@ -187,6 +187,84 @@ test('서버: Codex 새 세션은 thread id 를 돌려주고, 이어 보내면 �
     assert.match(m.items[3].text, /resume .*sandbox_mode=workspace-write/);
     const same = await call(`/api/messages?agent=codex&id=${id}&stamp=${encodeURIComponent(m.stamp)}`);
     assert.ok(same.body.same || same.body.stamp !== m.stamp);
+  } finally { child.kill(); }
+});
+
+// SSE 를 열어 두고 조건이 맞을 때까지 이벤트를 모은다
+async function collect(port, q, until, ms = 15000) {
+  const ctrl = new AbortController();
+  const r = await fetch(`http://127.0.0.1:${port}/api/stream?${q}`, { headers: { Authorization: 'Bearer test-token-1234567890' }, signal: ctrl.signal });
+  const reader = r.body.getReader(); const dec = new TextDecoder();
+  const evs = []; let buf = '';
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) !== -1) {
+        const block = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = (block.match(/^event: (.*)$/m) || [])[1]; const data = (block.match(/^data: (.*)$/m) || [])[1];
+        if (ev && data) { evs.push({ ev, d: JSON.parse(data) }); if (until(evs)) { ctrl.abort(); return evs; } }
+      }
+    }
+  } catch (e) { if (!ctrl.signal.aborted) throw e; } finally { clearTimeout(timer); }
+  throw new Error('조건이 오지 않음: ' + JSON.stringify(evs.slice(-3)));
+}
+
+test('실시간: 답변이 글자 단위로 흘러오고, 작업 중 보낸 말은 줄 섰다가 이어서', async () => {
+  const { child, call, port } = await startServer('claude');
+  try {
+    const first = collect(port, `agent=claude&id=${CID}`, evs => evs.some(e => e.ev === 'msgs' && e.d.items.some(i => i.text === 'echo: 둘째 mode=auto')));
+    await new Promise(r => setTimeout(r, 300));
+    let r = await call('/api/send', { agent: 'claude', id: CID, prompt: 'SLOW 첫째', mode: 'plan' });
+    assert.strictEqual(r.status, 200);
+    r = await call('/api/send', { agent: 'claude', id: CID, prompt: '둘째', mode: 'auto' });
+    assert.strictEqual(r.body.queued, 1);
+    const evs = await first;
+    const lives = evs.filter(e => e.ev === 'job' && e.d.live).map(e => e.d.live);
+    assert.ok(lives.length >= 3, '중간 글자가 여러 번 와야 함: ' + lives.length);
+    assert.ok(lives.some(l => l.startsWith('echo: ') && l.length < 'echo: SLOW 첫째 mode=plan'.length), '완성 전 조각');
+    assert.ok(evs.some(e => e.ev === 'job' && e.d.queued === 1));
+    const msgs = evs.filter(e => e.ev === 'msgs');
+    assert.strictEqual(msgs[0].d.full, true);
+    assert.ok(msgs.slice(1).every(m => !m.d.full && m.d.items.length <= 3), '처음 이후에는 바뀐 것만');
+    const all = msgs.flatMap(m => m.d.items).map(i => i.text);
+    assert.ok(all.indexOf('echo: SLOW 첫째 mode=plan') < all.indexOf('echo: 둘째 mode=auto'));
+  } finally { child.kill(); }
+});
+
+test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {
+  const { npmShimTarget, decode } = require('../lib/runner');
+  const npm = path.join(tmp, 'npm');
+  const cli = path.join(npm, 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
+  fs.mkdirSync(path.dirname(cli), { recursive: true });
+  fs.writeFileSync(cli, '');
+  fs.writeFileSync(path.join(npm, 'claude.cmd'), '');
+  assert.strictEqual(npmShimTarget('claude', path.join(npm, 'claude.cmd')), cli);
+  assert.strictEqual(npmShimTarget('codex', path.join(npm, 'codex.cmd')), null);
+  assert.strictEqual(decode(Buffer.from('한글 오류', 'utf8')), '한글 오류');
+  // CP949 로 된 "오류"
+  assert.strictEqual(decode(Buffer.from([0xbf, 0xc0, 0xb7, 0xf9])), '오류');
+  const { normCwd } = require('../lib/sources');
+  assert.strictEqual(normCwd('\\\\?\\C:\\Users\\me\\proj'), 'C:\\Users\\me\\proj');
+});
+
+test('Windows: 공백 있는 폴더의 .cmd 로 실행해도 따옴표 · & · 한글이 그대로', { skip: process.platform !== 'win32' }, async () => {
+  const dir = path.join(tmp, 'my tools');
+  fs.mkdirSync(dir, { recursive: true });
+  const cmd = path.join(dir, 'fake claude.cmd');
+  fs.writeFileSync(cmd, `@"${process.execPath}" "${path.join(__dirname, 'fake-agent.js')}" %*\r\n`);
+  const { child, call } = await startServer('claude', { claudeBin: cmd });
+  try {
+    const text = '따옴표 "a" & | > 100% 한글';
+    const r = await call('/api/send', { agent: 'claude', id: CID, prompt: text, mode: 'acceptEdits' });
+    assert.strictEqual(r.status, 200);
+    await waitFor(async () => {
+      const x = await call(`/api/messages?agent=claude&id=${CID}`);
+      return x.body.items.some(i => i.text === `echo: ${text} mode=acceptEdits`);
+    }, 15000);
   } finally { child.kill(); }
 });
 

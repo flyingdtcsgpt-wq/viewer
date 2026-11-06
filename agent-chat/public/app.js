@@ -89,15 +89,17 @@
   }
 
   // ---------- 채팅 ----------
-  let cur = null; // {agent, id, stamp, epoch, rendered: Map(n→{json, el}), limit, pending}
+  let cur = null; // {agent, id, rendered: Map(n→{json, el}), limit, pending, job, ctrl}
   function fillModes(sel, agent) {
     const modes = info.modes[agent] || [];
     const saved = store.get('ac_mode_' + agent, modes[0]);
     sel.replaceChildren(...modes.map(m => { const o = el('option', '', MODE_LABEL[m] || m); o.value = m; return o; }));
     sel.value = modes.includes(saved) ? saved : modes[0];
   }
+  function closeChat() { if (cur && cur.ctrl) cur.ctrl.abort(); cur = null; }
   function openChat(agent, id) {
-    cur = { agent, id, stamp: '', epoch: -1, rendered: new Map(), limit: 300, pending: null, first: true };
+    closeChat();
+    cur = { agent, id, rendered: new Map(), limit: 300, pending: [], first: true, job: null, active: false, from: -1, epoch: -1 };
     show('chat');
     $('msgs').replaceChildren();
     $('msgs').classList.toggle('hide-tools', hideTools);
@@ -106,7 +108,7 @@
     $('chatSub').textContent = agent === 'claude' ? 'Claude' : 'Codex';
     fillModes($('mode'), agent);
     $('status').hidden = true;
-    loadChat();
+    connect();
   }
   $('toolsToggle').onclick = () => {
     hideTools = !hideTools; store.set('ac_hideTools', hideTools ? '1' : '0');
@@ -116,58 +118,113 @@
   $('mode').onchange = () => cur && store.set('ac_mode_' + cur.agent, $('mode').value);
   $('back').onclick = () => { location.hash = '#/'; };
 
-  async function loadChat() {
+  // 실시간 연결: 서버가 바뀐 것만 바로바로 보내 준다. 끊기면 2초 뒤 다시.
+  async function connect() {
     const c = cur;
     if (!c) return;
-    let d;
+    if (c.ctrl) c.ctrl.abort();
+    const ctrl = new AbortController();
+    c.ctrl = ctrl;
     try {
-      d = await api(`/api/messages?agent=${c.agent}&id=${encodeURIComponent(c.id)}&limit=${c.limit}&stamp=${encodeURIComponent(c.stamp)}`);
+      const res = await fetch(`/api/stream?agent=${c.agent}&id=${encodeURIComponent(c.id)}&limit=${c.limit}`, {
+        headers: { Authorization: 'Bearer ' + token }, signal: ctrl.signal, cache: 'no-store',
+      });
+      if (res.status === 401) { showLogin('토큰이 맞지 않습니다'); return; }
+      if (!res.ok) throw new Error('오류 ' + res.status);
+      c.from = -1; // 다시 연결하면 처음부터 받는다
+      if (c.offline) { c.offline = false; updateStatus(); }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n\n')) !== -1) {
+          const block = buf.slice(0, i); buf = buf.slice(i + 2);
+          let ev = 'message', data = '';
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event: ')) ev = line.slice(7);
+            else if (line.startsWith('data: ')) data += line.slice(6);
+          }
+          if (!data || c !== cur) continue;
+          const d = JSON.parse(data);
+          if (ev === 'msgs') onMsgs(d);
+          else if (ev === 'job') { c.job = d; updateStatus(); }
+        }
+      }
     } catch (e) {
-      if (e.message === '401' || c !== cur) return;
-      setStatus('연결 오류: ' + e.message, true);
-      schedule(loadChat, 5000);
-      return;
+      if (ctrl.signal.aborted || c !== cur) return;
+      c.offline = true; updateStatus();
     }
-    if (c !== cur) return;
-    const running = d.same ? c.running : !!(d.job && d.job.running);
-    if (!d.same) {
-      c.stamp = d.stamp;
-      c.running = running;
-      renderChat(d);
-    }
-    schedule(loadChat, running || (d.active && !d.same) || d.pending ? 1500 : 4000);
+    if (c === cur && !ctrl.signal.aborted) setTimeout(() => { if (c === cur && c.ctrl === ctrl) connect(); }, 2000);
   }
 
-  function renderChat(d) {
+  function onMsgs(d) {
     const c = cur;
     const box = $('msgs');
-    const nearBottom = c.first || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+    const nearBottom = c.first || box.scrollHeight - box.scrollTop - box.clientHeight < 150;
     if (d.title) $('chatTitle').textContent = d.title;
     if (d.cwd) $('chatSub').textContent = (c.agent === 'claude' ? 'Claude · ' : 'Codex · ') + d.cwd;
-    if (d.epoch !== c.epoch || d.from !== c.from) { c.rendered.clear(); box.replaceChildren(); c.epoch = d.epoch; c.from = d.from; }
-    if (d.from > 0 && !box.querySelector('.more')) {
-      const more = el('button', 'more', `이전 메시지 ${d.from}개 더 보기`);
-      more.onclick = () => { c.limit += 300; c.stamp = ''; loadChat(); };
-      box.prepend(more);
+    c.active = d.active;
+    if (d.full) {
+      // 다시 받은 전체 목록: 이미 그린 것은 그대로 두고 바뀐 것만 고친다
+      if (d.epoch !== c.epoch || d.from !== c.from) { c.rendered.clear(); box.replaceChildren(); }
+      c.epoch = d.epoch; c.from = d.from;
+      const om = box.querySelector('.more'); if (om) om.remove();
+      if (d.from > 0) {
+        const more = el('button', 'more', `이전 메시지 ${d.from}개 더 보기`);
+        more.onclick = () => { c.limit += 300; connect(); };
+        box.prepend(more);
+      }
     }
+    const liveEl = $('live');
     for (const it of d.items || []) {
       const j = JSON.stringify(it);
       const old = c.rendered.get(it.n);
       if (old && old.json === j) continue;
       const node = renderItem(it, old && old.el);
-      if (old) old.el.replaceWith(node); else box.append(node);
+      if (old) old.el.replaceWith(node);
+      else if (liveEl && liveEl.parentNode === box) box.insertBefore(node, liveEl);
+      else box.append(node);
       c.rendered.set(it.n, { json: j, el: node });
+      // 보낸 말이 기록에 나타나면 임시 말풍선을 지운다
+      if (it.role === 'user') {
+        const k = c.pending.findIndex(p => p.text.trim() === it.text.trim());
+        if (k >= 0) { c.pending[k].el.remove(); c.pending.splice(k, 1); }
+      }
     }
-    // 보낸 말이 기록에 나타나면 임시 말풍선을 지운다
-    if (c.pending && (d.items || []).some(it => it.role === 'user' && it.n >= c.pending.after)) { c.pending.el.remove(); c.pending = null; }
-    if (c.pending) box.append(c.pending.el);
-    const job = d.job;
-    if (job && job.running) setStatus('작업 중…', false, true);
-    else if (job && job.error) setStatus(job.error, true);
-    else if (d.active && !job) setStatus('PC 에서 작업 중인 것 같습니다 (VS Code)', false);
-    else $('status').hidden = true;
-    if (nearBottom) box.scrollTop = box.scrollHeight;
+    for (const p of c.pending) box.append(p.el);
+    updateStatus(nearBottom);
     c.first = false;
+  }
+
+  // 아래 상태 줄 + 지금 쓰고 있는 답변(실시간 말풍선)
+  function updateStatus(stick) {
+    const c = cur;
+    if (!c) return;
+    const box = $('msgs');
+    if (stick === undefined) stick = box.scrollHeight - box.scrollTop - box.clientHeight < 150;
+    const j = c.job;
+    let live = $('live');
+    if (j && j.running && j.live) {
+      if (!live) { live = el('div', 'msg assistant live'); live.id = 'live'; live.append(el('div', 'bubble')); }
+      const h = md(j.live), caret = '<span class="caret"></span>';
+      live.firstChild.innerHTML = h.endsWith('</p>') ? h.slice(0, -4) + caret + '</p>' : h + caret;
+      box.append(live);
+    } else if (live) live.remove();
+    for (const p of c.pending) box.append(p.el);
+
+    if (c.offline) setStatus('연결이 끊겼습니다. 다시 연결하는 중…', true);
+    else if (j && j.running) {
+      let t = j.tool ? '실행 중: ' + j.tool : j.live ? '답하는 중…' : '생각하는 중…';
+      if (j.queued) t += ` (대기 ${j.queued}개)`;
+      setStatus(t, false, true);
+    } else if (j && j.error) setStatus(j.error, true);
+    else if (c.active && !(j && j.endedAt)) setStatus('PC 에서 작업 중인 것 같습니다 (VS Code)', false);
+    else $('status').hidden = true;
+    if (stick) box.scrollTop = box.scrollHeight;
   }
 
   function setStatus(text, isErr, canStop) {
@@ -176,7 +233,7 @@
     s.className = 'status' + (isErr ? ' error' : '');
     s.replaceChildren();
     if (!isErr) s.append(el('span', 'dot'));
-    s.append(el('span', '', text));
+    s.append(el('span', 'stxt', text));
     if (canStop) {
       const b = el('button', '', '중지');
       b.onclick = async () => { try { await api('/api/stop', { agent: cur.agent, id: cur.id }); } catch (e) { alert(e.message); } };
@@ -206,7 +263,7 @@
     return row;
   }
 
-  // ---------- 보내기 ----------
+  // ---------- 보내기 (작업 중이어도 보내면 줄 세웠다가 이어서) ----------
   const input = $('input');
   function grow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 160) + 'px'; }
   input.addEventListener('input', grow);
@@ -221,15 +278,13 @@
     const c = cur;
     $('sendBtn').disabled = true;
     try {
-      await api('/api/send', { agent: c.agent, id: c.id, prompt: text, mode: $('mode').value });
+      const r = await api('/api/send', { agent: c.agent, id: c.id, prompt: text, mode: $('mode').value });
       input.value = ''; grow();
       const p = el('div', 'msg user pending'); p.append(el('div', 'bubble', text));
-      c.pending = { el: p, after: c.rendered.size ? Math.max(...c.rendered.keys()) + 1 : 0 };
+      if (r.queued) p.firstChild.append(el('div', 'qtag', '대기 중'));
+      c.pending.push({ el: p, text });
       $('msgs').append(p);
       $('msgs').scrollTop = $('msgs').scrollHeight;
-      c.stamp = ''; c.running = true;
-      setStatus('작업 중…', false, true);
-      schedule(loadChat, 800);
     } catch (err) {
       if (err.message !== '401') setStatus(err.message, true);
     } finally { $('sendBtn').disabled = false; }
@@ -281,10 +336,10 @@
     if (!token) { showLogin(); return; }
     const m = location.hash.match(/^#\/s\/(claude|codex)\/([0-9A-Za-z-]+)$/);
     if (m) {
-      if (refresh && cur && cur.agent === m[1] && cur.id === m[2]) { show('chat'); loadChat(); return; }
+      if (refresh && cur && cur.agent === m[1] && cur.id === m[2]) { show('chat'); connect(); return; }
       openChat(m[1], m[2]);
     } else {
-      cur = null;
+      closeChat();
       show('list');
       loadList(true);
     }

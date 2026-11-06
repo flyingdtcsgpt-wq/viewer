@@ -22,7 +22,7 @@ function loadConfig() {
   if (!c.token || String(c.token).length < 16) { c.token = crypto.randomBytes(18).toString('base64url'); changed = true; }
   if (!c.port) { c.port = 8790; changed = true; }
   if (!c.host) { c.host = '0.0.0.0'; changed = true; }
-  for (const k of ['claudeBin', 'codexBin']) if (!(k in c)) { c[k] = ''; changed = true; }
+  for (const k of ['claudeBin', 'codexBin', 'claudeHome', 'codexHome']) if (!(k in c)) { c[k] = ''; changed = true; }
   for (const k of ['claudeArgs', 'codexArgs', 'projects']) if (!Array.isArray(c[k])) { c[k] = []; changed = true; }
   if (changed) {
     fs.mkdirSync(HOME, { recursive: true });
@@ -30,12 +30,16 @@ function loadConfig() {
   }
   if (process.env.AGENT_CHAT_PORT) c.port = Number(process.env.AGENT_CHAT_PORT);
   if (process.env.AGENT_CHAT_HOST) c.host = process.env.AGENT_CHAT_HOST;
+  // 기록 폴더를 바꿔 쓰는 경우 (claude/codex 실행에도 같은 값이 넘어간다)
+  if (c.claudeHome) process.env.CLAUDE_CONFIG_DIR = c.claudeHome;
+  if (c.codexHome) process.env.CODEX_HOME = c.codexHome;
   return c;
 }
 
 const config = loadConfig();
 const store = new Store();
 const runner = new Runner(config);
+runner.setMaxListeners(100);
 
 // ---------- 인증 (토큰) + 틀린 시도 막기 ----------
 const fails = new Map(); // ip → {n, until}
@@ -98,6 +102,45 @@ function projects() {
     .map(p => ({ path: p, name: path.basename(p) || p }));
 }
 
+// 실시간: 기록 파일이 바뀌거나 답변이 흘러나오면 바로 휴대폰으로 (Server-Sent Events)
+//   event: msgs  {full, epoch, total, from, items(바뀐 것만), title, cwd, active}
+//   event: job   {running, live(쓰는 중인 답변), tool(실행 중인 도구), error, queued}
+function stream(req, res, q) {
+  const agent = agentOf(q.get('agent')); const id = q.get('id') || '';
+  if (!agent || !ID_RE.test(id)) return send(req, res, 400, { error: '잘못된 요청' });
+  const limit = Math.min(Number(q.get('limit')) || 300, 5000);
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', ...SEC_HEADERS });
+  res.write('retry: 2000\n\n');
+  const out = (ev, data) => res.write(`event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`);
+  let epoch = -1, rev = -1, from = -1, title = '', active = null, jobKey = '';
+  const tickFile = () => {
+    const m = store.messages(agent, id);
+    if (!m) return;
+    const f = Math.max(0, m.items.length - limit);
+    const isActive = Date.now() - m.mtime < 20000;
+    if (m.epoch === epoch && m.rev === rev && f === from && m.title === title && isActive === active) return;
+    const full = m.epoch !== epoch || f !== from;
+    const items = full ? m.items.slice(f) : m.items.filter(it => it.v > rev && it.n >= f);
+    epoch = m.epoch; rev = m.rev; from = f; title = m.title; active = isActive;
+    out('msgs', { full, epoch, total: m.items.length, from: f, items, title: m.title, cwd: m.cwd, active: isActive });
+  };
+  const tickJob = () => {
+    const j = runner.job(agent, id);
+    const k = JSON.stringify(j);
+    if (k === jobKey) return;
+    jobKey = k;
+    out('job', j || { running: false });
+  };
+  tickFile(); tickJob();
+  const onChange = key => { if (key === agent + ':' + id) { tickJob(); tickFile(); } };
+  runner.on('change', onChange);
+  const iv = setInterval(() => { try { tickFile(); tickJob(); } catch { /* 다음에 */ } }, 400);
+  const hb = setInterval(() => res.write(': ping\n\n'), 15000);
+  const close = () => { clearInterval(iv); clearInterval(hb); runner.off('change', onChange); };
+  req.on('close', close);
+  res.on('error', close);
+}
+
 async function api(req, res, url) {
   const q = url.searchParams;
   const p = url.pathname;
@@ -123,6 +166,7 @@ async function api(req, res, url) {
       title: m.title, cwd: m.cwd, job, active: Date.now() - m.mtime < 20000,
     });
   }
+  if (p === '/api/stream' && req.method === 'GET') return stream(req, res, q);
   if (p === '/api/projects' && req.method === 'GET') return send(req, res, 200, { projects: projects() });
   if (p === '/api/info' && req.method === 'GET') {
     return send(req, res, 200, { bins: runner.bins(), modes: { claude: CLAUDE_MODES.slice(0, 4), codex: CODEX_MODES }, host: os.hostname() });

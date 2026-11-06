@@ -112,3 +112,10 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 .login-box { margin: auto; width: min(360px, 90%); display: flex; flex-direction: column; gap: 10px; }
 .login-box h1 { margin: 0; }
 .login-box p { color: var(--muted); font-size: 14px; margin: 0; }
+
+/* 실시간 답변 */
+.live .bubble { border-style: dashed; }
+.caret { display: inline-block; width: 7px; height: 1em; margin-left: 2px; vertical-align: text-bottom; background: var(--accent); animation: pulse 1s infinite; }
+.qtag { font-size: 11px; opacity: .8; margin-top: 2px; text-align: right; }
+.status .stxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.status.error .stxt { white-space: pre-wrap; }
