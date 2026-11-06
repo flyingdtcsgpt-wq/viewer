@@ -4,8 +4,10 @@ name: agent-chat
 # agent-chat-v0.2.0 같은 태그를 push 하면 Releases 에도 올린다
 on:
   push:
-    paths: ['agent-chat/**', '.github/workflows/agent-chat.yml']
+    # tags 만 적으면 브랜치 push 에는 안 돈다 → branches 도 적는다 (태그 push 에는 paths 가 적용되지 않음)
+    branches: ['**']
     tags: ['agent-chat-v*']
+    paths: ['agent-chat/**', '.github/workflows/agent-chat.yml']
   pull_request:
     paths: ['agent-chat/**', '.github/workflows/agent-chat.yml']
   workflow_dispatch:
