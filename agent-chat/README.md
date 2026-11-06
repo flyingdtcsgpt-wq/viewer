@@ -26,23 +26,34 @@ PC 의 VS Code 에서 쓰는 **Claude Code 확장 · Codex 확장** 대화를 �
   VS Code 패널이 이미 열려 있으면 바로 새로 고쳐지지는 않으니, 다시 열어야 보인다.
 - 같은 세션을 VS Code 에서 돌리는 중에 휴대폰에서도 보내면 둘이 섞인다. 화면 아래에 "PC 에서 작업 중인 것 같습니다" 가 보이면 끝날 때까지 기다린다.
 
-## 설치 (Windows 11, 한 번만)
-1. [Node.js LTS](https://nodejs.org) 설치 (설치 화면 기본값 그대로)
-2. 이 `agent-chat` 폴더를 PC 아무 곳에 둔다 (예: `C:\agent-chat`)
-3. **`start.bat` 더블클릭** → 처음 한 번 *Windows 보안 경고(방화벽)* 가 뜨면 **개인 네트워크 허용** 을 누른다
-4. 창에 나오는 주소 `http://<PC주소>:8790/#t=<토큰>` 을 휴대폰에서 연다 → 토큰이 저장되어 다음부터는 `http://<PC주소>:8790` 만 열면 된다
-5. 휴대폰 브라우저 메뉴 → **홈 화면에 추가** 하면 앱처럼 열린다
+## 설치 (Windows 11 + 안드로이드)
+설치 파일 받는 곳: GitHub 저장소 **Actions → agent-chat → 최신 실행 → Artifacts**
+(`AgentChat-windows-setup`, `AgentChat-android`). `agent-chat-v0.2.0` 같은 태그를 push 하면 **Releases** 에도 올라간다.
 
-### 켜 두기 (창 없이 · 로그인할 때 자동으로)
-- **`autostart-on.bat`** 더블클릭 → 지금 바로 창 없이 켜지고, 다음부터 Windows 로그인할 때마다 자동으로 켜진다.
-  접속 주소(토큰 포함)는 `%USERPROFILE%\.agent-chat\server.log` 에 있다.
-- 끄기 · 자동 시작 해제: **`autostart-off.bat`**
-- 절전 막기: 설정 → 시스템 → 전원 → *화면 및 절전* → "다음 시간 후에 디바이스를 절전 모드로 전환" **안 함** (화면은 꺼져도 된다)
+### PC (Windows 11)
+1. `AgentChat-x.y.z-windows-setup.exe` 실행 (Node.js 가 안에 들어 있어 따로 설치할 것 없음)
+   - 서명이 없는 설치 파일이라 *Windows의 PC 보호* 창이 뜨면 **추가 정보 → 실행**
+   - 고를 것: *로그인할 때 자동으로 켜기*, *방화벽 허용(같은 와이파이 · Tailscale 에서만)* 둘 다 그대로 두면 된다
+2. 설치가 끝나면 PC 브라우저에 **휴대폰 연결** 화면(QR 코드)이 열린다.
+   나중에는 시작 메뉴 → **Agent Chat 휴대폰 연결 (QR)**
+3. 시작 메뉴에 **Agent Chat 끄기**, **설정 파일**, **기록 (server.log)** 도 있다. 제거는 Windows 설정 → 앱.
+4. 절전 막기: 설정 → 시스템 → 전원 → *화면 및 절전* → 절전 모드 **안 함** (화면은 꺼져도 된다)
+
+### 휴대폰 (안드로이드)
+1. `AgentChat-x.y.z-android.apk` 를 휴대폰에서 열어 설치 (*출처를 알 수 없는 앱* 허용)
+2. 앱 → **QR 스캔으로 PC 추가** → PC 의 연결 화면 QR 을 찍는다. PC 가 여러 대면 계속 추가, 목록 위 **PC** 버튼으로 바꾼다
+3. 일을 시키고 앱을 내려놓아도, 작업이 끝나면 **알림**이 온다 (눌러서 그 대화로). 처음 한 번 알림 허용
+4. 밖(LTE)에서: PC 와 휴대폰에 Tailscale 설치 · 같은 계정 로그인 → 연결 화면의 **어디서나** QR 로 추가
+
+아이폰은 앱 없이 Safari 로 연결 화면 QR 을 찍어 열고 *공유 → 홈 화면에 추가*.
+
+### 설치 파일 없이 (개발용 · macOS/Linux)
+Node.js 18+ 를 깔고 `start.bat` / `./start.sh` 실행. 창 없이 자동 시작은 `autostart-on.bat` / `autostart-off.bat`.
 
 ### 폰에서 안 열릴 때
-- 방화벽 경고에서 허용을 안 눌렀다면, **관리자 권한** 명령 프롬프트에서 한 번:
+- 설치 때 방화벽 허용을 껐거나 설치 파일 없이 쓴다면, **관리자 권한** 명령 프롬프트에서 한 번:
   `netsh advfirewall firewall add rule name="Agent Chat" dir=in action=allow protocol=TCP localport=8790`
-- 서버 창(또는 server.log)의 `claude :` / `codex :` 줄이 *못 찾음* 이면 `config.json` 에 경로를 적는다.
+- `server.log`(시작 메뉴 → 기록)의 `claude :` / `codex :` 줄이 *못 찾음* 이면 `config.json` 에 경로를 적는다.
   보통 위치: Claude `C:\Users\<나>\.local\bin\claude.exe` 또는 `C:\Users\<나>\AppData\Roaming\npm\claude.cmd`,
   Codex 는 VS Code 확장 안 `C:\Users\<나>\.vscode\extensions\openai.chatgpt-…\bin\windows-x86_64\codex.exe` (자동으로 찾음)
 - Codex 확장을 **WSL 에서 실행** 하도록 설정해 두었다면 기록이 WSL 안(`\\wsl.localhost\Ubuntu\home\<나>\.codex`)에 있다.
@@ -73,8 +84,15 @@ PC 는 켜져 있어야 하고 절전으로 들어가면 안 된다 (Windows 설
 - PC 의 VS Code 처럼 "이 명령 실행할까요?" 를 폰에서 하나씩 허락하는 기능은 없다. 보낼 때 고른 권한 안에서만 실행되고,
   권한 밖의 일은 Claude 가 "허락이 필요하다" 고 답한다 → 권한을 올려 다시 보내면 된다.
 
+## PC 가 여러 대 · VS Code 창이 여러 개 · Claude 와 Codex 를 같이 쓸 때
+- VS Code 창이 몇 개든, 한 창에 Claude · Codex 확장이 같이 있든 상관없다. 기록은 PC 마다 한 곳(`~/.claude`, `~/.codex`)에 모여 목록에 **프로젝트 폴더 이름**과 함께 전부 보인다.
+- PC 가 여러 대면 PC 마다 설치하고 앱에 QR 로 각각 추가한다.
+- 같은 대화를 PC 와 휴대폰에서 동시에 시키면 섞인다. "PC 에서 작업 중" 이 보이면 끝날 때까지 기다린다.
+
 ## 개발
 ```
 npm test        # 기록 해석 · 이어 읽기 · 서버(가짜 claude/codex 로 보내기 · 새 세션 · 실패 표시 · 실시간 · 대기열 · Windows .cmd)
 ```
-GitHub Actions(`agent-chat.yml`)가 Windows · Linux, Node 18 · 22 에서 돌린다. 외부 라이브러리 없음. `server.js`(HTTP · 인증), `lib/sources.js`(기록 해석), `lib/runner.js`(claude/codex 실행), `public/`(휴대폰 화면).
+GitHub Actions(`agent-chat.yml`)가 Windows · Linux, Node 18 · 22 에서 돌린다. 외부 라이브러리 없음 (QR 그리기만 `public/vendor/qrcode.js`, MIT). `server.js`(HTTP · 인증), `lib/sources.js`(기록 해석), `lib/runner.js`(claude/codex 실행), `public/`(휴대폰 화면 · PC 연결 화면), `windows/`(설치 파일 Inno Setup · 시작/끄기 스크립트), `android/`(앱: WebView + PC 목록 + 작업 끝 알림).
+
+안드로이드 서명: 저장소 Secrets 에 `AGENT_CHAT_KEYSTORE_BASE64` 등(없으면 ARARIFlex 의 `ANDROID_KEYSTORE_*`)이 있으면 그 키로 서명한다. 없으면 debug 키라 새 버전이 기존 앱 위에 설치되지 않을 수 있다(지우고 다시 설치).
