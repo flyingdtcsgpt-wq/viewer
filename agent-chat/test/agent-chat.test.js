@@ -359,6 +359,38 @@ test('Codex 프로젝트를 API 로: 폰 작업에만 CODEX_API_KEY', async () =
   } finally { child.kill(); }
 });
 
+test('보낼 때 모델 · 추론 강도 · 생각: 고른 것만 넘기고, 이상한 값은 버린다', async () => {
+  const { child, call } = await startServer('claude');
+  try {
+    let r = await call('/api/send', { agent: 'claude', id: CID, prompt: '옵션1', mode: 'plan', opts: { model: 'opus', effort: 'high', thinking: 'off' } });
+    assert.strictEqual(r.status, 200);
+    await waitFor(async () => { const x = await call(`/api/messages?agent=claude&id=${CID}`); return x.body.items.some(i => i.text === 'echo: 옵션1 mode=plan model=opus effort=high think=off'); });
+    r = await call('/api/send', { agent: 'claude', id: CID, prompt: '옵션2', mode: 'plan', opts: { model: 'x; rm -rf /', effort: 'huge', thinking: 'on' } });
+    await waitFor(async () => { const x = await call(`/api/messages?agent=claude&id=${CID}`); return x.body.items.some(i => i.text === 'echo: 옵션2 mode=plan think=on'); });
+    const info = (await call('/api/info')).body;
+    assert.ok(info.models.claude.includes('opus') && info.efforts.claude.includes('max') && info.efforts.codex.includes('minimal'));
+  } finally { child.kill(); }
+});
+
+test('Codex: 모델 · 추론 강도 옵션, 기록에서 쓴 모델 읽기', async () => {
+  const { child, call } = await startServer('codex');
+  try {
+    let r = await call('/api/send', { agent: 'codex', id: XID, prompt: '옵션', mode: 'read-only', opts: { model: 'gpt-6.1-sol', effort: 'xhigh', thinking: 'off' } });
+    assert.strictEqual(r.status, 200);
+    const m = await waitFor(async () => { const x = await call(`/api/messages?agent=codex&id=${XID}`); return x.body.items && x.body.items.find(i => (i.text || '').startsWith('codex: 옵션')); });
+    assert.match(m.text, /-m gpt-6\.1-sol/);
+    assert.match(m.text, /model_reasoning_effort=xhigh/);
+  } finally { child.kill(); }
+  const { CodexParser, ClaudeParser } = require('../lib/sources');
+  const p = new CodexParser(false);
+  p.feed({ type: 'turn_context', payload: { cwd: '/x', model: 'gpt-6.1-sol' } });
+  p.feed({ type: 'response_item', payload: { type: 'configuration_update', reasoning: { effort: 'low' } } });
+  assert.deepStrictEqual([p.meta.model, p.meta.effort], ['gpt-6.1-sol', 'low']);
+  const c = new ClaudeParser(false);
+  c.feed({ type: 'assistant', message: { id: 'a', model: 'claude-opus-5-5', role: 'assistant', content: [{ type: 'text', text: 'hi' }] } });
+  assert.strictEqual(c.meta.model, 'claude-opus-5-5');
+});
+
 test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {
   const { npmShimTarget, decode } = require('../lib/runner');
   const npm = path.join(tmp, 'npm');

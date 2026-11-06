@@ -11,7 +11,11 @@
     'workspace-write': '폴더 쓰기', 'read-only': '읽기만', 'danger-full-access': '전부 허용',
   };
   let token = store.get('ac_token', '');
-  let info = { modes: { claude: ['acceptEdits', 'auto', 'bypassPermissions', 'plan'], codex: ['workspace-write', 'read-only', 'danger-full-access'] } };
+  let info = {
+    modes: { claude: ['acceptEdits', 'auto', 'bypassPermissions', 'plan'], codex: ['workspace-write', 'read-only', 'danger-full-access'] },
+    models: { claude: ['fable', 'opus', 'sonnet', 'haiku'], codex: [] },
+    efforts: { claude: ['low', 'medium', 'high', 'xhigh', 'max'], codex: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
+  };
   let filter = store.get('ac_filter', 'all');
   let hideTools = store.get('ac_hideTools', '0') === '1';
   let timer = null;
@@ -114,6 +118,75 @@
 
   // ---------- 채팅 ----------
   let cur = null; // {agent, id, rendered: Map(n→{json, el}), limit, pending, job, ctrl}
+  // ---------- 보낼 때 설정: 권한 · 모델 · 추론 강도 · 생각 ----------
+  const LABEL = {
+    low: '낮음', medium: '보통', high: '높음', xhigh: '매우 높음', max: '최대', minimal: '최소',
+    fable: 'Fable', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku',
+  };
+  function getOpts(agent) {
+    try { const o = JSON.parse(store.get('ac_opts_' + agent, '{}')); return o && typeof o === 'object' ? o : {}; } catch { return {}; }
+  }
+  function setOpts(agent, o) { store.set('ac_opts_' + agent, JSON.stringify(o)); }
+  function shortModel(m) { return String(m || '').replace(/^claude-/, ''); }
+  function optSummary(agent, withMode) {
+    const o = getOpts(agent);
+    const parts = [];
+    if (withMode) parts.push(MODE_LABEL[store.get('ac_mode_' + agent, (info.modes[agent] || [])[0])] || '');
+    parts.push(o.model ? (LABEL[o.model] || shortModel(o.model)) : '기본 모델');
+    if (o.effort) parts.push(LABEL[o.effort] || o.effort);
+    if (o.thinking) parts.push(o.thinking === 'on' ? '생각 켬' : '생각 끔');
+    return parts.filter(Boolean).join(' · ');
+  }
+  function showOptSummary() {
+    if (cur) $('optSum').textContent = optSummary(cur.agent, true);
+    $('newOptSum').textContent = optSummary(newAgent, false);
+  }
+  let optCtx = null; // {agent, withMode}
+  function openOpts(agent, withMode) {
+    optCtx = { agent, withMode };
+    const o = getOpts(agent);
+    $('optTitle').textContent = (agent === 'claude' ? 'Claude' : 'Codex') + ' · 보낼 때 설정';
+    $('optModeRow').hidden = !withMode;
+    if (withMode) fillModes($('optMode'), agent);
+    const models = (info.models && info.models[agent]) || [];
+    const sel = $('optModel');
+    const opts = [['', '기본 (PC 설정)'], ...models.map(m => [m, LABEL[m] ? `${LABEL[m]} (최신)` : m])];
+    if (o.model && !models.includes(o.model)) opts.push([o.model, o.model]);
+    opts.push(['__custom', '직접 입력…']);
+    sel.replaceChildren(...opts.map(([v, t]) => { const x = el('option', '', t); x.value = v; return x; }));
+    sel.value = o.model || '';
+    $('optModelCustom').hidden = true; $('optModelCustom').value = '';
+    const efforts = (info.efforts && info.efforts[agent]) || [];
+    $('optEffort').replaceChildren(...[['', '기본 (PC 설정)'], ...efforts.map(e => [e, `${LABEL[e] || e} (${e})`])].map(([v, t]) => { const x = el('option', '', t); x.value = v; return x; }));
+    $('optEffort').value = o.effort || '';
+    $('optThinkRow').hidden = agent !== 'claude';
+    $('optThinking').value = o.thinking || '';
+    const now = cur && cur.agent === agent && cur.model ? `지금 이 대화가 쓰는 모델: ${cur.model}${cur.effort ? ' · 추론 ' + (LABEL[cur.effort] || cur.effort) : ''}` : '';
+    $('optNow').textContent = now; $('optNow').hidden = !now;
+    $('optSheet').hidden = false;
+  }
+  $('optModel').onchange = () => { const c = $('optModel').value === '__custom'; $('optModelCustom').hidden = !c; if (c) $('optModelCustom').focus(); };
+  $('optReset').onclick = () => { $('optModel').value = ''; $('optModelCustom').hidden = true; $('optEffort').value = ''; $('optThinking').value = ''; };
+  $('optSheet').onclick = e => { if (e.target === $('optSheet')) $('optForm').requestSubmit(); };
+  $('optForm').onsubmit = e => {
+    e.preventDefault();
+    if (!optCtx) return;
+    const { agent, withMode } = optCtx;
+    let model = $('optModel').value;
+    if (model === '__custom') model = $('optModelCustom').value.trim();
+    if (model && !/^[A-Za-z0-9][A-Za-z0-9._:\-\[\]]{0,79}$/.test(model)) { alert('모델 이름에 쓸 수 없는 글자가 있습니다'); return; }
+    const o = {};
+    if (model) o.model = model;
+    if ($('optEffort').value) o.effort = $('optEffort').value;
+    if (agent === 'claude' && $('optThinking').value) o.thinking = $('optThinking').value;
+    setOpts(agent, o);
+    if (withMode) { store.set('ac_mode_' + agent, $('optMode').value); $('mode').value = $('optMode').value; }
+    $('optSheet').hidden = true;
+    showOptSummary();
+  };
+  $('optBtn').onclick = () => cur && openOpts(cur.agent, true);
+  $('newOptBtn').onclick = () => openOpts(newAgent, false);
+
   function fillModes(sel, agent) {
     const modes = info.modes[agent] || [];
     const saved = store.get('ac_mode_' + agent, modes[0]);
@@ -131,6 +204,8 @@
     $('chatTitle').textContent = '불러오는 중…';
     $('chatSub').textContent = agent === 'claude' ? 'Claude' : 'Codex';
     fillModes($('mode'), agent);
+    cur.model = ''; cur.effort = '';
+    showOptSummary();
     $('status').hidden = true;
     $('authChip').hidden = true;
     connect();
@@ -213,7 +288,11 @@
     const nearBottom = c.first || box.scrollHeight - box.scrollTop - box.clientHeight < 150;
     if (d.title) $('chatTitle').textContent = d.title;
     // 폰 화면은 좁으니 폴더 이름만 (전체 경로는 길게 누르면 보이는 title 로)
-    if (d.cwd) { $('chatSub').textContent = (c.agent === 'claude' ? 'Claude · ' : 'Codex · ') + d.cwd.split(/[\\/]/).filter(Boolean).pop(); $('chatSub').title = d.cwd; }
+    if (d.model) { c.model = d.model; c.effort = d.effort || ''; }
+    if (d.cwd) {
+      $('chatSub').textContent = (c.agent === 'claude' ? 'Claude · ' : 'Codex · ') + d.cwd.split(/[\\/]/).filter(Boolean).pop() + (c.model ? ' · ' + shortModel(c.model) : '');
+      $('chatSub').title = d.cwd;
+    }
     c.active = d.active;
     if (d.cwd) { c.cwd = d.cwd; c.auth = d.auth || 'sub'; showAuth(c); }
     if (d.full) {
@@ -329,7 +408,7 @@
     const c = cur;
     $('sendBtn').disabled = true;
     try {
-      const r = await api('/api/send', { agent: c.agent, id: c.id, prompt: text, mode: $('mode').value });
+      const r = await api('/api/send', { agent: c.agent, id: c.id, prompt: text, mode: $('mode').value, opts: getOpts(c.agent) });
       input.value = ''; grow();
       const p = el('div', 'msg user pending'); p.append(el('div', 'bubble', text));
       if (r.queued) p.firstChild.append(el('div', 'qtag', '대기 중'));
@@ -348,6 +427,7 @@
     newAgent = a; store.set('ac_newAgent', a);
     for (const b of $('newAgent').children) b.classList.toggle('on', b.dataset.a === a);
     fillModes($('newMode'), a);
+    showOptSummary();
   }
   for (const b of $('newAgent').children) b.onclick = () => setNewAgent(b.dataset.a);
   $('newMode').onchange = () => store.set('ac_mode_' + newAgent, $('newMode').value);
@@ -380,7 +460,7 @@
     const btn = e.submitter || $('newForm').querySelector('.primary');
     btn.disabled = true; $('newErr').textContent = '시작하는 중…';
     try {
-      const r = await api('/api/new', { agent: newAgent, cwd, prompt, mode: $('newMode').value, auth: $('newAuth').value });
+      const r = await api('/api/new', { agent: newAgent, cwd, prompt, mode: $('newMode').value, auth: $('newAuth').value, opts: getOpts(newAgent) });
       store.set('ac_lastProject', cwd);
       $('newPrompt').value = ''; $('newPath').value = '';
       $('sheet').hidden = true;
@@ -402,7 +482,11 @@
     }
   }
   window.addEventListener('hashchange', () => route());
-  api('/api/info').then(d => { if (d.modes) info.modes = d.modes; }).catch(() => {}).finally(() => route());
+  api('/api/info').then(d => {
+    if (d.modes) info.modes = d.modes;
+    if (d.models) info.models = d.models;
+    if (d.efforts) info.efforts = d.efforts;
+  }).catch(() => {}).finally(() => route());
 
   // ---------- 아주 작은 마크다운 (HTML 은 모두 이스케이프) ----------
   function esc(s) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }

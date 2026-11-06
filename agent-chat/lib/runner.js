@@ -15,6 +15,22 @@ const isWin = process.platform === 'win32';
 const ID_RE = /^[0-9A-Za-z][0-9A-Za-z-]{6,63}$/;
 const CLAUDE_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'plan', 'default', 'manual', 'dontAsk'];
 const CODEX_MODES = ['workspace-write', 'read-only', 'danger-full-access'];
+// 보낼 때 고르는 모델 · 추론 강도 · 생각(thinking)
+const CLAUDE_MODELS = ['fable', 'opus', 'sonnet', 'haiku'];
+const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\-\[\]]{0,79}$/;
+
+/** 화면에서 온 값을 검사해서 쓸 수 있는 것만 남긴다 */
+function cleanOpts(agent, o) {
+  o = o && typeof o === 'object' ? o : {};
+  const out = {};
+  if (typeof o.model === 'string' && MODEL_RE.test(o.model.trim())) out.model = o.model.trim();
+  const efforts = agent === 'claude' ? CLAUDE_EFFORTS : CODEX_EFFORTS;
+  if (efforts.includes(o.effort)) out.effort = o.effort;
+  if (agent === 'claude' && (o.thinking === 'on' || o.thinking === 'off')) out.thinking = o.thinking;
+  return out;
+}
 
 function isFile(p) { try { return fs.statSync(p).isFile(); } catch { return false; } }
 
@@ -115,14 +131,29 @@ function resolveBin(agent, config) {
   return npmShimTarget(agent, bin) || bin;
 }
 
-function buildArgs(agent, { id, isNew, mode }, config) {
+function buildArgs(agent, { id, isNew, mode, opts = {} }, config) {
   if (agent === 'claude') {
     const a = ['-p', '--permission-mode', mode, '--output-format', 'stream-json', '--verbose', '--include-partial-messages'];
     a.push(isNew ? '--session-id' : '--resume', id);
+    if (opts.model) a.push('--model', opts.model);
+    if (opts.effort) a.push('--effort', opts.effort);
+    if (opts.thinking === 'on' && config.thinkingOnFile) a.push('--settings', config.thinkingOnFile);
     return a.concat(config.claudeArgs || []);
   }
-  if (isNew) return ['exec', '--json', '--skip-git-repo-check', '-s', mode, ...(config.codexArgs || []), '-'];
-  return ['exec', 'resume', '--json', '--skip-git-repo-check', '-c', `sandbox_mode=${mode}`, ...(config.codexArgs || []), id, '-'];
+  const extra = [];
+  if (opts.model) extra.push('-m', opts.model);
+  if (opts.effort) extra.push('-c', `model_reasoning_effort=${opts.effort}`);
+  if (isNew) return ['exec', '--json', '--skip-git-repo-check', '-s', mode, ...extra, ...(config.codexArgs || []), '-'];
+  return ['exec', 'resume', '--json', '--skip-git-repo-check', '-c', `sandbox_mode=${mode}`, ...extra, ...(config.codexArgs || []), id, '-'];
+}
+
+/** 생각 끄기는 환경변수로 */
+function envFor(agent, env, opts = {}) {
+  if (agent !== 'claude' || !opts.thinking) return env;
+  const e = { ...(env || process.env) };
+  if (opts.thinking === 'off') e.CLAUDE_CODE_DISABLE_THINKING = '1';
+  else delete e.CLAUDE_CODE_DISABLE_THINKING;
+  return e;
 }
 
 function quoteWin(a) { return /^[\w.:=/\\-]+$/.test(a) ? a : '"' + String(a).replace(/"/g, '') + '"'; }
@@ -163,7 +194,8 @@ class Runner extends EventEmitter {
   changed(job) { job.v++; if (job.id) this.emit('change', job.agent + ':' + job.id); }
 
   // 반환: Promise<{id, queued?}>  (새 Codex 세션은 id 가 정해질 때까지 기다린다)
-  start(agent, { id, cwd, prompt, mode, env }) {
+  start(agent, { id, cwd, prompt, mode, env, opts }) {
+    opts = cleanOpts(agent, opts);
     if (agent !== 'claude' && agent !== 'codex') throw httpError(400, '알 수 없는 에이전트');
     const modes = agent === 'claude' ? CLAUDE_MODES : CODEX_MODES;
     if (!modes.includes(mode)) mode = modes[0];
@@ -175,18 +207,18 @@ class Runner extends EventEmitter {
     const busy = !isNew && this.jobs.get(agent + ':' + id);
     if (busy && !busy.done) {
       if (busy.queue.length >= 5) throw httpError(429, '대기 중인 메시지가 너무 많습니다');
-      busy.queue.push({ prompt, mode });
+      busy.queue.push({ prompt, mode, opts });
       this.changed(busy);
       return Promise.resolve({ id, queued: busy.queue.length });
     }
     const bin = resolveBin(agent, this.config);
     if (!bin) throw httpError(500, `${agent} 프로그램을 찾지 못했습니다. config.json 의 ${agent}Bin 에 경로를 적어 주세요`);
     if (isNew && agent === 'claude') id = crypto.randomUUID();
-    return this.run(agent, bin, { id, isNew, cwd, prompt, mode, env, queue: [] });
+    return this.run(agent, bin, { id, isNew, cwd, prompt, mode, env, opts, queue: [] });
   }
 
-  run(agent, bin, { id, isNew, cwd, prompt, mode, env, queue }) {
-    const child = launch(bin, buildArgs(agent, { id, isNew, mode }, this.config), cwd, env);
+  run(agent, bin, { id, isNew, cwd, prompt, mode, env, opts, queue }) {
+    const child = launch(bin, buildArgs(agent, { id, isNew, mode, opts }, this.config), cwd, envFor(agent, env, opts));
     const job = {
       agent, id, cwd, bin, env, child, startedAt: Date.now(), out: Buffer.alloc(0), err: Buffer.alloc(0), done: false,
       live: { text: '', tool: '' }, v: 0, queue,
@@ -251,7 +283,7 @@ class Runner extends EventEmitter {
       // 줄 서 있던 메시지를 이어서 (멈춤 · 오류면 버린다)
       if (job.queue.length && !job.stopped && !job.error) {
         const next = job.queue.shift();
-        try { this.run(agent, job.bin, { id: job.id, isNew: false, cwd: job.cwd, prompt: next.prompt, mode: next.mode, env: job.env, queue: job.queue }); } catch (e) { job.error = e.message; }
+        try { this.run(agent, job.bin, { id: job.id, isNew: false, cwd: job.cwd, prompt: next.prompt, mode: next.mode, opts: next.opts, env: job.env, queue: job.queue }); } catch (e) { job.error = e.message; }
       }
     };
 
@@ -283,4 +315,4 @@ class Runner extends EventEmitter {
 function nonJson(s) { return s.split('\n').filter(l => !/^\s*\{/.test(l)).join('\n'); }
 function httpError(status, message) { const e = new Error(message); e.status = status; return e; }
 
-module.exports = { Runner, CLAUDE_MODES, CODEX_MODES, resolveBin, buildArgs, npmShimTarget, decode, httpError, ID_RE };
+module.exports = { Runner, CLAUDE_MODES, CODEX_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, CODEX_EFFORTS, cleanOpts, resolveBin, buildArgs, npmShimTarget, decode, httpError, ID_RE };

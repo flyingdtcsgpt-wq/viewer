@@ -58,7 +58,8 @@
   <div id="msgs" class="msgs"></div>
   <div id="status" class="status" hidden></div>
   <form id="composer" class="composer">
-    <select id="mode" aria-label="권한"></select>
+    <button id="optBtn" type="button" class="optbtn" aria-label="권한 · 모델 · 추론 설정"><span id="optSum">편집 허용</span></button>
+    <select id="mode" aria-label="권한" hidden></select>
     <textarea id="input" rows="1" placeholder="메시지 보내기" enterkeyhint="send"></textarea>
     <button id="sendBtn" class="send" type="submit" aria-label="보내기">➤</button>
   </form>
@@ -83,11 +84,39 @@
       </select>
     </label>
     <label>권한 <select id="newMode"></select></label>
+    <button type="button" id="newOptBtn" class="optline">모델 · 추론: <b id="newOptSum">기본</b> <span>바꾸기</span></button>
     <textarea id="newPrompt" rows="4" placeholder="무엇을 시킬까요?"></textarea>
     <p id="newErr" class="err"></p>
     <div class="row">
       <button type="button" id="newCancel">취소</button>
       <button type="submit" class="primary">시작</button>
+    </div>
+  </form>
+</div>
+<!-- 보낼 때 설정: 권한 · 모델 · 추론 강도 · 생각 -->
+<div id="optSheet" class="sheet" hidden>
+  <form id="optForm" class="sheet-box">
+    <h2 id="optTitle">보낼 때 설정</h2>
+    <label id="optModeRow">권한 <select id="optMode"></select></label>
+    <label>모델
+      <select id="optModel"></select>
+    </label>
+    <input id="optModelCustom" placeholder="모델 이름 직접 입력 (예: claude-opus-5-5, gpt-6.1-sol)" hidden>
+    <label>추론 강도 (effort)
+      <select id="optEffort"></select>
+    </label>
+    <label id="optThinkRow">생각 (thinking)
+      <select id="optThinking">
+        <option value="">기본 (PC 설정)</option>
+        <option value="on">켜기</option>
+        <option value="off">끄기</option>
+      </select>
+    </label>
+    <p id="optNow" class="optnow"></p>
+    <p class="optnow">고른 값은 이 휴대폰에 기억되고, 보내는 메시지마다 적용됩니다. "기본"은 PC 의 Claude · Codex 설정을 그대로 씁니다.</p>
+    <div class="row">
+      <button type="button" id="optReset">모두 기본으로</button>
+      <button type="submit" class="primary">완료</button>
     </div>
   </form>
 </div>

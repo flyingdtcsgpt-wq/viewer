@@ -18,7 +18,10 @@ process.stdin.on('end', () => {
     const f = path.join(dir, id + '.jsonl');
     const w = o => fs.appendFileSync(f, JSON.stringify(o) + '\n');
     const out = o => process.stdout.write(JSON.stringify(o) + '\n');
-    const answer = 'echo: ' + input + ' mode=' + args[args.indexOf('--permission-mode') + 1] + (process.env.ANTHROPIC_API_KEY ? ' auth=api:' + process.env.ANTHROPIC_API_KEY : '');
+    const answer = 'echo: ' + input + ' mode=' + args[args.indexOf('--permission-mode') + 1] + (process.env.ANTHROPIC_API_KEY ? ' auth=api:' + process.env.ANTHROPIC_API_KEY : '') +
+      (args.includes('--model') ? ' model=' + args[args.indexOf('--model') + 1] : '') +
+      (args.includes('--effort') ? ' effort=' + args[args.indexOf('--effort') + 1] : '') +
+      (args.includes('--settings') ? ' think=on' : '') + (process.env.CLAUDE_CODE_DISABLE_THINKING ? ' think=off' : '');
     w({ type: 'user', cwd: process.cwd(), sessionId: id, message: { role: 'user', content: input } });
     out({ type: 'stream_event', event: { type: 'message_start' } });
     // 글자 단위로 흘려보내기 (실시간 표시 시험)
@@ -41,8 +44,10 @@ process.stdin.on('end', () => {
     const id = resume ? args[args.length - 2] : crypto.randomUUID();
     const dir = path.join(process.env.CODEX_HOME, 'sessions', '2026', '11', '06');
     fs.mkdirSync(dir, { recursive: true });
-    const existing = fs.readdirSync(dir).find(n => n.includes(id));
-    const f = path.join(dir, existing || `rollout-2026-11-06T00-00-00-${id}.jsonl`);
+    // 진짜 codex 처럼: 이어서 할 때는 원래 기록 파일(날짜 폴더 어디든)에 덧붙인다
+    const findOld = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { const r = findOld(p); if (r) return r; } else if (e.name.includes(id)) return p; } return null; };
+    const existing = resume ? findOld(path.join(process.env.CODEX_HOME, 'sessions')) : null;
+    const f = existing || path.join(dir, `rollout-2026-11-06T00-00-00-${id}.jsonl`);
     const w = o => fs.appendFileSync(f, JSON.stringify(o) + '\n');
     console.log(JSON.stringify({ type: 'thread.started', thread_id: id }));
     if (!existing) w({ type: 'session_meta', payload: { id, cwd: process.cwd(), originator: 'codex_exec' } });

@@ -9,7 +9,7 @@ const os = require('os');
 const zlib = require('zlib');
 const crypto = require('crypto');
 const { Store } = require('./lib/sources');
-const { Runner, CLAUDE_MODES, CODEX_MODES, ID_RE } = require('./lib/runner');
+const { Runner, CLAUDE_MODES, CODEX_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, CODEX_EFFORTS, ID_RE } = require('./lib/runner');
 const { ProjectAuth } = require('./lib/auth');
 
 const HOME = process.env.AGENT_CHAT_HOME || path.join(os.homedir(), '.agent-chat');
@@ -47,6 +47,9 @@ function saveConfig() {
 }
 
 const config = loadConfig();
+// "생각 켜기" 를 고르면 claude --settings 로 넘길 파일
+config.thinkingOnFile = path.join(HOME, 'thinking-on.json');
+try { fs.mkdirSync(HOME, { recursive: true }); fs.writeFileSync(config.thinkingOnFile, JSON.stringify({ alwaysThinkingEnabled: true })); } catch { config.thinkingOnFile = ''; }
 const auth = new ProjectAuth(config, saveConfig, HOME);
 auth.refresh();
 const store = new Store();
@@ -138,7 +141,7 @@ function stream(req, res, q) {
     const full = m.epoch !== epoch || f !== from;
     const items = full ? m.items.slice(f) : m.items.filter(it => it.v > rev && it.n >= f);
     epoch = m.epoch; rev = m.rev; from = f; title = m.title; active = isActive; authMode = am;
-    out('msgs', { full, epoch, total: m.items.length, from: f, items, title: m.title, cwd: m.cwd, active: isActive, auth: am });
+    out('msgs', { full, epoch, total: m.items.length, from: f, items, title: m.title, cwd: m.cwd, active: isActive, auth: am, model: m.model, effort: m.effort });
   };
   const tickJob = () => {
     const j = runner.job(agent, id);
@@ -190,7 +193,12 @@ async function api(req, res, url) {
   if (p === '/api/projects' && req.method === 'GET') return send(req, res, 200, { projects: projects() });
   if (p === '/api/info' && req.method === 'GET') {
     const k = auth.keys();
-    return send(req, res, 200, { bins: runner.bins(), modes: { claude: CLAUDE_MODES.slice(0, 4), codex: CODEX_MODES }, host: os.hostname(), keys: { anthropic: k.anthropic, openai: k.openai } });
+    // Codex 모델 목록: 이 PC 에서 실제로 쓴 모델들
+    const codexModels = [...new Set(store.list(300).filter(s => s.agent === 'codex' && s.model).map(s => s.model))];
+    return send(req, res, 200, {
+      bins: runner.bins(), modes: { claude: CLAUDE_MODES.slice(0, 4), codex: CODEX_MODES }, host: os.hostname(), keys: { anthropic: k.anthropic, openai: k.openai },
+      models: { claude: CLAUDE_MODELS, codex: codexModels }, efforts: { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS },
+    });
   }
   if (req.method !== 'POST') return send(req, res, 404, { error: '없는 주소' });
   const body = await readBody(req);
@@ -202,13 +210,13 @@ async function api(req, res, url) {
     if (!ID_RE.test(id)) return send(req, res, 400, { error: '세션 id 가 이상합니다' });
     const m = store.messages(agent, id);
     const cwd = (m && m.cwd) || '';
-    const r = await runner.start(agent, { id, cwd, prompt: body.prompt, mode: body.mode, env: auth.env(agent, cwd) });
+    const r = await runner.start(agent, { id, cwd, prompt: body.prompt, mode: body.mode, opts: body.opts, env: auth.env(agent, cwd) });
     return send(req, res, 200, r);
   }
   if (p === '/api/new') {
     const cwd = String(body.cwd || '');
     if (body.auth === 'api' || body.auth === 'sub') { if (auth.mode(cwd) !== body.auth) auth.set(cwd, body.auth); }
-    const r = await runner.start(agent, { id: null, cwd, prompt: body.prompt, mode: body.mode, env: auth.env(agent, cwd) });
+    const r = await runner.start(agent, { id: null, cwd, prompt: body.prompt, mode: body.mode, opts: body.opts, env: auth.env(agent, cwd) });
     return send(req, res, 200, r);
   }
   if (p === '/api/stop') {

@@ -174,6 +174,7 @@ class ClaudeParser extends BaseParser {
   }
   assistant(o) {
     if (o.isSidechain || !o.message || !Array.isArray(o.message.content)) return;
+    if (o.message.model && !/^<.*>$/.test(o.message.model)) this.meta.model = o.message.model;
     const mid = o.message.id || o.uuid;
     if (o.isApiErrorMessage) {
       this.push({ role: 'system', text: blockText(o.message.content) || 'API 오류', ts: o.timestamp, error: true });
@@ -237,7 +238,13 @@ class CodexParser extends BaseParser {
       if (p.originator) m.originator = p.originator;
       return;
     }
-    if (t === 'turn_context') { if (p.cwd && !m.cwd) m.cwd = normCwd(p.cwd); return; }
+    if (t === 'turn_context') {
+      if (p.cwd && !m.cwd) m.cwd = normCwd(p.cwd);
+      if (p.model) m.model = p.model;
+      const eff = p.effort || p.reasoning_effort || (p.collaboration_mode && p.collaboration_mode.settings && p.collaboration_mode.settings.reasoning_effort);
+      if (eff) m.effort = eff;
+      return;
+    }
     if (t === 'event_msg') {
       if (p.type === 'error' && p.message) this.push({ role: 'system', text: p.message, ts, error: true });
       else if (p.type === 'turn_aborted') this.push({ role: 'system', text: '작업이 중단됨', ts });
@@ -260,6 +267,9 @@ class CodexParser extends BaseParser {
         }
         return;
       }
+      case 'configuration_update':
+        if (p.reasoning && p.reasoning.effort) this.meta.effort = p.reasoning.effort;
+        return;
       case 'function_call': {
         let args = p.arguments;
         try { args = JSON.parse(p.arguments); } catch { /* 글자 그대로 */ }
@@ -361,12 +371,15 @@ class Store {
   }
   scan() {
     const all = [...listClaudeFiles(), ...listCodexFiles()];
+    this.lastScan = Date.now();
+    const seen = new Map();
     for (const e of all) {
       try { const st = fs.statSync(e.file); e.mtime = st.mtimeMs; e.size = st.size; } catch { e.mtime = 0; e.size = 0; }
       const key = e.agent + ':' + e.id;
-      const old = this.index.get(key);
-      // 같은 id 가 두 폴더에 있으면(폴더를 옮긴 경우 등) 최근에 쓴 쪽
-      if (old && old.file !== e.file && fs.existsSync(old.file) && old.mtime > e.mtime && all.includes(old)) continue;
+      // 같은 id 가 두 곳에 있으면(폴더를 옮긴 경우 등) 최근에 쓴 쪽
+      const prev = seen.get(key);
+      if (prev && prev.mtime >= e.mtime) continue;
+      seen.set(key, e);
       this.index.set(key, e);
     }
     return all;
@@ -374,7 +387,8 @@ class Store {
   find(agent, id) {
     const key = agent + ':' + id;
     let e = this.index.get(key);
-    if (!e || !fs.existsSync(e.file)) { this.scan(); e = this.index.get(key); }
+    // 없거나 지워졌으면 바로, 아니면 3초에 한 번 다시 훑어 새로 생긴 같은 id 기록도 잡는다
+    if (!e || !fs.existsSync(e.file) || Date.now() - (this.lastScan || 0) > 3000) { this.scan(); e = this.index.get(key); }
     return e || null;
   }
   list(limit = 150) {
@@ -389,7 +403,7 @@ class Store {
       if (e.agent === 'codex' && names.has(e.id)) m.threadName = names.get(e.id);
       return {
         agent: e.agent, id: e.id, title: t.parser.title(), cwd: m.cwd, project: m.cwd ? path.basename(m.cwd) : '',
-        mtime: e.mtime, preview: m.last, lastRole: m.lastRole, originator: m.originator || '',
+        mtime: e.mtime, preview: m.last, lastRole: m.lastRole, originator: m.originator || '', model: m.model || '', effort: m.effort || '',
       };
     }).filter(s => s.preview || s.title !== '(제목 없음)');
   }
@@ -408,7 +422,7 @@ class Store {
     try { mtime = fs.statSync(e.file).mtimeMs; } catch { /* 지워짐 */ }
     const m = t.parser.meta;
     if (agent === 'codex') { const n = codexThreadNames().get(id); if (n) m.threadName = n; }
-    return { items: t.parser.items, rev: t.parser.rev, epoch: t.epoch, offset: t.state.offset, mtime, title: t.parser.title(), cwd: m.cwd };
+    return { items: t.parser.items, rev: t.parser.rev, epoch: t.epoch, offset: t.state.offset, mtime, title: t.parser.title(), cwd: m.cwd, model: m.model || '', effort: m.effort || '' };
   }
 }
 
