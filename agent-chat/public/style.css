@@ -131,3 +131,6 @@ body.connect { overflow: auto; }
 .code img { width: 240px; height: 240px; image-rendering: pixelated; background: #fff; border-radius: 8px; }
 .code p { word-break: break-all; }
 .code button { border: 1px solid var(--line); background: transparent; border-radius: 10px; padding: 6px 12px; }
+
+.notice { background: var(--panel); border: 1px solid var(--claude); border-radius: 12px; padding: 12px 14px; margin: 12px 0; font-size: 14px; line-height: 1.7; }
+.notice a { color: var(--accent); }
