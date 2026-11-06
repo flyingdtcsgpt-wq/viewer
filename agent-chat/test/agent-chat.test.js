@@ -312,8 +312,15 @@ test('프로젝트별 구독 / API: Claude 는 폴더 설정 파일 + 폰 작업
     assert.match(st.apiKeyHelper, /print-key\.js/);
     assert.ok(!fs.readFileSync(sf, 'utf8').includes('sk-ant-test-AAAA'), '프로젝트 폴더에 키가 남지 않음');
     // apiKeyHelper 명령이 실제로 키를 출력 (Claude Code 가 하는 것처럼 셸로 실행)
-    const out = execFileSync(process.platform === 'win32' ? 'cmd' : 'sh', process.platform === 'win32' ? ['/d', '/s', '/c', `"${st.apiKeyHelper}"`] : ['-c', st.apiKeyHelper], { encoding: 'utf8' });
-    assert.strictEqual(out, 'sk-ant-test-AAAA');
+    if (process.platform === 'win32') {
+      // Windows: cmd 로도, Git Bash 로도 (Claude Code 가 어느 셸을 쓰든)
+      const out = execFileSync('cmd.exe', ['/d', '/s', '/c', `"${st.apiKeyHelper}"`], { encoding: 'utf8', windowsVerbatimArguments: true });
+      assert.strictEqual(out, 'sk-ant-test-AAAA');
+      const bash = ['C:\\Program Files\\Git\\bin\\bash.exe'].find(f => fs.existsSync(f));
+      if (bash) assert.strictEqual(execFileSync(bash, ['-c', st.apiKeyHelper], { encoding: 'utf8' }), 'sk-ant-test-AAAA');
+    } else {
+      assert.strictEqual(execFileSync('sh', ['-c', st.apiKeyHelper], { encoding: 'utf8' }), 'sk-ant-test-AAAA');
+    }
     // 목록 · 새 대화: API 프로젝트에서 폰 작업에 키가 붙는다
     r = await call('/api/new', { agent: 'claude', cwd: proj, prompt: '키?', mode: 'plan' });
     const nid = r.body.id;
