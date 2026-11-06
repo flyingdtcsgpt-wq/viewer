@@ -188,7 +188,8 @@
     const box = $('msgs');
     const nearBottom = c.first || box.scrollHeight - box.scrollTop - box.clientHeight < 150;
     if (d.title) $('chatTitle').textContent = d.title;
-    if (d.cwd) $('chatSub').textContent = (c.agent === 'claude' ? 'Claude · ' : 'Codex · ') + d.cwd;
+    // 폰 화면은 좁으니 폴더 이름만 (전체 경로는 길게 누르면 보이는 title 로)
+    if (d.cwd) { $('chatSub').textContent = (c.agent === 'claude' ? 'Claude · ' : 'Codex · ') + d.cwd.split(/[\\/]/).filter(Boolean).pop(); $('chatSub').title = d.cwd; }
     c.active = d.active;
     if (d.full) {
       // 다시 받은 전체 목록: 이미 그린 것은 그대로 두고 바뀐 것만 고친다
