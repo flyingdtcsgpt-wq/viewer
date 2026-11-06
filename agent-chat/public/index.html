@@ -18,9 +18,13 @@
 <section id="login" class="view" hidden>
   <div class="login-box">
     <h1>Agent Chat</h1>
-    <p>PC 에서 서버를 켰을 때 나온 주소를 그대로 열거나, 토큰을 붙여 넣으세요.</p>
-    <input id="tokenInput" type="password" autocomplete="off" placeholder="토큰">
-    <button id="tokenSave" class="primary">접속</button>
+    <p>PC 의 <b>Agent Chat 휴대폰 연결</b> 화면에 보이는 <b>연결 코드 6자리</b>를 넣으세요.</p>
+    <input id="codeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="연결 코드 (예: 482 913)">
+    <button id="codeSave" class="primary">연결</button>
+    <details><summary>토큰으로 접속</summary>
+      <input id="tokenInput" type="password" autocomplete="off" placeholder="토큰">
+      <button id="tokenSave">접속</button>
+    </details>
     <p id="loginErr" class="err"></p>
   </div>
 </section>

@@ -13,8 +13,8 @@
       '지금은 같은 와이파이에서만 연결됩니다. 밖(LTE)에서도 쓰려면:<br>' +
       '1. 이 PC 에 <a href="https://tailscale.com/download/windows" target="_blank" rel="noopener">Tailscale</a> 설치 → 로그인<br>' +
       '2. 휴대폰에 Tailscale 앱 설치 → <b>같은 계정</b>으로 로그인<br>' +
-      '3. 이 화면을 새로 고침 → <b>어디서나 (Tailscale)</b> QR 을 앱에서 스캔';
-    box.before(n);
+      '3. 이 화면을 새로 고침 → <b>Tailscale 주소</b>로 숫자 코드 또는 QR 연결';
+    document.querySelector('.pair').before(n);
   }
   const rest = (d.urls || []).filter(u => u.kind === 'virtual');
   if (!show.length) box.textContent = '네트워크 주소가 없습니다. 와이파이/유선 연결을 확인하세요.';
@@ -30,5 +30,21 @@
     card.append(b);
     box.append(card);
   }
+  // 숫자 코드: 몇 초마다 새로 읽는다 (쓰이면 새 코드로 바뀜)
+  const $ = id => document.getElementById(id);
+  const port = d.port;
+  const showPair = info => {
+    const addrs = (info.addresses || []).map(a => `${a.address}${port === 8790 ? '' : ':' + port}  — ${a.label}`);
+    $('pairAddr').textContent = addrs.length ? addrs.join('\n') : '(네트워크 주소 없음)';
+    $('pairCode').textContent = info.pairCode.slice(0, 3) + ' ' + info.pairCode.slice(3);
+    const left = Math.max(0, Math.round((info.pairExp - Date.now()) / 60000));
+    $('pairExp').textContent = `${left}분 동안 · 한 번만 쓸 수 있음`;
+    if (info.lastPaired && Date.now() - info.lastPaired < 5 * 60 * 1000) {
+      $('paired').hidden = false;
+      $('paired').textContent = '✓ 휴대폰이 연결되었습니다 (' + new Date(info.lastPaired).toLocaleTimeString() + '). 다른 휴대폰은 새 코드를 쓰세요.';
+    }
+  };
+  showPair(d);
+  setInterval(async () => { try { showPair(await (await fetch('/api/connect-info', { cache: 'no-store' })).json()); } catch { /* 서버 꺼짐 */ } }, 3000);
   document.getElementById('foot').textContent = `PC: ${d.host} · 포트 ${d.port} · QR 에는 접속 토큰이 들어 있으니 남에게 보여 주지 마세요.`;
 })();

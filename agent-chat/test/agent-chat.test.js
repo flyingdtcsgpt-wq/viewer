@@ -254,6 +254,32 @@ test('PC 연결 화면: 이 PC(localhost)에서만, 주소마다 토큰 포함 �
   } finally { child.kill(); }
 });
 
+test('숫자 연결 코드: 맞으면 토큰, 한 번만, 5번 틀리면 폐기', async () => {
+  const http = require('http');
+  const { child, port } = await startServer('claude');
+  const req = (method, p, body, host = `127.0.0.1:${port}`) => new Promise((res, rej) => {
+    const r = http.request({ host: '127.0.0.1', port, path: p, method, headers: { Host: host, 'Content-Type': 'application/json' } }, x => {
+      let b = ''; x.on('data', d => { b += d; }); x.on('end', () => res({ status: x.statusCode, body: b ? JSON.parse(b) : null }));
+    });
+    r.on('error', rej); if (body) r.write(JSON.stringify(body)); r.end();
+  });
+  try {
+    assert.strictEqual((await req('POST', '/api/pair', { code: '123456' })).status, 410, '연결 화면을 열기 전에는 코드 없음');
+    let info = (await req('GET', '/api/connect-info')).body;
+    assert.match(info.pairCode, /^\d{6}$/);
+    const wrong = info.pairCode === '000000' ? '111111' : '000000';
+    assert.strictEqual((await req('POST', '/api/pair', { code: wrong })).status, 403);
+    const ok = await req('POST', '/api/pair', { code: info.pairCode.slice(0, 3) + ' ' + info.pairCode.slice(3) });
+    assert.strictEqual(ok.status, 200);
+    assert.strictEqual(ok.body.token, 'test-token-1234567890');
+    assert.strictEqual((await req('POST', '/api/pair', { code: info.pairCode })).status, 410, '한 번 쓰면 끝');
+    info = (await req('GET', '/api/connect-info')).body;
+    assert.ok(info.lastPaired > 0);
+    for (let i = 0; i < 5; i++) await req('POST', '/api/pair', { code: info.pairCode === '000000' ? '111111' : '000000' });
+    assert.strictEqual((await req('POST', '/api/pair', { code: info.pairCode })).status, 410, '5번 틀리면 폐기');
+  } finally { child.kill(); }
+});
+
 test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {
   const { npmShimTarget, decode } = require('../lib/runner');
   const npm = path.join(tmp, 'npm');

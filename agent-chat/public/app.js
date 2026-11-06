@@ -47,6 +47,16 @@
   function show(id) { for (const v of ['login', 'list', 'chat']) $(v).hidden = v !== id; }
   function showLogin(msg) { stopTimer(); show('login'); $('loginErr').textContent = msg || ''; }
   $('tokenSave').onclick = () => { token = $('tokenInput').value.trim(); store.set('ac_token', token); route(); };
+  $('codeSave').onclick = async () => {
+    const code = $('codeInput').value.replace(/\D/g, '');
+    if (code.length !== 6) { $('loginErr').textContent = '숫자 6자리를 넣으세요'; return; }
+    try {
+      const r = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { $('loginErr').textContent = d.error || ('오류 ' + r.status); return; }
+      token = d.token; store.set('ac_token', token); $('codeInput').value = ''; route();
+    } catch (e) { $('loginErr').textContent = e.message; }
+  };
 
   function stopTimer() { if (timer) { clearTimeout(timer); timer = null; } }
   function schedule(fn, ms) { stopTimer(); timer = setTimeout(fn, ms); }

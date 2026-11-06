@@ -14,6 +14,16 @@
     <h1>휴대폰 연결</h1>
     <p>휴대폰의 <b>Agent Chat 앱</b>에서 <b>QR 스캔</b>을 누르거나, 휴대폰 카메라로 찍어 브라우저로 여세요.</p>
     <p class="muted">밖(LTE)에서도 쓰려면 PC 와 휴대폰에 Tailscale 을 설치하고 같은 계정으로 로그인한 뒤 <b>어디서나</b> 코드를 쓰세요.</p>
+    <section class="pair">
+      <h2>숫자로 연결 <small>(QR 을 찍기 어려울 때)</small></h2>
+      <p>휴대폰 앱의 <b>숫자 코드로 추가</b> (또는 브라우저 첫 화면)에 아래 <b>PC 주소</b>와 <b>코드</b>를 넣으세요.</p>
+      <div class="pair-row">
+        <div><div class="muted">PC 주소</div><div id="pairAddr" class="pair-addr"></div></div>
+        <div><div class="muted">연결 코드</div><div id="pairCode" class="pair-code">------</div><div id="pairExp" class="muted"></div></div>
+      </div>
+      <p id="paired" class="ok" hidden></p>
+    </section>
+    <h2 class="qr-title">QR 로 연결</h2>
     <div id="codes" class="codes"></div>
     <p class="muted" id="foot"></p>
   </main>

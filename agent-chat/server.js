@@ -217,6 +217,7 @@ const server = http.createServer(async (req, res) => {
       return send(req, res, 200, fs.readFileSync(path.join(PUBLIC, s[0])), s[1], { 'Cache-Control': 'no-cache' });
     }
     if (blocked(ip)) return send(req, res, 429, { error: '잠시 후 다시 시도하세요' });
+    if (url.pathname === '/api/pair' && req.method === 'POST') return tryPair(req, res, await readBody(req), ip);
     if (!authed(req)) { noteFail(ip); return send(req, res, 401, { error: '토큰이 필요합니다' }); }
     fails.delete(ip);
     await api(req, res, url);
@@ -249,11 +250,40 @@ function addresses() {
   return out.sort((p, q) => p.rank - q.rank);
 }
 
+// ---------- 숫자 연결 코드 (QR 을 못 찍을 때) ----------
+// PC 연결 화면을 열면 6자리 코드가 생긴다. 10분 동안, 한 번만 쓸 수 있고 5번 틀리면 버린다.
+// 휴대폰은 PC 주소 + 코드를 POST /api/pair 로 보내 토큰을 받는다.
+let pair = null; // {code, exp, fails}
+let lastPaired = 0;
+const PAIR_MS = 10 * 60 * 1000;
+function currentPair() {
+  if (!pair || pair.exp < Date.now()) pair = { code: String(crypto.randomInt(0, 1000000)).padStart(6, '0'), exp: Date.now() + PAIR_MS, fails: 0 };
+  return pair;
+}
+function tryPair(req, res, body, ip) {
+  const code = String(body.code || '').replace(/\D/g, '');
+  if (!pair || pair.exp < Date.now()) { noteFail(ip); return send(req, res, 410, { error: '코드가 없거나 만료되었습니다. PC 의 연결 화면을 새로 여세요' }); }
+  const ok = code.length === 6 && crypto.timingSafeEqual(Buffer.from(code), Buffer.from(pair.code));
+  if (!ok) {
+    noteFail(ip);
+    if (++pair.fails >= 5) pair = null;
+    return send(req, res, 403, { error: '코드가 틀렸습니다' });
+  }
+  pair = null; // 한 번 쓰면 끝 (화면에는 새 코드가 뜬다)
+  lastPaired = Date.now();
+  return send(req, res, 200, { token: config.token, host: os.hostname() });
+}
+
 function connectInfo() {
   const label = { tailscale: '어디서나 (Tailscale)', lan: '같은 와이파이', other: '기타 네트워크', virtual: '가상 네트워크 (보통 안 씀)' };
+  const p = currentPair();
   return {
     host: os.hostname(),
     port: config.port,
+    pairCode: p.code,
+    pairExp: p.exp,
+    lastPaired,
+    addresses: addresses().filter(a => a.kind !== 'virtual').map(a => ({ kind: a.kind, label: label[a.kind], address: a.address })),
     urls: addresses().map(a => ({ kind: a.kind, label: label[a.kind], name: a.name, url: `http://${a.address}:${config.port}/#t=${config.token}` })),
   };
 }

@@ -77,6 +77,37 @@ object Servers {
 
 /** 아주 작은 HTTP GET (토큰 붙여서). 실패하면 null */
 object Http {
+    /** "100.101.5.7", "my-pc", "my-pc:8790", "http://…" → "http://주소:포트/" */
+    fun baseOf(addr: String): String? {
+        var a = addr.trim().removeSuffix("/")
+        if (a.isEmpty()) return null
+        a = a.replace(Regex("^https?://"), "").substringBefore('/').substringBefore('#')
+        if (a.isEmpty() || a.any { it.isWhitespace() }) return null
+        if (!a.contains(':')) a += ":8790"
+        return "http://$a/"
+    }
+
+    /** PC 주소 + 6자리 코드 → 서버(토큰). 실패하면 이유를 담은 예외 */
+    fun pair(base: String, code: String): Server {
+        val c = URL(base + "api/pair").openConnection() as HttpURLConnection
+        c.connectTimeout = 8000
+        c.readTimeout = 8000
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.setRequestProperty("Content-Type", "application/json")
+        try {
+            c.outputStream.use { it.write(JSONObject().put("code", code).toString().toByteArray(Charsets.UTF_8)) }
+            val ok = c.responseCode == 200
+            val body = (if (ok) c.inputStream else c.errorStream)?.bufferedReader(Charsets.UTF_8)?.readText().orEmpty()
+            val o = runCatching { JSONObject(body) }.getOrDefault(JSONObject())
+            if (!ok) throw IllegalStateException(o.optString("error").ifBlank { "오류 ${c.responseCode}" })
+            val host = o.optString("host").ifBlank { Uri.parse(base).authority ?: base }
+            return Server(host, base, o.getString("token"))
+        } finally {
+            c.disconnect()
+        }
+    }
+
     fun get(server: Server, path: String, timeoutMs: Int = 8000): JSONObject? = runCatching {
         val c = URL(server.base + path.trimStart('/')).openConnection() as HttpURLConnection
         c.connectTimeout = timeoutMs

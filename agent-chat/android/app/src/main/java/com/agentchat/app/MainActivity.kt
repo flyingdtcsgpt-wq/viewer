@@ -185,7 +185,7 @@ class MainActivity : Activity() {
             text = "PC 목록"; textSize = 24f; setTypeface(typeface, Typeface.BOLD); setTextColor(fg)
         })
         col.addView(TextView(this).apply {
-            text = "PC 에서 Agent Chat 을 설치한 뒤 시작 메뉴의 \"Agent Chat 휴대폰 연결\" 을 열고 QR 을 찍으세요."
+            text = "PC 에서 Agent Chat 을 설치한 뒤 시작 메뉴의 \"Agent Chat 휴대폰 연결\" 을 열고 QR 을 찍거나, 거기 보이는 PC 주소와 숫자 코드를 넣으세요."
             setTextColor(muted); textSize = 14f; setPadding(0, dp(6), 0, dp(16))
         })
         val list = Servers.all(this)
@@ -212,7 +212,8 @@ class MainActivity : Activity() {
             text = if (list.isEmpty()) "" else "길게 누르면 삭제"; textSize = 12f; setTextColor(muted); setPadding(0, 0, 0, dp(16))
         })
         col.addView(button("QR 스캔으로 PC 추가", true) { scan() })
-        col.addView(button("주소 직접 입력", false) { manual() })
+        col.addView(button("숫자 코드로 PC 추가", false) { pairDialog() })
+        col.addView(button("주소 붙여넣기", false) { manual() })
         if (loaded != null) col.addView(button("닫기", false) { hideServers() })
 
         val scroll = ScrollView(this).apply { setBackgroundColor(bg); addView(col) }
@@ -266,6 +267,53 @@ class MainActivity : Activity() {
             .setMessage("PC 의 연결 화면에서 \"주소 복사\" 한 것을 붙여 넣으세요 (토큰 포함).")
             .setView(box)
             .setPositiveButton("추가") { _, _ -> added(input.text.toString()) }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    /** PC 연결 화면의 "PC 주소" 와 "연결 코드 6자리" 로 추가 */
+    private fun pairDialog() {
+        val prefs = getSharedPreferences("servers", MODE_PRIVATE)
+        val addr = EditText(this).apply {
+            hint = "PC 주소 (예: 100.101.5.7)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine(true)
+            setText(prefs.getString("lastAddr", ""))
+        }
+        val code = EditText(this).apply {
+            hint = "연결 코드 6자리"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(addr); addView(code)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("숫자 코드로 PC 추가")
+            .setMessage("PC 에서 시작 메뉴 → Agent Chat 휴대폰 연결 을 열면 PC 주소와 코드가 보입니다.")
+            .setView(box)
+            .setPositiveButton("연결") { _, _ ->
+                val base = Http.baseOf(addr.text.toString())
+                val digits = code.text.toString().filter { it.isDigit() }
+                if (base == null || digits.length != 6) { toast("PC 주소와 숫자 6자리를 넣으세요"); return@setPositiveButton }
+                prefs.edit().putString("lastAddr", addr.text.toString().trim()).apply()
+                toast("연결하는 중…")
+                Thread {
+                    val r = runCatching { Http.pair(base, digits) }
+                    runOnUiThread {
+                        r.onSuccess { s ->
+                            Servers.add(this, s)
+                            loaded = null
+                            open(s, "")
+                        }.onFailure { e ->
+                            toast("연결 못 함: ${e.message ?: e.javaClass.simpleName}" +
+                                if (e is java.io.IOException) "\nPC 주소 · Tailscale · PC 서버가 켜져 있는지 확인하세요" else "")
+                        }
+                    }
+                }.start()
+            }
             .setNegativeButton("취소", null)
             .show()
     }

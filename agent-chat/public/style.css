@@ -134,3 +134,13 @@ body.connect { overflow: auto; }
 
 .notice { background: var(--panel); border: 1px solid var(--claude); border-radius: 12px; padding: 12px 14px; margin: 12px 0; font-size: 14px; line-height: 1.7; }
 .notice a { color: var(--accent); }
+
+.pair { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin: 16px 0; }
+.pair h2 { font-size: 17px; margin: 0 0 6px; } .pair h2 small { font-weight: normal; color: var(--muted); font-size: 13px; }
+.pair-row { display: flex; flex-wrap: wrap; gap: 28px; margin-top: 10px; }
+.pair-addr { font: 600 18px/1.6 ui-monospace, Menlo, Consolas, monospace; white-space: pre-line; }
+.pair-code { font: 700 40px/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing: 4px; color: var(--accent); }
+.qr-title { font-size: 17px; margin: 20px 0 0; }
+.ok { color: #16a34a; font-weight: 600; }
+
+.login-box details { color: var(--muted); font-size: 14px; } .login-box details input, .login-box details button { margin-top: 8px; }
