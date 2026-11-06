@@ -235,6 +235,25 @@ test('실시간: 답변이 글자 단위로 흘러오고, 작업 중 보낸 말�
   } finally { child.kill(); }
 });
 
+test('PC 연결 화면: 이 PC(localhost)에서만, 주소마다 토큰 포함 · 목록에 busy', async () => {
+  const http = require('http');
+  const { child, call, port } = await startServer('claude');
+  const get = (p, host) => new Promise((res, rej) => {
+    http.get({ host: '127.0.0.1', port, path: p, headers: { Host: host } }, r => {
+      let b = ''; r.on('data', d => { b += d; }); r.on('end', () => res({ status: r.statusCode, body: b }));
+    }).on('error', rej);
+  });
+  try {
+    assert.strictEqual((await get('/connect', `localhost:${port}`)).status, 200);
+    const info = await get('/api/connect-info', `127.0.0.1:${port}`);
+    assert.strictEqual(info.status, 200);
+    for (const u of JSON.parse(info.body).urls) assert.match(u.url, /#t=test-token-1234567890$/);
+    assert.strictEqual((await get('/api/connect-info', `evil.example:${port}`)).status, 403);
+    const r = await call('/api/sessions');
+    assert.ok(r.body.sessions.every(s => typeof s.busy === 'boolean'));
+  } finally { child.kill(); }
+});
+
 test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {
   const { npmShimTarget, decode } = require('../lib/runner');
   const npm = path.join(tmp, 'npm');

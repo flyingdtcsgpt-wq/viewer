@@ -18,7 +18,18 @@
 
   // 주소의 #t=토큰 을 받아 저장하고 주소에서는 지운다
   const hm = location.hash.match(/(?:^#|&)t=([^&]+)/);
-  if (hm) { token = decodeURIComponent(hm[1]); store.set('ac_token', token); history.replaceState(null, '', location.pathname); }
+  if (hm) {
+    token = decodeURIComponent(hm[1]); store.set('ac_token', token);
+    // 앱의 알림을 눌러 들어온 경우 &go=#/s/... 로 그 대화를 바로 연다
+    const go = location.hash.match(/&go=([^&]+)/);
+    history.replaceState(null, '', location.pathname + (go ? decodeURIComponent(go[1]) : ''));
+  }
+  // 안드로이드 앱 안에서 열렸으면 앱 기능(작업 끝 알림 · PC 바꾸기)을 쓴다
+  const native = window.AgentChatApp || null;
+  function watchInApp(c, title) {
+    if (!native || !c) return;
+    try { native.watch(c.agent, c.id, title || $('chatTitle').textContent || ''); } catch { /* 앱이 아님 */ }
+  }
 
   async function api(path, body) {
     const res = await fetch(path, {
@@ -72,13 +83,14 @@
       const b = el('button', 'sess');
       const top = el('div', 'top');
       top.append(el('span', 'badge ' + s.agent, s.agent === 'claude' ? 'Claude' : 'Codex'), el('span', '', s.project || ''), el('span', 'grow'));
-      if (s.running || s.active) top.append(el('span', 'dot'));
+      if (s.busy ?? (s.running || s.active)) top.append(el('span', 'dot'));
       top.append(el('span', '', ago(s.mtime)));
       b.append(top, el('div', 'name', s.title), el('div', 'pv', (s.lastRole === 'user' ? '나: ' : '') + (s.preview || '')));
       b.onclick = () => { location.hash = `#/s/${s.agent}/${s.id}`; };
       return b;
     }));
   }
+  if (native) { $('pcBtn').hidden = false; $('pcBtn').onclick = () => native.servers(); }
   for (const c of $('filters').children) {
     c.classList.toggle('on', c.dataset.f === filter);
     c.onclick = () => {
@@ -207,6 +219,9 @@
     const box = $('msgs');
     if (stick === undefined) stick = box.scrollHeight - box.scrollTop - box.clientHeight < 150;
     const j = c.job;
+    const busyNow = !!((j && j.running) || (c.active && !(j && j.endedAt)));
+    if (busyNow && !c.watched && !document.hidden) { c.watched = true; watchInApp(c); }
+    if (!busyNow) c.watched = false;
     let live = $('live');
     if (j && j.running && j.live) {
       if (!live) { live = el('div', 'msg assistant live'); live.id = 'live'; live.append(el('div', 'bubble')); }
@@ -283,6 +298,7 @@
       const p = el('div', 'msg user pending'); p.append(el('div', 'bubble', text));
       if (r.queued) p.firstChild.append(el('div', 'qtag', '대기 중'));
       c.pending.push({ el: p, text });
+      c.watched = true; watchInApp(c);
       $('msgs').append(p);
       $('msgs').scrollTop = $('msgs').scrollHeight;
     } catch (err) {

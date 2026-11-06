@@ -119,3 +119,15 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 .qtag { font-size: 11px; opacity: .8; margin-top: 2px; text-align: right; }
 .status .stxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .status.error .stxt { white-space: pre-wrap; }
+
+/* PC 연결 화면 */
+body.connect { overflow: auto; }
+.connect-box { max-width: 980px; margin: 0 auto; padding: 24px 16px; }
+.connect-box .muted, .code .muted { color: var(--muted); font-size: 13px; }
+.codes { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0; }
+.code { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; width: 290px; text-align: center; }
+.code.dim { opacity: .55; }
+.code h2 { font-size: 16px; margin: 0 0 8px; }
+.code img { width: 240px; height: 240px; image-rendering: pixelated; background: #fff; border-radius: 8px; }
+.code p { word-break: break-all; }
+.code button { border: 1px solid var(--line); background: transparent; border-radius: 10px; padding: 6px 12px; }

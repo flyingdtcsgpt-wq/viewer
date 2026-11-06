@@ -1,6 +1,6 @@
 {
   "name": "agent-chat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "VS Code 의 Claude Code · Codex 대화를 휴대폰에서 채팅창처럼 보고 이어서 시키는 작은 서버",
   "main": "server.js",
@@ -8,5 +8,7 @@
     "start": "node server.js",
     "test": "node --test test/agent-chat.test.js"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }

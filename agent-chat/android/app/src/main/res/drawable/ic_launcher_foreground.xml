@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 말풍선 + 점 세 개 (108dp 캔버스, 가운데 66dp 안) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M36,36h36a5,5 0,0 1,5 5v20a5,5 0,0 1,-5 5H52l-11,9v-9h-5a5,5 0,0 1,-5 -5V41a5,5 0,0 1,5 -5z" />
+    <path android:fillColor="#2F6FED"
+        android:pathData="M44,51m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0M54,51m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0M64,51m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
+</vector>

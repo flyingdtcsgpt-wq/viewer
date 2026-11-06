@@ -90,6 +90,9 @@ const STATIC = {
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
   '/manifest.json': ['manifest.json', 'application/manifest+json'],
   '/icon.svg': ['icon.svg', 'image/svg+xml'],
+  '/connect': ['connect.html', 'text/html; charset=utf-8'],
+  '/connect.js': ['connect.js', 'text/javascript; charset=utf-8'],
+  '/vendor/qrcode.js': ['vendor/qrcode.js', 'text/javascript; charset=utf-8'],
 };
 
 function agentOf(v) { return v === 'codex' ? 'codex' : v === 'claude' ? 'claude' : null; }
@@ -147,7 +150,11 @@ async function api(req, res, url) {
   if (p === '/api/sessions' && req.method === 'GET') {
     const list = store.list(Number(q.get('limit')) || 150).map(s => {
       const j = runner.job(s.agent, s.id);
-      return { ...s, running: !!(j && j.running), active: Date.now() - s.mtime < 20000 };
+      const running = !!(j && j.running);
+      const active = Date.now() - s.mtime < 20000;
+      // 폰에서 시킨 작업이 막 끝난 직후의 "최근에 쓰임" 은 작업 중으로 치지 않는다
+      const justEnded = !!(j && !j.running && j.endedAt && s.mtime <= j.endedAt + 3000);
+      return { ...s, running, active, busy: running || (active && !justEnded), error: (j && !j.running && j.error) || '' };
     });
     return send(req, res, 200, { sessions: list });
   }
@@ -199,6 +206,11 @@ const server = http.createServer(async (req, res) => {
   let url;
   try { url = new URL(req.url, 'http://x'); } catch { return send(req, res, 400, { error: '주소 오류' }); }
   try {
+    // PC 에서만: 휴대폰 연결 QR (토큰이 들어 있으므로 이 PC 의 브라우저에서만 열린다)
+    if (url.pathname === '/connect' || url.pathname === '/api/connect-info') {
+      if (!isLocal(req)) return send(req, res, 403, 'PC 에서만 열 수 있습니다', 'text/plain; charset=utf-8');
+      if (url.pathname === '/api/connect-info') return send(req, res, 200, connectInfo());
+    }
     if (!url.pathname.startsWith('/api/')) {
       const s = STATIC[url.pathname];
       if (!s || req.method !== 'GET') return send(req, res, 404, 'Not found', 'text/plain; charset=utf-8');
@@ -213,23 +225,49 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+function isLocal(req) {
+  const ip = req.socket.remoteAddress || '';
+  const host = String(req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
+  return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip) && ['localhost', '127.0.0.1', '[::1]'].includes(host);
+}
+
+// 휴대폰이 닿을 수 있는 주소: Tailscale(밖에서) → 같은 와이파이/유선 → 나머지(가상 어댑터 등)
 function addresses() {
   const out = [];
-  for (const list of Object.values(os.networkInterfaces())) {
-    for (const a of list || []) if (a.family === 'IPv4' && !a.internal) out.push(a.address);
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    for (const a of list || []) {
+      if (a.family !== 'IPv4' && a.family !== 4) continue;
+      if (a.internal) continue;
+      const [x, y] = a.address.split('.').map(Number);
+      let kind = 'other', rank = 3;
+      if (x === 100 && y >= 64 && y < 128) { kind = 'tailscale'; rank = 0; }
+      else if (/vethernet|wsl|hyper-v|virtualbox|vmware|docker|vbox|loopback|bluetooth/i.test(name)) { kind = 'virtual'; rank = 4; }
+      else if (x === 10 || (x === 172 && y >= 16 && y < 32) || (x === 192 && y === 168)) { kind = 'lan'; rank = 1; }
+      out.push({ name, address: a.address, kind, rank });
+    }
   }
-  return out;
+  return out.sort((p, q) => p.rank - q.rank);
+}
+
+function connectInfo() {
+  const label = { tailscale: '어디서나 (Tailscale)', lan: '같은 와이파이', other: '기타 네트워크', virtual: '가상 네트워크 (보통 안 씀)' };
+  return {
+    host: os.hostname(),
+    port: config.port,
+    urls: addresses().map(a => ({ kind: a.kind, label: label[a.kind], name: a.name, url: `http://${a.address}:${config.port}/#t=${config.token}` })),
+  };
 }
 
 server.listen(config.port, config.host, () => {
   const bins = runner.bins();
-  const hosts = config.host === '0.0.0.0' ? ['localhost', ...addresses()] : [config.host];
+  const hosts = config.host === '0.0.0.0' ? ['localhost', ...addresses().map(a => a.address)] : [config.host];
   console.log('Agent Chat 실행 중');
   console.log(`  설정 파일 : ${CONFIG_FILE}`);
   console.log(`  claude    : ${bins.claude || '(못 찾음 → config.json 의 claudeBin)'}`);
   console.log(`  codex     : ${bins.codex || '(못 찾음 → config.json 의 codexBin)'}`);
   console.log('  휴대폰에서 아래 주소 중 하나를 여세요 (토큰이 들어 있으니 남에게 보여 주지 마세요):');
   for (const h of hosts) console.log(`    http://${h}:${config.port}/#t=${config.token}`);
+  console.log(`  QR 코드: 이 PC 의 브라우저에서 http://localhost:${config.port}/connect`);
 });
 
 const bye = () => { runner.stopAll(); process.exit(0); };
