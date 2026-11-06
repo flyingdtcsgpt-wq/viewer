@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#111318">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Agent Chat</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<!-- 토큰 입력 -->
+<section id="login" class="view" hidden>
+  <div class="login-box">
+    <h1>Agent Chat</h1>
+    <p>PC 에서 서버를 켰을 때 나온 주소를 그대로 열거나, 토큰을 붙여 넣으세요.</p>
+    <input id="tokenInput" type="password" autocomplete="off" placeholder="토큰">
+    <button id="tokenSave" class="primary">접속</button>
+    <p id="loginErr" class="err"></p>
+  </div>
+</section>
+
+<!-- 세션 목록 -->
+<section id="list" class="view" hidden>
+  <header class="bar">
+    <h1>대화</h1>
+    <div class="chips" id="filters">
+      <button data-f="all" class="chip on">전체</button>
+      <button data-f="claude" class="chip">Claude</button>
+      <button data-f="codex" class="chip">Codex</button>
+    </div>
+  </header>
+  <div id="sessions" class="sessions"></div>
+  <button id="newBtn" class="fab" aria-label="새 대화">＋</button>
+</section>
+
+<!-- 채팅 -->
+<section id="chat" class="view" hidden>
+  <header class="bar chatbar">
+    <button id="back" class="icon" aria-label="뒤로">‹</button>
+    <div class="titles">
+      <div id="chatTitle" class="ttl"></div>
+      <div id="chatSub" class="sub"></div>
+    </div>
+    <button id="toolsToggle" class="icon small" aria-label="도구 표시">⚙</button>
+  </header>
+  <div id="msgs" class="msgs"></div>
+  <div id="status" class="status" hidden></div>
+  <form id="composer" class="composer">
+    <select id="mode" aria-label="권한"></select>
+    <textarea id="input" rows="1" placeholder="메시지 보내기" enterkeyhint="send"></textarea>
+    <button id="sendBtn" class="send" type="submit" aria-label="보내기">➤</button>
+  </form>
+</section>
+
+<!-- 새 대화 -->
+<div id="sheet" class="sheet" hidden>
+  <form id="newForm" class="sheet-box">
+    <h2>새 대화</h2>
+    <div class="seg" id="newAgent">
+      <button type="button" data-a="claude" class="on">Claude</button>
+      <button type="button" data-a="codex">Codex</button>
+    </div>
+    <label>작업 폴더
+      <select id="newProject"></select>
+    </label>
+    <input id="newPath" placeholder="또는 폴더 경로 직접 입력">
+    <label>권한 <select id="newMode"></select></label>
+    <textarea id="newPrompt" rows="4" placeholder="무엇을 시킬까요?"></textarea>
+    <p id="newErr" class="err"></p>
+    <div class="row">
+      <button type="button" id="newCancel">취소</button>
+      <button type="submit" class="primary">시작</button>
+    </div>
+  </form>
+</div>
+</body>
+</html>
