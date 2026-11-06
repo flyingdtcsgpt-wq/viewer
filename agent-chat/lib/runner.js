@@ -246,6 +246,7 @@ class Runner extends EventEmitter {
         } else if (ev.type === 'assistant') { job.live.text = ''; soon(); }
         else if (ev.type === 'user') { job.live.tool = ''; soon(); }
         else if (ev.type === 'result' && ev.is_error) job.error = String(ev.result || ev.subtype || '오류');
+        else if (ev.type === 'rate_limit_event' && ev.rate_limit_info) this.emit('usage', 'claude', ev.rate_limit_info);
         return;
       }
       if (ev.type === 'thread.started' && ev.thread_id && !job.id) {

@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const { Store } = require('./lib/sources');
 const { Runner, CLAUDE_MODES, CODEX_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, CODEX_EFFORTS, ID_RE } = require('./lib/runner');
 const { ProjectAuth } = require('./lib/auth');
+const { Usage } = require('./lib/usage');
 
 const HOME = process.env.AGENT_CHAT_HOME || path.join(os.homedir(), '.agent-chat');
 const CONFIG_FILE = path.join(HOME, 'config.json');
@@ -55,6 +56,8 @@ auth.refresh();
 const store = new Store();
 const runner = new Runner(config);
 runner.setMaxListeners(100);
+const usage = new Usage();
+runner.on('usage', (agent, info) => { if (agent === 'claude') usage.fromClaudeEvent(info); });
 
 // ---------- 인증 (토큰) + 틀린 시도 막기 ----------
 const fails = new Map(); // ip → {n, until}
@@ -190,6 +193,13 @@ async function api(req, res, url) {
     });
   }
   if (p === '/api/stream' && req.method === 'GET') return stream(req, res, q);
+  if (p === '/api/usage' && req.method === 'GET') {
+    await usage.refreshClaude();
+    store.list(150);
+    const c = store.latestCodexRate();
+    if (c) usage.fromCodex(c.rl, c.at);
+    return send(req, res, 200, usage.snapshot());
+  }
   if (p === '/api/projects' && req.method === 'GET') return send(req, res, 200, { projects: projects() });
   if (p === '/api/info' && req.method === 'GET') {
     const k = auth.keys();

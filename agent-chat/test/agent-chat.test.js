@@ -391,6 +391,46 @@ test('Codex: 모델 · 추론 강도 옵션, 기록에서 쓴 모델 읽기', as
   assert.strictEqual(c.meta.model, 'claude-opus-5-5');
 });
 
+test('남은 사용량: Claude 작업 이벤트 · 계정 조회, Codex 기록', async () => {
+  const { Usage } = require('../lib/usage');
+  const u = new Usage();
+  // 실제 claude -p stream-json 에서 본 모양
+  u.fromClaudeEvent({ status: 'allowed', resetsAt: 1794164400, rateLimitType: 'seven_day', unifiedWindows: { seven_day: { utilization: 0.67, resetsAt: 1794164400, status: 'allowed' } } });
+  assert.deepStrictEqual(u.claude.windows.map(w => [w.key, w.label, w.pct, w.resetsAt]), [['seven_day', '주간', 67, 1794164400000]]);
+  u.fromClaudeEvent({ unifiedWindows: { five_hour: { utilization: 0.125, resetsAt: 1794100000 } } });
+  assert.deepStrictEqual(u.claude.windows.map(w => [w.key, w.pct]), [['five_hour', 12.5], ['seven_day', 67]], '창이 합쳐지고 5시간이 앞');
+  u.fromCodex({ primary: { used_percent: 40, window_minutes: 300, resets_in_seconds: 600 }, secondary: { used_percent: 81.5, window_minutes: 10080, resets_at: 1794200000 } }, 1000);
+  assert.deepStrictEqual(u.codex.windows.map(w => [w.label, w.pct, w.resetsAt]), [['5시간', 40, 601000], ['주간', 81.5, 1794200000000]]);
+
+  // 서버: Claude 는 로그인 정보로 조회(가짜 사용량 서버), Codex 는 기록의 token_count
+  const http = require('http');
+  let gotAuth = '';
+  const fake = http.createServer((req, res) => { gotAuth = req.headers.authorization; res.end(JSON.stringify({ five_hour: { utilization: 32, resets_at: '2026-11-06T20:00:00Z' }, seven_day: { utilization: 67.4, resets_at: '2026-11-09T09:00:00Z' }, extra: 1 })); });
+  await new Promise(r => fake.listen(0, '127.0.0.1', r));
+  fs.writeFileSync(path.join(tmp, 'claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'oauth-test-token' } }));
+  const xdir = path.join(tmp, 'codex', 'sessions', '2026', '11', '07');
+  fs.mkdirSync(xdir, { recursive: true });
+  const rid = '22222222-aaaa-bbbb-cccc-333333333333';
+  fs.writeFileSync(path.join(xdir, `rollout-2026-11-07T00-00-00-${rid}.jsonl`), [
+    { type: 'session_meta', payload: { id: rid, cwd: work } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] } },
+    { timestamp: '2026-11-07T00:00:05Z', type: 'event_msg', payload: { type: 'token_count', info: {}, rate_limits: { primary: { used_percent: 12, window_minutes: 300, resets_at: 1794200000 }, secondary: { used_percent: 55, window_minutes: 10080 } } } },
+  ].map(l => JSON.stringify(l)).join('\n') + '\n');
+  process.env.AGENT_CHAT_CLAUDE_USAGE_URL = `http://127.0.0.1:${fake.address().port}/api/oauth/usage`;
+  const { child, call } = await startServer('claude');
+  delete process.env.AGENT_CHAT_CLAUDE_USAGE_URL;
+  try {
+    const r = (await call('/api/usage')).body;
+    assert.strictEqual(gotAuth, 'Bearer oauth-test-token');
+    assert.deepStrictEqual(r.claude.windows.map(w => [w.label, w.pct]), [['5시간', 32], ['주간', 67.4]]);
+    assert.strictEqual(r.claude.source, 'account');
+    assert.deepStrictEqual(r.codex.windows.map(w => [w.label, w.pct]), [['5시간', 12], ['주간', 55]]);
+  } finally {
+    child.kill(); fake.close();
+    fs.rmSync(path.join(tmp, 'claude', '.credentials.json'), { force: true });
+  }
+});
+
 test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {
   const { npmShimTarget, decode } = require('../lib/runner');
   const npm = path.join(tmp, 'npm');

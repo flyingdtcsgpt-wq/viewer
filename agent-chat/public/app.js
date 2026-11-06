@@ -48,7 +48,58 @@
     return data;
   }
 
-  function show(id) { for (const v of ['login', 'list', 'chat']) $(v).hidden = v !== id; }
+  function show(id) {
+    for (const v of ['login', 'list', 'chat']) $(v).hidden = v !== id;
+    // 사용량 막대를 지금 화면의 맨 아래(대화 화면은 입력창 위)로 옮긴다
+    const bar = $('usageBar');
+    if (id === 'chat') $('chat').insertBefore(bar, $('composer'));
+    else if (id === 'list') $('list').append(bar);
+    bar.hidden = id === 'login';
+    if (id !== 'login') loadUsage();
+  }
+
+  // ---------- 남은 사용량 ----------
+  let usageAt = 0;
+  function remain(p) { return Math.max(0, Math.round(100 - p)); }
+  function lvl(r) { return r <= 10 ? 'bad' : r <= 30 ? 'warn' : 'ok'; }
+  function when(ms) {
+    if (!ms) return '';
+    const d = new Date(ms), now = new Date();
+    const hm = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    if (d.toDateString() === now.toDateString()) return '오늘 ' + hm;
+    return `${d.getMonth() + 1}/${d.getDate()}(${'일월화수목금토'[d.getDay()]}) ${hm}`;
+  }
+  function renderUsage(u) {
+    const line = $('usageLine'), more = $('usageMore');
+    line.replaceChildren(); more.replaceChildren();
+    const add = (name, info) => {
+      const g = el('span', 'ugroup');
+      g.append(el('span', 'uname', name));
+      if (!info || !info.windows || !info.windows.length) { g.append(el('span', 'unone', '정보 없음')); line.append(g); return; }
+      for (const w of info.windows.slice(0, 2)) {
+        const r = remain(w.pct);
+        const s = el('span', 'uwin');
+        s.append(el('span', '', w.label + ' '), el('b', 'u-' + lvl(r), r + '%'));
+        g.append(s);
+      }
+      line.append(g);
+      const d = el('div', 'udetail');
+      d.append(el('b', '', name + ' '), document.createTextNode(info.windows.map(w => `${w.label} ${Math.round(w.pct)}% 사용${w.resetsAt ? ' · ' + when(w.resetsAt) + ' 초기화' : ''}`).join('  /  ')));
+      const age = Math.round((Date.now() - info.at) / 60000);
+      d.append(el('span', 'uage', `  (${age < 1 ? '방금' : age + '분 전'} 기준${info.source === 'log' ? ', 마지막 Codex 작업' : info.source === 'run' ? ', 마지막 작업' : ''})`));
+      more.append(d);
+    };
+    line.append(el('span', 'ulabel', '남은 사용량'));
+    add('Claude', u.claude);
+    add('Codex', u.codex);
+  }
+  async function loadUsage(force) {
+    if (!force && Date.now() - usageAt < 30000) return;
+    usageAt = Date.now();
+    try { renderUsage(await api('/api/usage')); } catch (e) { if (e.message !== '401') $('usageLine').textContent = '사용량을 못 읽었습니다'; }
+  }
+  $('usageBar').onclick = () => { $('usageMore').hidden = !$('usageMore').hidden; };
+  setInterval(() => { if (!document.hidden && token) loadUsage(); }, 60000);
   function showLogin(msg) { stopTimer(); show('login'); $('loginErr').textContent = msg || ''; }
   $('tokenSave').onclick = () => { token = $('tokenInput').value.trim(); store.set('ac_token', token); route(); };
   $('codeSave').onclick = async () => {
@@ -334,6 +385,8 @@
     const box = $('msgs');
     if (stick === undefined) stick = box.scrollHeight - box.scrollTop - box.clientHeight < 150;
     const j = c.job;
+    if (c.wasRunning && !(j && j.running)) setTimeout(() => loadUsage(true), 1500);
+    c.wasRunning = !!(j && j.running);
     const busyNow = !!((j && j.running) || (c.active && !(j && j.endedAt)));
     if (busyNow && !c.watched && !document.hidden) { c.watched = true; watchInApp(c); }
     if (!busyNow) c.watched = false;

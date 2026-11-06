@@ -249,6 +249,7 @@ class CodexParser extends BaseParser {
       if (p.type === 'error' && p.message) this.push({ role: 'system', text: p.message, ts, error: true });
       else if (p.type === 'turn_aborted') this.push({ role: 'system', text: '작업이 중단됨', ts });
       else if (p.type === 'thread_name_updated' && p.thread_name) m.threadName = p.thread_name;
+      else if (p.type === 'token_count' && p.rate_limits) { m.rateLimits = p.rate_limits; m.rateAt = Date.parse(ts) || 0; }
       return;
     }
     if (t !== 'response_item') return;
@@ -406,6 +407,15 @@ class Store {
         mtime: e.mtime, preview: m.last, lastRole: m.lastRole, originator: m.originator || '', model: m.model || '', effort: m.effort || '',
       };
     }).filter(s => s.preview || s.title !== '(제목 없음)');
+  }
+  /** Codex 사용량: 최근 기록들 중 가장 마지막에 남은 rate_limits */
+  latestCodexRate() {
+    let best = null;
+    for (const t of this.metaCache.values()) {
+      const m = t.parser.meta;
+      if (t.entry.agent === 'codex' && m.rateLimits && (!best || m.rateAt > best.at)) best = { rl: m.rateLimits, at: m.rateAt };
+    }
+    return best;
   }
   messages(agent, id) {
     const e = this.find(agent, id);

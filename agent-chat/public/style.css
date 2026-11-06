@@ -163,3 +163,19 @@ body.connect { overflow: auto; }
 .optline b { color: var(--text); font-weight: 600; }
 .optline span { color: var(--accent); float: right; }
 .optnow { margin: 0; font-size: 12.5px; color: var(--muted); }
+
+/* 남은 사용량 막대 */
+.usagebar { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  font-size: 11.5px; line-height: 1.5; padding: 4px 10px; flex-shrink: 0; }
+#list > .usagebar { padding-bottom: calc(env(safe-area-inset-bottom) + 4px); }
+#usageLine { display: flex; gap: 4px 12px; flex-wrap: wrap; align-items: baseline; }
+.ulabel { font-weight: 600; }
+.ugroup { display: inline-flex; gap: 6px; align-items: baseline; }
+.uname { color: var(--text); font-weight: 600; }
+.uwin b { font-variant-numeric: tabular-nums; }
+.u-ok { color: #16a34a; } .u-warn { color: #d97706; } .u-bad { color: var(--err); }
+.unone { opacity: .7; }
+.usagemore { display: block; margin-top: 3px; }
+.udetail { margin: 1px 0; } .udetail b { color: var(--text); } .uage { opacity: .75; }
+.sessions { padding-bottom: 110px; }
+.fab { bottom: calc(env(safe-area-inset-bottom) + 46px); }
