@@ -46,6 +46,18 @@
   };
   showPair(d);
 
+  // VS Code 세션 목록 · CLAUDE.md 에 붙여 넣을 안내문
+  $('trustNote').textContent = d.trustNote || '';
+  $('trustCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText(d.trustNote || ''); $('trustMsg').textContent = '복사했습니다'; } catch { $('trustMsg').textContent = '위 글을 드래그해서 복사하세요'; }
+  };
+  const showLive = info => {
+    const ls = info.liveSessions || [];
+    $('liveList').textContent = ls.length ? '지금 열려 있는 Claude 세션: ' + ls.map(l => `${l.name} (${(l.cwd || '').split(/[\\/]/).filter(Boolean).pop() || ''}, ${l.status || '?'})`).join(', ') : '지금 열려 있는 Claude 세션: 없음';
+  };
+  showLive(d);
+  setInterval(async () => { try { showLive(await (await fetch('/api/connect-info', { cache: 'no-store' })).json()); } catch { /* 서버 꺼짐 */ } }, 5000);
+
   // API 키 (이 PC 에서만)
   const showKeys = info => {
     const k = info.keys || {};

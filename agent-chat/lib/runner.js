@@ -10,6 +10,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { spawn } = require('child_process');
+const peer = require('./peer');
 
 const isWin = process.platform === 'win32';
 const ID_RE = /^[0-9A-Za-z][0-9A-Za-z-]{6,63}$/;
@@ -191,6 +192,7 @@ class Runner extends EventEmitter {
       live: j.done ? '' : j.live.text, tool: j.done ? '' : j.live.tool, queued: j.queue.length, v: j.v,
       // 이 대화의 claude 프로세스가 켜져 있으면 그 번호 (메시지마다 새로 뜨지 않는다는 표시)
       pid: (this.lives.get(agent + ':' + id) || {}).pid || 0,
+      relayed: !!j.relay, relayPid: j.relayPid || 0,
     };
   }
   running(agent, id) { const j = this.jobs.get(agent + ':' + id); return !!(j && !j.done); }
@@ -217,8 +219,34 @@ class Runner extends EventEmitter {
     const bin = resolveBin(agent, this.config);
     if (!bin) throw httpError(500, `${agent} 프로그램을 찾지 못했습니다. config.json 의 ${agent}Bin 에 경로를 적어 주세요`);
     if (isNew && agent === 'claude') id = crypto.randomUUID();
+    if (agent === 'claude' && !isNew && this.config.relayToLive !== false) {
+      // VS Code(또는 터미널)에 이 대화가 열려 있으면 그 Claude 에게 넣는다. 새 Claude 를 띄우지 않는다.
+      const live = peer.findLive(id);
+      if (live) return this.relay(live, { id, cwd, prompt });
+    }
     if (agent === 'claude' && this.config.claudeLive !== false) return this.claudeTurn(bin, { id, isNew, cwd, prompt, mode, env, opts, queue: [] });
     return this.run(agent, bin, { id, isNew, cwd, prompt, mode, env, opts, queue: [] });
+  }
+
+  // ---------- Claude: VS Code 에 열려 있는 세션으로 넣기 ----------
+  async relay(live, { id, cwd, prompt }) {
+    const key = 'claude:' + id;
+    const L = this.lives.get(key);
+    if (L && !L.dead) this.endLive(L); // 우리가 띄워 둔 것이 있으면 닫는다 (둘이 같은 대화에 쓰지 않게)
+    const job = {
+      agent: 'claude', id, cwd, relay: true, startedAt: Date.now(), done: false, live: { text: '', tool: '' }, v: 0, queue: [], relayPid: live.pid,
+    };
+    this.jobs.set(key, job);
+    this.changed(job);
+    try {
+      await peer.send(live, prompt);
+    } catch (e) {
+      job.error = e.message;
+    }
+    job.done = true; job.endedAt = Date.now();
+    this.changed(job);
+    if (job.error) throw httpError(502, job.error);
+    return { id, relayed: true, pid: live.pid };
   }
 
   // ---------- Claude: 대화마다 프로세스 하나를 켜 두고 메시지를 이어서 넣는다 ----------

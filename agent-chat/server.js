@@ -12,6 +12,7 @@ const { Store } = require('./lib/sources');
 const { Runner, CLAUDE_MODES, CODEX_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, CODEX_EFFORTS, ID_RE } = require('./lib/runner');
 const { ProjectAuth } = require('./lib/auth');
 const { Usage } = require('./lib/usage');
+const peer = require('./lib/peer');
 
 const HOME = process.env.AGENT_CHAT_HOME || path.join(os.homedir(), '.agent-chat');
 const CONFIG_FILE = path.join(HOME, 'config.json');
@@ -133,7 +134,7 @@ function stream(req, res, q) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', ...SEC_HEADERS });
   res.write('retry: 2000\n\n');
   const out = (ev, data) => res.write(`event: ${ev}\ndata: ${JSON.stringify(data)}\n\n`);
-  let epoch = -1, rev = -1, from = -1, title = '', active = null, jobKey = '', authMode = '';
+  let epoch = -1, rev = -1, from = -1, title = '', active = null, jobKey = '', authMode = '', liveKey = '';
   const tickFile = () => {
     const m = store.messages(agent, id);
     if (!m) return;
@@ -149,9 +150,11 @@ function stream(req, res, q) {
   const tickJob = () => {
     const j = runner.job(agent, id);
     const k = JSON.stringify(j);
-    if (k === jobKey) return;
-    jobKey = k;
-    out('job', j || { running: false });
+    if (k !== jobKey) { jobKey = k; out('job', j || { running: false }); }
+    // VS Code(터미널)에 열려 있는지와 그쪽 상태 (busy / idle)
+    const lv = agent === 'claude' ? peer.findLive(id) : null;
+    const lk = lv ? `${lv.pid}:${lv.status}:${lv.name}` : '';
+    if (lk !== liveKey) { liveKey = lk; out('live', lv ? { pid: lv.pid, status: lv.status, name: lv.name, entrypoint: lv.entrypoint } : null); }
   };
   tickFile(); tickJob();
   const onChange = key => { if (key === agent + ':' + id) { tickJob(); tickFile(); } };
@@ -167,13 +170,17 @@ async function api(req, res, url) {
   const q = url.searchParams;
   const p = url.pathname;
   if (p === '/api/sessions' && req.method === 'GET') {
+    const lives = new Map(peer.liveSessions().map(l => [l.sessionId, l]));
     const list = store.list(Number(q.get('limit')) || 150).map(s => {
       const j = runner.job(s.agent, s.id);
       const running = !!(j && j.running);
       const active = Date.now() - s.mtime < 20000;
       // 폰에서 시킨 작업이 막 끝난 직후의 "최근에 쓰임" 은 작업 중으로 치지 않는다
       const justEnded = !!(j && !j.running && j.endedAt && s.mtime <= j.endedAt + 3000);
-      return { ...s, running, active, busy: running || (active && !justEnded), error: (j && !j.running && j.error) || '', auth: auth.mode(s.cwd) };
+      const lv = s.agent === 'claude' ? lives.get(s.id) : null;
+      const live = lv ? { pid: lv.pid, status: lv.status, name: lv.name, entrypoint: lv.entrypoint } : null;
+      const busy = running || (lv ? lv.status === 'busy' : (active && !justEnded));
+      return { ...s, running, active, busy, error: (j && !j.running && j.error) || '', auth: auth.mode(s.cwd), live };
     });
     return send(req, res, 200, { sessions: list });
   }
@@ -326,6 +333,8 @@ function connectInfo() {
     pairExp: p.exp,
     lastPaired,
     keys: auth.keys(),
+    liveSessions: peer.liveSessions().map(l => ({ name: l.name, cwd: l.cwd, status: l.status, entrypoint: l.entrypoint })),
+    trustNote: peer.TRUST_NOTE,
     apiProjects: auth.apiProjects(),
     addresses: addresses().filter(a => a.kind !== 'virtual').map(a => ({ kind: a.kind, label: label[a.kind], address: a.address })),
     urls: addresses().map(a => ({ kind: a.kind, label: label[a.kind], name: a.name, url: `http://${a.address}:${config.port}/#t=${config.token}` })),

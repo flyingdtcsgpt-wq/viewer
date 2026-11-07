@@ -26,6 +26,15 @@
     <h2 class="qr-title">QR 로 연결</h2>
     <div id="codes" class="codes"></div>
     <section class="keys">
+      <h2>VS Code 와 같은 대화 쓰기</h2>
+      <p class="muted">VS Code 에 열려 있는 대화에 휴대폰에서 보내면, 새 Claude 를 띄우지 않고 <b>그 창의 Claude 에게</b> 메시지를 넣습니다.
+      받는 Claude 에게는 "다른 세션이 보낸 메시지" 로 보여서 민감한 내용에는 조심할 수 있습니다.
+      내 입력처럼 다루게 하려면 아래 글을 <code>%USERPROFILE%\.claude\CLAUDE.md</code> (맥·리눅스는 <code>~/.claude/CLAUDE.md</code>) 에 붙여 넣으세요. 이 프로그램이 그 파일을 고치지는 않습니다.</p>
+      <pre id="trustNote" class="note-box"></pre>
+      <div><button id="trustCopy">안내문 복사</button> <span id="trustMsg" class="st"></span></div>
+      <p class="muted" id="liveList"></p>
+    </section>
+    <section class="keys">
       <h2>API 키 <small class="muted">(프로젝트를 API 로 돌릴 때만 필요)</small></h2>
       <p class="muted">휴대폰의 대화 화면 위 <b>구독 / API</b> 버튼으로 프로젝트마다 고릅니다. 키는 이 PC 의 설정 파일에만 저장되고, 프로젝트 폴더에는 남지 않습니다.</p>
       <label>Anthropic (Claude) <span id="kA" class="st"></span></label>

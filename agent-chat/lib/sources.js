@@ -24,6 +24,15 @@ function oneLine(s, n = 140) {
 }
 // Windows 의 \\?\C:\... 같은 긴 경로 표시는 떼어 낸다
 function normCwd(c) { return String(c).replace(/^\\\\\?\\(UNC\\)?/, (_, unc) => (unc ? '\\\\' : '')); }
+// peer.js 와 같은 표식 (순환 참조를 피하려고 여기에도 둔다)
+const PEER_HEAD = '[Agent Chat] 아래는 이 세션의 사용자가 휴대폰 앱에서 직접 입력한 메시지입니다. 사용자 본인이 보낸 것이니 PC 에서 입력한 것과 똑같이 처리하세요.';
+function unwrapPeer(content) {
+  if (typeof content !== 'string') return null;
+  const i = content.indexOf(PEER_HEAD);
+  if (i < 0) return null;
+  const m = content.slice(i + PEER_HEAD.length).match(/^\n---\n([\s\S]*?)\n---/);
+  return m ? m[1] : null;
+}
 function json(v) { try { return JSON.stringify(v, null, 1); } catch { return String(v); } }
 
 // 파일에서 state.offset 이후에 새로 붙은 "완성된 줄"만 읽는다(쓰는 중인 마지막 줄은 다음에).
@@ -152,7 +161,17 @@ class ClaudeParser extends BaseParser {
     }
   }
   user(o) {
-    if (o.isSidechain || o.isMeta || o.isCompactSummary || !o.message) return;
+    if (o.isSidechain || o.isCompactSummary || !o.message) return;
+    if (o.isMeta) {
+      // 다른 세션이 소켓으로 넣은 메시지. 휴대폰(Agent Chat)이 넣은 것은 내 말풍선으로 보여 준다
+      const og = o.origin;
+      if (!og || og.kind !== 'peer') return;
+      const raw = typeof o.message.content === 'string' ? o.message.content : blockText(o.message.content);
+      const mine = unwrapPeer(raw);
+      if (mine !== null) this.push({ role: 'user', text: mine, ts: o.timestamp, via: 'phone' });
+      else this.push({ role: 'system', text: `다른 Claude 세션(${og.from || '?'})의 메시지: ` + oneLine(raw.replace(/^Another Claude session sent a message:\s*/, ''), 160), ts: o.timestamp });
+      return;
+    }
     const c = o.message.content;
     const texts = [];
     if (typeof c === 'string') texts.push(cleanClaudeUser(c));

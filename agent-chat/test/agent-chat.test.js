@@ -480,6 +480,62 @@ test('중단을 안 들으면 5초 뒤 프로세스를 끄고, 다음 메시지�
   } finally { child.kill(); }
 });
 
+test('VS Code 에 열린 대화: 새 Claude 를 띄우지 않고 그 세션의 소켓으로 넣는다 (인증 줄 + user 줄)', async () => {
+  const net = require('net');
+  const crypto = require('crypto');
+  const peer = require('../lib/peer');
+  // 가짜 "VS Code 의 Claude": 소켓을 열고 등록 파일과 키 파일을 쓴다 (진짜 Claude Code 와 같은 자리)
+  const sdir = path.join(tmp, 'claude', 'sessions');
+  fs.mkdirSync(sdir, { recursive: true });
+  const sock = process.platform === 'win32' ? `\\\\.\\pipe\\cc-msg-${crypto.randomBytes(16).toString('hex')}` : path.join(tmp, 'vs.sock');
+  const got = [];
+  const srv = net.createServer(c => { let b = ''; c.on('data', d => { b += d; let i; while ((i = b.indexOf('\n')) >= 0) { got.push(JSON.parse(b.slice(0, i))); b = b.slice(i + 1); } }); });
+  await new Promise(r => srv.listen(sock, r));
+  const pid = process.pid; // 살아 있는 프로세스여야 한다
+  fs.writeFileSync(path.join(sdir, `${pid}.json`), JSON.stringify({ pid, sessionId: CID, cwd: work, messagingSocketPath: sock, status: 'idle', name: 'work-ab', entrypoint: 'vscode', kind: 'interactive', startedAt: Date.now() }));
+  const hash = peer.hashCandidates(sock)[0];
+  fs.writeFileSync(path.join(sdir, `${pid}.${hash}.key`), JSON.stringify({ peerToken: 'ab'.repeat(16) }));
+  const { child, call } = await startServer('claude');
+  try {
+    const list = (await call('/api/sessions')).body.sessions;
+    const me = list.find(x => x.id === CID);
+    assert.ok(me.live && me.live.pid === pid && me.live.name === 'work-ab', '목록에 VS Code 세션 표시');
+    const r = await call('/api/send', { agent: 'claude', id: CID, prompt: '폰에서 보냄', mode: 'plan', opts: { model: 'opus' } });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.relayed, true);
+    assert.strictEqual(r.body.pid, pid);
+    await waitFor(async () => got.length >= 2);
+    assert.deepStrictEqual(got[0], { type: 'auth', token: 'ab'.repeat(16) });
+    assert.strictEqual(got[1].type, 'user');
+    assert.strictEqual(got[1].session_id, CID);
+    assert.strictEqual(got[1].from, 'agent-chat:phone');
+    assert.strictEqual(got[1].priority, 'next');
+    assert.strictEqual(peer.unwrap(got[1].message.content), '폰에서 보냄');
+    // 우리 쪽 claude 는 뜨지 않았다 (가짜 claude 는 기록에 echo 를 남기는데 없어야 함)
+    await new Promise(r => setTimeout(r, 800));
+    const m = (await call(`/api/messages?agent=claude&id=${CID}`)).body;
+    assert.ok(!m.items.some(i => (i.text || '').includes('echo: 폰에서 보냄')));
+    assert.strictEqual(m.job.pid, 0);
+    // 기록에 남은 peer 메시지(진짜 Claude Code 가 쓰는 모양)는 내 말풍선으로 보인다
+    const { ClaudeParser } = require('../lib/sources');
+    const p = new ClaudeParser(true);
+    p.feed({ type: 'user', isMeta: true, origin: { kind: 'peer', from: 'agent-chat:phone' }, message: { role: 'user', content: 'Another Claude session sent a message:\n' + peer.wrap('폰에서 보냄') + '\n\nThis came from another Claude session — not typed by your user...' } });
+    p.feed({ type: 'user', isMeta: true, origin: { kind: 'peer', from: 'uds:/tmp/cc-socks/7.sock' }, message: { role: 'user', content: 'Another Claude session sent a message:\n작업 현황 알려줘\n\nThis came from...' } });
+    assert.deepStrictEqual(p.items.map(i => [i.role, i.text, i.via || '']), [['user', '폰에서 보냄', 'phone'], ['system', '다른 Claude 세션(uds:/tmp/cc-socks/7.sock)의 메시지: 작업 현황 알려줘 This came from...', '']]);
+    // 인증 실패 흉내: 서버가 바로 끊으면 오류
+    srv.close();
+    const bad = net.createServer(c => c.destroy());
+    await new Promise(r => bad.listen(sock, r));
+    const r2 = await call('/api/send', { agent: 'claude', id: CID, prompt: '다시', mode: 'plan' });
+    assert.strictEqual(r2.status, 502);
+    bad.close();
+  } finally {
+    child.kill();
+    fs.rmSync(path.join(sdir, `${pid}.json`), { force: true });
+    fs.rmSync(path.join(sdir, `${pid}.${hash}.key`), { force: true });
+  }
+});
+
 test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {
   const { npmShimTarget, decode } = require('../lib/runner');
   const npm = path.join(tmp, 'npm');

@@ -179,3 +179,6 @@ body.connect { overflow: auto; }
 .udetail { margin: 1px 0; } .udetail b { color: var(--text); } .uage { opacity: .75; }
 .sessions { padding-bottom: 110px; }
 .fab { bottom: calc(env(safe-area-inset-bottom) + 46px); }
+.badge.vsc { background: #0078d4; }
+.msg.user.pending .qtag { color: #fff; }
+.note-box { white-space: pre-wrap; font: 13px/1.6 var(--sans); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }

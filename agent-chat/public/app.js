@@ -149,6 +149,7 @@
       const top = el('div', 'top');
       top.append(el('span', 'badge ' + s.agent, s.agent === 'claude' ? 'Claude' : 'Codex'), el('span', '', s.project || ''));
       if (s.auth === 'api') top.append(el('span', 'badge api', 'API'));
+      if (s.live) top.append(el('span', 'badge vsc', 'VS Code'));
       top.append(el('span', 'grow'));
       if (s.busy ?? (s.running || s.active)) top.append(el('span', 'dot'));
       top.append(el('span', '', ago(s.mtime)));
@@ -212,7 +213,8 @@
     $('optEffort').value = o.effort || '';
     $('optThinkRow').hidden = agent !== 'claude';
     $('optThinking').value = o.thinking || '';
-    const now = cur && cur.agent === agent && cur.model ? `지금 이 대화가 쓰는 모델: ${cur.model}${cur.effort ? ' · 추론 ' + (LABEL[cur.effort] || cur.effort) : ''}` : '';
+    let now = cur && cur.agent === agent && cur.model ? `지금 이 대화가 쓰는 모델: ${cur.model}${cur.effort ? ' · 추론 ' + (LABEL[cur.effort] || cur.effort) : ''}` : '';
+    if (cur && cur.agent === agent && cur.live) now = '이 대화는 VS Code 에 열려 있어 그쪽 Claude 가 처리합니다. 모델 · 추론 · 생각 · 권한은 VS Code 의 설정을 따르고, 여기 고른 값은 VS Code 를 닫았을 때만 쓰입니다.' + (now ? '\n' + now : '');
     $('optNow').textContent = now; $('optNow').hidden = !now;
     $('optSheet').hidden = false;
   }
@@ -324,6 +326,7 @@
           const d = JSON.parse(data);
           if (ev === 'msgs') onMsgs(d);
           else if (ev === 'job') { c.job = d; updateStatus(); updateSub(c); }
+          else if (ev === 'live') { c.live = d; updateStatus(); updateSub(c); }
         }
       }
     } catch (e) {
@@ -380,7 +383,8 @@
     if (!c || !c.cwdShown) return;
     const parts = [c.agent === 'claude' ? 'Claude' : 'Codex', c.cwdShown.split(/[\\/]/).filter(Boolean).pop()];
     if (c.model) parts.push(shortModel(c.model));
-    if (c.job && c.job.pid) parts.push('● 연결 유지');
+    if (c.live) parts.push('● VS Code 연결');
+    else if (c.job && c.job.pid) parts.push('● 연결 유지');
     $('chatSub').textContent = parts.join(' · ');
     $('chatSub').title = c.cwdShown + (c.job && c.job.pid ? `\n이 대화의 Claude 프로세스(${c.job.pid})가 켜져 있어 다음 메시지도 같은 프로세스로 이어집니다. 30분 동안 조용하면 닫힙니다.` : '');
   }
@@ -407,7 +411,11 @@
     for (const p of c.pending) box.append(p.el);
 
     if (c.offline) setStatus('연결이 끊겼습니다. 다시 연결하는 중…', true);
-    else if (j && j.running) {
+    else if (c.live && !(j && j.running)) {
+      if (j && j.error) setStatus(j.error, true);
+      else if (c.live.status === 'busy') setStatus('VS Code 의 Claude 가 작업 중 (이 창에서 보낸 말도 그쪽으로 들어갑니다)', false);
+      else $('status').hidden = true;
+    } else if (j && j.running) {
       let t = j.tool ? '실행 중: ' + j.tool : j.live ? '답하는 중…' : '생각하는 중…';
       if (j.queued) t += ` (대기 ${j.queued}개)`;
       setStatus(t, false, true);
@@ -472,6 +480,7 @@
       input.value = ''; grow();
       const p = el('div', 'msg user pending'); p.append(el('div', 'bubble', text));
       if (r.queued) p.firstChild.append(el('div', 'qtag', '대기 중'));
+      if (r.relayed) p.firstChild.append(el('div', 'qtag', 'VS Code 로 전달됨'));
       c.pending.push({ el: p, text });
       c.watched = true; watchInApp(c);
       $('msgs').append(p);
