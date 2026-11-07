@@ -323,7 +323,7 @@
           if (!data || c !== cur) continue;
           const d = JSON.parse(data);
           if (ev === 'msgs') onMsgs(d);
-          else if (ev === 'job') { c.job = d; updateStatus(); }
+          else if (ev === 'job') { c.job = d; updateStatus(); updateSub(c); }
         }
       }
     } catch (e) {
@@ -340,10 +340,7 @@
     if (d.title) $('chatTitle').textContent = d.title;
     // 폰 화면은 좁으니 폴더 이름만 (전체 경로는 길게 누르면 보이는 title 로)
     if (d.model) { c.model = d.model; c.effort = d.effort || ''; }
-    if (d.cwd) {
-      $('chatSub').textContent = (c.agent === 'claude' ? 'Claude · ' : 'Codex · ') + d.cwd.split(/[\\/]/).filter(Boolean).pop() + (c.model ? ' · ' + shortModel(c.model) : '');
-      $('chatSub').title = d.cwd;
-    }
+    if (d.cwd) { c.cwdShown = d.cwd; updateSub(c); }
     c.active = d.active;
     if (d.cwd) { c.cwd = d.cwd; c.auth = d.auth || 'sub'; showAuth(c); }
     if (d.full) {
@@ -376,6 +373,16 @@
     for (const p of c.pending) box.append(p.el);
     updateStatus(nearBottom);
     c.first = false;
+  }
+
+  // 머리말 아래 줄: 에이전트 · 폴더 · 모델 · (이 대화의 Claude 가 켜져 있으면) 연결 유지
+  function updateSub(c) {
+    if (!c || !c.cwdShown) return;
+    const parts = [c.agent === 'claude' ? 'Claude' : 'Codex', c.cwdShown.split(/[\\/]/).filter(Boolean).pop()];
+    if (c.model) parts.push(shortModel(c.model));
+    if (c.job && c.job.pid) parts.push('● 연결 유지');
+    $('chatSub').textContent = parts.join(' · ');
+    $('chatSub').title = c.cwdShown + (c.job && c.job.pid ? `\n이 대화의 Claude 프로세스(${c.job.pid})가 켜져 있어 다음 메시지도 같은 프로세스로 이어집니다. 30분 동안 조용하면 닫힙니다.` : '');
   }
 
   // 아래 상태 줄 + 지금 쓰고 있는 답변(실시간 말풍선)

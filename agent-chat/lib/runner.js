@@ -178,7 +178,8 @@ class Runner extends EventEmitter {
   constructor(config) {
     super();
     this.config = config;
-    this.jobs = new Map(); // "agent:id" → job
+    this.jobs = new Map(); // "agent:id" → job (한 번의 주고받기)
+    this.lives = new Map(); // "claude:id" → 계속 켜 두는 claude 프로세스
   }
   bins() { return { claude: resolveBin('claude', this.config), codex: resolveBin('codex', this.config) }; }
   job(agent, id) {
@@ -188,6 +189,8 @@ class Runner extends EventEmitter {
     return {
       running: !j.done, startedAt: j.startedAt, endedAt: j.endedAt || 0, error: j.error || '', stopped: !!j.stopped,
       live: j.done ? '' : j.live.text, tool: j.done ? '' : j.live.tool, queued: j.queue.length, v: j.v,
+      // 이 대화의 claude 프로세스가 켜져 있으면 그 번호 (메시지마다 새로 뜨지 않는다는 표시)
+      pid: (this.lives.get(agent + ':' + id) || {}).pid || 0,
     };
   }
   running(agent, id) { const j = this.jobs.get(agent + ':' + id); return !!(j && !j.done); }
@@ -214,7 +217,112 @@ class Runner extends EventEmitter {
     const bin = resolveBin(agent, this.config);
     if (!bin) throw httpError(500, `${agent} 프로그램을 찾지 못했습니다. config.json 의 ${agent}Bin 에 경로를 적어 주세요`);
     if (isNew && agent === 'claude') id = crypto.randomUUID();
+    if (agent === 'claude' && this.config.claudeLive !== false) return this.claudeTurn(bin, { id, isNew, cwd, prompt, mode, env, opts, queue: [] });
     return this.run(agent, bin, { id, isNew, cwd, prompt, mode, env, opts, queue: [] });
+  }
+
+  // ---------- Claude: 대화마다 프로세스 하나를 켜 두고 메시지를 이어서 넣는다 ----------
+  // claude -p --input-format stream-json … 은 표준입력이 열려 있는 동안 계속 살아 있어서,
+  // 백그라운드 작업 · 기억이 메시지 사이에 이어진다. 30분 동안 조용하면 닫는다.
+  // 권한 · 모델 · 추론 · 생각 · 구독/API 를 바꾸면 그 다음 메시지부터 새로 띄운다(대화 내용은 그대로 이어짐).
+  claudeTurn(bin, { id, isNew, cwd, prompt, mode, env, opts, queue }) {
+    const key = 'claude:' + id;
+    const e = envFor('claude', env, opts);
+    const sig = JSON.stringify([mode, opts, cwd, !!(e && e.ANTHROPIC_API_KEY), (e && e.ANTHROPIC_API_KEY) || '', !!(e && e.CLAUDE_CODE_DISABLE_THINKING)]);
+    let L = this.lives.get(key);
+    if (L && (L.sig !== sig || L.dead)) { this.endLive(L); L = null; }
+    if (!L) L = this.spawnLive(bin, { id, isNew, cwd, mode, opts, env: e, sig });
+    const job = {
+      agent: 'claude', id, cwd, bin, env, mode, opts, child: L.child, L, startedAt: Date.now(), out: Buffer.alloc(0), err: Buffer.alloc(0), done: false,
+      live: { text: '', tool: '' }, v: 0, queue, lastEmit: 0, emitTimer: null,
+    };
+    this.jobs.set(key, job);
+    L.job = job;
+    if (L.idle) { clearTimeout(L.idle); L.idle = null; }
+    try {
+      L.child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } }) + '\n');
+    } catch (err) { this.finishTurn(job, { is_error: true, result: '보내지 못했습니다: ' + err.message }); }
+    this.changed(job);
+    return Promise.resolve({ id });
+  }
+
+  spawnLive(bin, { id, isNew, cwd, mode, opts, env, sig }) {
+    const args = ['-p', '--input-format', 'stream-json', ...buildArgs('claude', { id, isNew, mode, opts }, this.config).slice(1)];
+    const child = launch(bin, args, cwd, env);
+    const L = { key: 'claude:' + id, child, pid: child.pid, sig, dead: false, job: null, idle: null, err: Buffer.alloc(0) };
+    this.lives.set(L.key, L);
+    let pending = Buffer.alloc(0);
+    child.stdout.on('data', d => {
+      if (L.job) L.job.out = tailBuf(L.job.out, d);
+      pending = pending.length ? Buffer.concat([pending, d]) : d;
+      let i;
+      while ((i = pending.indexOf(10)) !== -1) {
+        const line = pending.subarray(0, i).toString('utf8'); pending = pending.subarray(i + 1);
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (ev && typeof ev === 'object') this.liveEvent(L, ev);
+      }
+    });
+    child.stderr.on('data', d => { L.err = tailBuf(L.err, d); if (L.job) L.job.err = tailBuf(L.job.err, d); });
+    child.stdin.on('error', () => { /* 이미 끝난 경우 */ });
+    const gone = code => {
+      if (L.dead) return;
+      L.dead = true;
+      if (L.idle) clearTimeout(L.idle);
+      if (this.lives.get(L.key) === L) this.lives.delete(L.key);
+      const job = L.job;
+      if (job && !job.done) {
+        const txt = (decode(L.err).trim() || nonJson(decode(job.out)).trim());
+        this.finishTurn(job, { is_error: !job.stopped, result: txt.split('\n').slice(-8).join('\n') || `종료 코드 ${code}` });
+      }
+    };
+    child.on('error', err => { L.err = tailBuf(L.err, Buffer.from('실행 실패: ' + err.message)); gone(-1); });
+    child.on('close', gone);
+    return L;
+  }
+
+  liveEvent(L, ev) {
+    const job = L.job;
+    if (ev.type === 'rate_limit_event' && ev.rate_limit_info) { this.emit('usage', 'claude', ev.rate_limit_info); return; }
+    if (!job || job.done) return;
+    const soon = () => {
+      const now = Date.now();
+      if (now - job.lastEmit > 120) { job.lastEmit = now; this.changed(job); return; }
+      if (!job.emitTimer) job.emitTimer = setTimeout(() => { job.emitTimer = null; job.lastEmit = Date.now(); this.changed(job); }, 120);
+    };
+    if (ev.type === 'stream_event' && ev.event) {
+      const e = ev.event;
+      if (e.type === 'message_start') { job.live.text = ''; soon(); }
+      else if (e.type === 'content_block_start' && e.content_block && e.content_block.type === 'tool_use') { job.live.tool = e.content_block.name || 'tool'; soon(); }
+      else if (e.type === 'content_block_delta' && e.delta && e.delta.type === 'text_delta') { job.live.text += e.delta.text || ''; soon(); }
+    } else if (ev.type === 'assistant') { job.live.text = ''; soon(); }
+    else if (ev.type === 'user') { job.live.tool = ''; soon(); }
+    else if (ev.type === 'result') this.finishTurn(job, ev);
+  }
+
+  finishTurn(job, ev) {
+    if (job.done) return;
+    if (job.emitTimer) clearTimeout(job.emitTimer);
+    if (job.stopTimer) clearTimeout(job.stopTimer);
+    job.done = true; job.endedAt = Date.now();
+    if (ev && ev.is_error && !job.stopped) job.error = String(ev.result || ev.subtype || '오류');
+    this.changed(job);
+    const L = job.L;
+    if (job.queue.length && !job.stopped && !job.error) {
+      const next = job.queue.shift();
+      try { this.claudeTurn(job.bin, { id: job.id, isNew: false, cwd: job.cwd, prompt: next.prompt, mode: next.mode, opts: next.opts, env: job.env, queue: job.queue }); } catch (e) { job.error = e.message; }
+      return;
+    }
+    if (L && !L.dead) L.idle = setTimeout(() => this.endLive(L), this.config.claudeIdleMs || 30 * 60 * 1000);
+  }
+
+  /** 켜 둔 claude 를 닫는다 (표준입력을 닫으면 스스로 끝난다, force 면 바로 끈다) */
+  endLive(L, force) {
+    if (!L || L.dead) return;
+    if (this.lives.get(L.key) === L) this.lives.delete(L.key);
+    if (L.idle) clearTimeout(L.idle);
+    try { L.child.stdin.end(); } catch { /* 이미 닫힘 */ }
+    if (force) this.kill({ child: L.child });
+    else setTimeout(() => { if (!L.dead) this.kill({ child: L.child }); }, 10000);
   }
 
   run(agent, bin, { id, isNew, cwd, prompt, mode, env, opts, queue }) {
@@ -299,6 +407,12 @@ class Runner extends EventEmitter {
     if (!j || j.done) return false;
     j.stopped = true;
     j.queue.length = 0;
+    if (j.L && !j.L.dead) {
+      // 켜 둔 claude: 먼저 "중단" 을 보내 보고, 5초 안에 안 멈추면 프로세스를 끈다
+      try { j.L.child.stdin.write(JSON.stringify({ type: 'control_request', request_id: 'stop-' + Date.now(), request: { subtype: 'interrupt' } }) + '\n'); } catch { /* 닫힘 */ }
+      j.stopTimer = setTimeout(() => { if (!j.done) { this.endLive(j.L, true); this.finishTurn(j, null); } }, 5000);
+      return true;
+    }
     this.kill(j);
     return true;
   }
@@ -310,7 +424,10 @@ class Runner extends EventEmitter {
       else process.kill(-pid, 'SIGTERM');
     } catch { try { j.child.kill(); } catch { /* 이미 끝 */ } }
   }
-  stopAll() { for (const j of this.jobs.values()) if (!j.done) this.kill(j); }
+  stopAll() {
+    for (const j of this.jobs.values()) if (!j.done && !j.L) this.kill(j);
+    for (const L of [...this.lives.values()]) this.endLive(L, true);
+  }
 }
 
 function nonJson(s) { return s.split('\n').filter(l => !/^\s*\{/.test(l)).join('\n'); }

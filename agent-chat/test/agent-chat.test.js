@@ -431,6 +431,55 @@ test('남은 사용량: Claude 작업 이벤트 · 계정 조회, Codex 기록',
   }
 });
 
+test('한 대화 = 한 claude 프로세스: 메시지마다 새로 뜨지 않고, 설정을 바꾸면 그때만 새로', async () => {
+  const { child, call } = await startServer('claude', { claudeIdleMs: 1500 });
+  const msgs = () => call(`/api/messages?agent=claude&id=${CID}`).then(x => x.body);
+  const sendWait = async (prompt, opts, expect) => {
+    const r = await call('/api/send', { agent: 'claude', id: CID, prompt, mode: 'plan', opts });
+    assert.strictEqual(r.status, 200);
+    return waitFor(async () => { const b = await msgs(); return b.items.some(i => i.text === expect) && !b.job.running ? b.job : null; });
+  };
+  try {
+    const j1 = await sendWait('하나', {}, 'echo: 하나 mode=plan');
+    assert.ok(j1.pid > 0, '켜 둔 프로세스 번호');
+    const j2 = await sendWait('둘', {}, 'echo: 둘 mode=plan');
+    assert.strictEqual(j2.pid, j1.pid, '두 번째 메시지도 같은 프로세스');
+    const j3 = await sendWait('셋', { model: 'opus' }, 'echo: 셋 mode=plan model=opus');
+    assert.notStrictEqual(j3.pid, j1.pid, '모델을 바꾸면 새로 띄움');
+    // 중단: 같은 프로세스는 살아 있고 오류로 치지 않음
+    await call('/api/send', { agent: 'claude', id: CID, prompt: 'HANG 오래', mode: 'plan', opts: { model: 'opus' } });
+    await waitFor(async () => (await msgs()).job.running);
+    assert.strictEqual((await call('/api/stop', { agent: 'claude', id: CID })).body.stopped, true);
+    const js = await waitFor(async () => { const j = (await msgs()).job; return !j.running ? j : null; });
+    assert.strictEqual(js.error, '');
+    assert.strictEqual(js.stopped, true);
+    const j4 = await sendWait('넷', { model: 'opus' }, 'echo: 넷 mode=plan model=opus');
+    assert.strictEqual(j4.pid, j3.pid, '중단한 뒤에도 같은 프로세스');
+    // 조용하면 닫힌다 (여기서는 1.5초)
+    await waitFor(async () => (await msgs()).job.pid === 0, 15000);
+    const j5 = await sendWait('다섯', { model: 'opus' }, 'echo: 다섯 mode=plan model=opus');
+    assert.ok(j5.pid > 0 && j5.pid !== j4.pid, '닫힌 뒤에는 새로 띄워 이어서');
+  } finally { child.kill(); }
+});
+
+test('중단을 안 들으면 5초 뒤 프로세스를 끄고, 다음 메시지는 새 프로세스로', async () => {
+  process.env.FAKE_IGNORE_INTERRUPT = '1';
+  const { child, call } = await startServer('claude');
+  delete process.env.FAKE_IGNORE_INTERRUPT;
+  const msgs = () => call(`/api/messages?agent=claude&id=${CID}`).then(x => x.body);
+  try {
+    await call('/api/send', { agent: 'claude', id: CID, prompt: 'HANG 안 멈춤', mode: 'plan' });
+    const before = await waitFor(async () => { const j = (await msgs()).job; return j.running ? j : null; });
+    await call('/api/stop', { agent: 'claude', id: CID });
+    const after = await waitFor(async () => { const j = (await msgs()).job; return !j.running ? j : null; }, 10000);
+    assert.strictEqual(after.stopped, true);
+    assert.strictEqual(after.error, '');
+    await call('/api/send', { agent: 'claude', id: CID, prompt: '다시', mode: 'plan' });
+    const j = await waitFor(async () => { const b = await msgs(); return b.items.some(i => i.text === 'echo: 다시 mode=plan') && !b.job.running ? b.job : null; });
+    assert.notStrictEqual(j.pid, before.pid);
+  } finally { child.kill(); }
+});
+
 test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {
   const { npmShimTarget, decode } = require('../lib/runner');
   const npm = path.join(tmp, 'npm');
