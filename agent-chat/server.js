@@ -14,6 +14,7 @@ const codexPeer = require('./lib/codexPeer');
 const { ProjectAuth } = require('./lib/auth');
 const { Usage } = require('./lib/usage');
 const peer = require('./lib/peer');
+const files = require('./lib/files');
 
 const HOME = process.env.AGENT_CHAT_HOME || path.join(os.homedir(), '.agent-chat');
 const CONFIG_FILE = path.join(HOME, 'config.json');
@@ -83,12 +84,12 @@ function noteFail(ip) {
 const SEC_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
 };
 function send(req, res, status, body, type = 'application/json; charset=utf-8', extra = {}) {
   let data = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
   const headers = { 'Content-Type': type, 'Cache-Control': 'no-store', ...SEC_HEADERS, ...extra };
-  if (data.length > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+  if (data.length > 1024 && !/^(image|application\/octet)/.test(type) && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
     data = zlib.gzipSync(data);
     headers['Content-Encoding'] = 'gzip';
   }
@@ -96,6 +97,15 @@ function send(req, res, status, body, type = 'application/json; charset=utf-8', 
   res.writeHead(status, headers);
   res.end(data);
 }
+function readRaw(req, max) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', c => { size += c.length; if (size > max) { reject(Object.assign(new Error(`파일이 너무 큽니다 (최대 ${Math.round(max / 1048576)}MB)`), { status: 413 })); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
@@ -230,6 +240,25 @@ async function api(req, res, url) {
       models: { claude: CLAUDE_MODELS, codex: codexModels }, efforts: { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS },
     });
   }
+  // 첨부 파일: 올리기 (본문 = 파일 그대로) / 보기 (그 대화 프로젝트의 첨부 폴더 안 파일만)
+  if (p === '/api/upload' || p === '/api/file') {
+    const agent = agentOf(q.get('agent'));
+    const id = String(q.get('id') || '');
+    if (!agent || !ID_RE.test(id)) return send(req, res, 400, { error: '대화를 알 수 없습니다' });
+    const m = store.messages(agent, id);
+    const cwd = (m && m.cwd) || '';
+    if (!cwd || !fs.existsSync(cwd)) return send(req, res, 400, { error: '이 대화의 작업 폴더가 없습니다' });
+    if (p === '/api/upload' && req.method === 'POST') {
+      const buf = await readRaw(req, files.MAX);
+      if (!buf.length) return send(req, res, 400, { error: '빈 파일입니다' });
+      return send(req, res, 200, files.save(cwd, q.get('name') || 'file', buf));
+    }
+    if (p === '/api/file' && req.method === 'GET') {
+      const f = q.get('path') || '';
+      if (!files.inside(cwd, f)) return send(req, res, 404, { error: '없는 파일' });
+      return send(req, res, 200, fs.readFileSync(f), files.contentType(f), { 'Cache-Control': 'private, max-age=86400' });
+    }
+  }
   if (req.method !== 'POST') return send(req, res, 404, { error: '없는 주소' });
   const body = await readBody(req);
   if (p === '/api/project-auth') return send(req, res, 200, auth.set(String(body.cwd || ''), body.mode));
@@ -240,7 +269,10 @@ async function api(req, res, url) {
     if (!ID_RE.test(id)) return send(req, res, 400, { error: '세션 id 가 이상합니다' });
     const m = store.messages(agent, id);
     const cwd = (m && m.cwd) || '';
-    const r = await runner.start(agent, { id, cwd, prompt: body.prompt, mode: body.mode, opts: body.opts, env: auth.env(agent, cwd) });
+    const att = Array.isArray(body.files) ? body.files.slice(0, 10) : [];
+    if (att.some(f => !files.inside(cwd, f))) return send(req, res, 400, { error: '첨부 파일을 찾지 못했습니다. 다시 올려 주세요' });
+    const prompt = files.withFiles(body.prompt, att);
+    const r = await runner.start(agent, { id, cwd, prompt, mode: body.mode, opts: body.opts, env: auth.env(agent, cwd) });
     return send(req, res, 200, r);
   }
   if (p === '/api/new') {

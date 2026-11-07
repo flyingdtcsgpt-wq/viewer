@@ -28,6 +28,14 @@ function autoNote(kind, raw) {
   return `자동 메시지(${kind || '?'}): ` + oneLine(raw, 160);
 }
 
+function attachShort(t) {
+  t = String(t || '');
+  const i = t.indexOf('\n\n[첨부 파일]\n');
+  if (i < 0) return t;
+  const n = t.slice(i).split('\n').filter(l => l.startsWith('- ')).length;
+  return t.slice(0, i) + ` 📎${n}`;
+}
+
 function oneLine(s, n = 140) {
   s = String(s || '').replace(/\s+/g, ' ').trim();
   return s.length > n ? s.slice(0, n) + '…' : s;
@@ -85,9 +93,11 @@ class BaseParser {
     this.meta = { cwd: '', title: '', firstUser: '', last: '', lastRole: '' };
   }
   push(item) {
-    if (item.role === 'user' && !this.meta.firstUser) this.meta.firstUser = oneLine(item.text, 120);
+    // 목록 · 제목에는 첨부 경로 대신 "📎 n개"
+    const shown = item.role === 'user' ? attachShort(item.text) : item.text;
+    if (item.role === 'user' && !this.meta.firstUser) this.meta.firstUser = oneLine(shown, 120);
     if (item.role === 'user' || item.role === 'assistant') {
-      this.meta.last = oneLine(String(item.text || '').replace(/```[^\n]*|[*`#>|]+/g, ' '), 140);
+      this.meta.last = oneLine(String(shown || '').replace(/```[^\n]*|[*`#>|]+/g, ' '), 140);
       this.meta.lastRole = item.role;
     }
     if (!this.keep) return;

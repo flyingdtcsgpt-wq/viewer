@@ -594,6 +594,38 @@ test('Codex: VS Code 에 열린 대화면 Codex 의 줄에 넣어 그쪽이 처�
   } finally { clearInterval(consumer); child.kill(); }
 });
 
+test('첨부: 프로젝트 폴더의 .agent-chat-uploads 에 저장, 보낼 글에 경로, 그 폴더 밖은 거부', async () => {
+  const { child, call, port } = await startServer('claude');
+  const H = { Authorization: 'Bearer test-token-1234567890' };
+  try {
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    let r = await fetch(`http://127.0.0.1:${port}/api/upload?agent=claude&id=${CID}&name=${encodeURIComponent('../스샷 1.png')}`, { method: 'POST', headers: H, body: png });
+    assert.strictEqual(r.status, 200);
+    const up = await r.json();
+    assert.strictEqual(up.name, '스샷 1.png');
+    assert.strictEqual(up.image, true);
+    assert.strictEqual(path.dirname(up.path), path.join(work, '.agent-chat-uploads'));
+    assert.match(fs.readFileSync(path.join(work, '.agent-chat-uploads', '.gitignore'), 'utf8'), /^\*$/m);
+    // 보기: 첨부 폴더 안 파일만
+    r = await fetch(`http://127.0.0.1:${port}/api/file?agent=claude&id=${CID}&path=${encodeURIComponent(up.path)}`, { headers: H });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.headers.get('content-type'), 'image/png');
+    assert.ok(Buffer.from(await r.arrayBuffer()).equals(png));
+    const secret = path.join(work, 'secret.txt'); fs.writeFileSync(secret, 'x');
+    r = await fetch(`http://127.0.0.1:${port}/api/file?agent=claude&id=${CID}&path=${encodeURIComponent(secret)}`, { headers: H });
+    assert.strictEqual(r.status, 404);
+    r = await fetch(`http://127.0.0.1:${port}/api/upload?agent=claude&id=${CID}&name=a.png`, { method: 'POST', body: png });
+    assert.strictEqual(r.status, 401);
+    // 보내기: 다른 폴더 경로는 거부, 첨부 경로는 글 끝에
+    let s = await call('/api/send', { agent: 'claude', id: CID, prompt: '이거 봐', files: [secret], mode: 'plan' });
+    assert.strictEqual(s.status, 400);
+    s = await call('/api/send', { agent: 'claude', id: CID, prompt: '이거 봐', files: [up.path], mode: 'plan' });
+    assert.strictEqual(s.status, 200);
+    const want = `이거 봐\n\n[첨부 파일]\n- ${up.path}`;
+    await waitFor(async () => { const m = (await call(`/api/messages?agent=claude&id=${CID}`)).body; return m.items.some(i => i.role === 'user' && i.text === want) && !m.job.running; });
+  } finally { child.kill(); }
+});
+
 test('VS Code 세션 고르기: Agent Chat 이 띄운 claude 는 빼고, VS Code 쪽을 먼저', async () => {
   const { spawn } = require('child_process');
   const peer = require('../lib/peer');

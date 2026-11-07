@@ -18,6 +18,8 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -43,6 +45,8 @@ class MainActivity : Activity() {
     private var web: WebView? = null
     private var serversView: View? = null
     private var loaded: Server? = null
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private val pickFiles = 7301
     private val night get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
     private val fg get() = if (night) Color.parseColor("#E8EAEF") else Color.parseColor("#16181D")
     private val muted get() = if (night) Color.parseColor("#9AA1AD") else Color.parseColor("#6B7280")
@@ -68,6 +72,17 @@ class MainActivity : Activity() {
         val go = i?.getStringExtra("go") ?: ""
         val s = base?.let { Servers.byBase(this, it) } ?: Servers.current(this)
         if (s == null) showServers() else open(s, go)
+    }
+
+    @Deprecated("Activity 결과")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != pickFiles) { super.onActivityResult(requestCode, resultCode, data); return }
+        val cb = fileCallback ?: return
+        fileCallback = null
+        if (resultCode != RESULT_OK || data == null) { cb.onReceiveValue(null); return }
+        val clip = data.clipData
+        val uris = if (clip != null) Array(clip.itemCount) { clip.getItemAt(it).uri } else data.data?.let { arrayOf(it) }
+        cb.onReceiveValue(uris)
     }
 
     override fun onResume() { super.onResume(); visible = true }
@@ -137,6 +152,25 @@ class MainActivity : Activity() {
             textZoom = 100
         }
         w.addJavascriptInterface(Bridge(), "AgentChatApp")
+        // 사진 · 파일 첨부: 웹의 <input type=file> 을 안드로이드 파일 고르기로
+        w.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(view: WebView, cb: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
+                fileCallback?.onReceiveValue(null)
+                fileCallback = cb
+                val pick = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
+                }
+                return try {
+                    startActivityForResult(Intent.createChooser(pick, "첨부할 파일"), pickFiles)
+                    true
+                } catch (e: Exception) {
+                    fileCallback = null
+                    false
+                }
+            }
+        }
         w.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean {
                 val base = loaded?.base ?: return false

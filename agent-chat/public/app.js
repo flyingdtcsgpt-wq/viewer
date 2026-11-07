@@ -52,7 +52,7 @@
     for (const v of ['login', 'list', 'chat']) $(v).hidden = v !== id;
     // 사용량 막대를 지금 화면의 맨 아래(대화 화면은 입력창 위)로 옮긴다
     const bar = $('usageBar');
-    if (id === 'chat') $('chat').insertBefore(bar, $('composer'));
+    if (id === 'chat') $('chat').insertBefore(bar, $('attachTray'));
     else if (id === 'list') $('list').append(bar);
     bar.hidden = id === 'login';
     if (id !== 'login') loadUsage();
@@ -250,6 +250,7 @@
   function closeChat() { if (cur && cur.ctrl) cur.ctrl.abort(); cur = null; }
   function openChat(agent, id) {
     closeChat();
+    clearAttached();
     cur = { agent, id, rendered: new Map(), limit: 300, pending: [], first: true, job: null, active: false, from: -1, epoch: -1 };
     show('chat');
     $('msgs').replaceChildren();
@@ -459,10 +460,92 @@
     const row = el('div', 'msg ' + it.role + (it.error ? ' error' : ''));
     const b = el('div', 'bubble');
     if (it.role === 'assistant') b.innerHTML = md(it.text);
+    else if (it.role === 'user') userText(b, it.text);
     else b.textContent = it.text;
     row.append(b);
     return row;
   }
+
+  // ---------- 첨부 (사진 · 파일) ----------
+  // 서버는 대화 프로젝트 폴더의 .agent-chat-uploads 에 저장하고, 보낼 글 끝에 "[첨부 파일]" 과 경로를 붙인다.
+  const ATT_HEAD = '\n\n[첨부 파일]\n';
+  const IMG_RE = /\.(png|jpe?g|gif|webp)$/i;
+  const attached = []; // {file, name, path, err, el}
+  const thumbs = new Map(); // 경로 → blob URL
+  const baseName = p => String(p).split(/[\\/]/).pop().replace(/^\d{8}-\d{6}-[0-9a-f]{4}-/, '');
+  function userText(b, text) {
+    const i = text.indexOf(ATT_HEAD);
+    if (i < 0) { b.textContent = text; return; }
+    const list = text.slice(i + ATT_HEAD.length).split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2).trim());
+    b.textContent = text.slice(0, i);
+    const box = el('div', 'atts');
+    for (const p of list) {
+      if (IMG_RE.test(p)) {
+        const img = el('img'); img.alt = baseName(p);
+        loadThumb(p).then(u => { if (u) img.src = u; });
+        img.onclick = () => { if (img.src) { $('viewerImg').src = img.src; $('viewer').hidden = false; } };
+        box.append(img);
+      } else box.append(el('div', 'afile', '📄 ' + baseName(p)));
+    }
+    b.append(box);
+  }
+  async function loadThumb(p) {
+    if (thumbs.has(p)) return thumbs.get(p);
+    if (!cur) return null;
+    const pr = fetch(`/api/file?agent=${cur.agent}&id=${encodeURIComponent(cur.id)}&path=${encodeURIComponent(p)}`, { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => (r.ok ? r.blob() : null)).then(b => (b ? URL.createObjectURL(b) : null)).catch(() => null);
+    thumbs.set(p, pr);
+    return pr;
+  }
+  $('viewer').onclick = () => { $('viewer').hidden = true; $('viewerImg').removeAttribute('src'); };
+  // 사진은 휴대폰에서 줄여서 올린다 (데이터 절약). 긴 변 2048px, JPEG
+  async function shrink(file) {
+    if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type)) return { blob: file, name: file.name || 'file' };
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
+      if (k === 1 && file.size < 1.5e6 && !/heic|heif/i.test(file.type)) return { blob: file, name: file.name || 'image' };
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+      cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+      const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.85));
+      if (!blob) return { blob: file, name: file.name || 'image' };
+      return { blob, name: (file.name || 'image').replace(/\.[^.]*$/, '') + '.jpg' };
+    } catch { return { blob: file, name: file.name || 'file' }; }
+  }
+  function renderTray() {
+    $('attachTray').hidden = !attached.length;
+    $('attachTray').replaceChildren(...attached.map(a => a.el));
+  }
+  function clearAttached() { attached.length = 0; renderTray(); }
+  async function addFile(file) {
+    if (!cur || attached.length >= 10) return;
+    const c = cur;
+    const a = { name: file.name, path: null, err: null, el: el('div', 'titem') };
+    if (/^image\//.test(file.type)) { const im = el('img'); im.src = URL.createObjectURL(file); a.el.append(im); } else a.el.append(el('div', 'tname', file.name));
+    const st = el('div', 'tst', '올리는 중…'); a.el.append(st);
+    const x = el('button', 'tx', '✕'); x.type = 'button';
+    x.onclick = () => { const k = attached.indexOf(a); if (k >= 0) attached.splice(k, 1); renderTray(); };
+    a.el.append(x);
+    attached.push(a); renderTray();
+    try {
+      const { blob, name } = await shrink(file);
+      const r = await fetch(`/api/upload?agent=${c.agent}&id=${encodeURIComponent(c.id)}&name=${encodeURIComponent(name)}`, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/octet-stream' }, body: blob,
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || '오류 ' + r.status);
+      a.path = d.path; st.remove();
+    } catch (e) {
+      a.err = e.message; st.textContent = '실패'; a.el.classList.add('err'); a.el.title = e.message;
+      setStatus('첨부 실패: ' + e.message, true);
+    }
+  }
+  $('attachBtn').onclick = () => $('fileInput').click();
+  $('fileInput').onchange = () => {
+    for (const f of [...$('fileInput').files]) addFile(f);
+    $('fileInput').value = '';
+  };
 
   // ---------- 보내기 (작업 중이어도 보내면 줄 세웠다가 이어서) ----------
   const input = $('input');
@@ -474,14 +557,19 @@
   });
   $('composer').onsubmit = async e => {
     e.preventDefault();
-    const text = input.value.trim();
-    if (!text || !cur) return;
+    let text = input.value.trim();
+    if (!cur) return;
+    if (attached.some(a => !a.path && !a.err)) { setStatus('첨부 파일을 올리는 중입니다. 잠시 뒤에 보내세요'); return; }
+    const paths = attached.filter(a => a.path).map(a => a.path);
+    if (!text && !paths.length) return;
     const c = cur;
     $('sendBtn').disabled = true;
     try {
-      const r = await api('/api/send', { agent: c.agent, id: c.id, prompt: text, mode: $('mode').value, opts: getOpts(c.agent) });
+      const r = await api('/api/send', { agent: c.agent, id: c.id, prompt: text, files: paths, mode: $('mode').value, opts: getOpts(c.agent) });
       input.value = ''; grow();
-      const p = el('div', 'msg user pending'); p.append(el('div', 'bubble', text));
+      clearAttached();
+      if (paths.length) text = (text || '첨부한 파일을 봐 주세요.') + ATT_HEAD + paths.map(x => '- ' + x).join('\n'); // 서버가 붙이는 것과 같게
+      const p = el('div', 'msg user pending'); const pb = el('div', 'bubble'); userText(pb, text); p.append(pb);
       if (r.queued) p.firstChild.append(el('div', 'qtag', '대기 중'));
       if (r.relayed) p.firstChild.append(el('div', 'qtag', r.waiting ? 'VS Code 작업 뒤 대기' : 'VS Code 로 전달됨'));
       c.pending.push({ el: p, text });

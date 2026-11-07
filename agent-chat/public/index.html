@@ -57,9 +57,12 @@
   </header>
   <div id="msgs" class="msgs"></div>
   <div id="status" class="status" hidden></div>
+  <div id="attachTray" class="tray" hidden></div>
   <form id="composer" class="composer">
     <button id="optBtn" type="button" class="optbtn" aria-label="권한 · 모델 · 추론 설정"><span id="optSum">편집 허용</span></button>
     <select id="mode" aria-label="권한" hidden></select>
+    <button id="attachBtn" type="button" class="attach" aria-label="사진 · 파일 첨부">📎</button>
+    <input id="fileInput" type="file" multiple hidden>
     <textarea id="input" rows="1" placeholder="메시지 보내기" enterkeyhint="send"></textarea>
     <button id="sendBtn" class="send" type="submit" aria-label="보내기">➤</button>
   </form>
@@ -123,5 +126,6 @@
     </div>
   </form>
 </div>
+<div id="viewer" class="viewer" hidden><img id="viewerImg" alt=""></div>
 </body>
 </html>
