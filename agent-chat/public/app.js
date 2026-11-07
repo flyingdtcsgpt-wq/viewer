@@ -383,10 +383,12 @@
   // 머리말 아래 줄: 에이전트 · 폴더 · 모델 · (이 대화의 Claude 가 켜져 있으면) 연결 유지
   function updateSub(c) {
     if (!c || !c.cwdShown) return;
-    const parts = [c.agent === 'claude' ? 'Claude' : 'Codex', c.cwdShown.split(/[\\/]/).filter(Boolean).pop()];
-    if (c.model) parts.push(shortModel(c.model));
-    if (c.live) parts.push('● VS Code 연결');
+    // 연결 표시는 맨 앞에 짧게 (좁은 화면에서 뒤가 잘려도 보이게)
+    const parts = [];
+    if (c.live) parts.push('● VS Code');
     else if (c.job && c.job.pid) parts.push('● 연결 유지');
+    parts.push(c.agent === 'claude' ? 'Claude' : 'Codex', c.cwdShown.split(/[\\/]/).filter(Boolean).pop());
+    if (c.model) parts.push(shortModel(c.model));
     $('chatSub').textContent = parts.join(' · ');
     $('chatSub').title = c.cwdShown + (c.job && c.job.pid ? `\n이 대화의 Claude 프로세스(${c.job.pid})가 켜져 있어 다음 메시지도 같은 프로세스로 이어집니다. 30분 동안 조용하면 닫힙니다.` : '');
   }
@@ -415,7 +417,7 @@
     if (c.offline) setStatus('연결이 끊겼습니다. 다시 연결하는 중…', true);
     else if (c.live && !(j && j.running)) {
       if (j && j.error) setStatus(j.error, true);
-      else if (c.live.status === 'busy') setStatus('VS Code 의 Claude 가 작업 중 (이 창에서 보낸 말도 그쪽으로 들어갑니다)', false);
+      else if (c.live.status === 'busy') setStatus('VS Code 에서 작업 중 · 보내면 다음 차례로', false);
       else $('status').hidden = true;
     } else if (j && j.running && j.relayWaiting) {
       setStatus('VS Code 의 Codex 가 하던 일을 끝내면 이어서 처리합니다', false, true);
@@ -424,7 +426,7 @@
       if (j.queued) t += ` (대기 ${j.queued}개)`;
       setStatus(t, false, true);
     } else if (j && j.error) setStatus(j.error, true);
-    else if (c.active && !(j && j.endedAt)) setStatus('PC 에서 작업 중인 것 같습니다 (VS Code)', false);
+    else if (c.active && !(j && j.endedAt)) setStatus('PC(VS Code)에서 작업 중', false);
     else $('status').hidden = true;
     if (stick) box.scrollTop = box.scrollHeight;
   }
