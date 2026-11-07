@@ -18,6 +18,16 @@ function cut(s, n) {
   if (typeof s !== 'string') s = s == null ? '' : String(s);
   return s.length > n ? s.slice(0, n) + `\n… (${s.length - n}자 더 있음)` : s;
 }
+/** 자동 메시지 한 줄 요약. <task-notification> 은 상태와 요약만 */
+function autoNote(kind, raw) {
+  if (/<task-notification>/.test(raw)) {
+    const tag = t => { const m = raw.match(new RegExp(`<${t}>([\\s\\S]*?)</${t}>`)); return m ? m[1].trim() : ''; };
+    const st = { completed: '끝남', failed: '실패', killed: '중단됨', stopped: '중단됨' }[tag('status')] || tag('status');
+    return `백그라운드 작업${st ? ' ' + st : ''}: ` + oneLine(tag('summary') || tag('result') || '알림', 160);
+  }
+  return `자동 메시지(${kind || '?'}): ` + oneLine(raw, 160);
+}
+
 function oneLine(s, n = 140) {
   s = String(s || '').replace(/\s+/g, ' ').trim();
   return s.length > n ? s.slice(0, n) + '…' : s;
@@ -173,6 +183,14 @@ class ClaudeParser extends BaseParser {
       return;
     }
     const c = o.message.content;
+    // 사람이 친 게 아닌 자동 메시지 (백그라운드 작업 끝 알림 등): VS Code 처럼 말풍선이 아니라 한 줄 알림으로
+    const raw0 = typeof c === 'string' ? c : Array.isArray(c) ? c.filter(b => b && b.type === 'text').map(b => b.text).join('\n') : '';
+    const kind = o.origin && o.origin.kind;
+    if ((kind && kind !== 'human') || /^\s*<task-notification>/.test(raw0)) {
+      if (Array.isArray(c)) for (const b of c) if (b && b.type === 'tool_result') this.toolResult(b.tool_use_id, blockText(b.content), b.is_error);
+      if (raw0.trim()) this.push({ role: 'system', text: autoNote(kind, raw0), ts: o.timestamp });
+      return;
+    }
     const texts = [];
     if (typeof c === 'string') texts.push(cleanClaudeUser(c));
     else if (Array.isArray(c)) {

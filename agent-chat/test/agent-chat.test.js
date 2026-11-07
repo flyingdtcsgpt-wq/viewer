@@ -529,6 +529,10 @@ test('VS Code 에 열린 대화: 새 Claude 를 띄우지 않고 그 세션의 �
     const p = new ClaudeParser(true);
     p.feed({ type: 'user', isMeta: true, origin: { kind: 'peer', from: 'agent-chat:phone' }, message: { role: 'user', content: 'Another Claude session sent a message:\n' + peer.wrap('폰에서 보냄') + '\n\nThis came from another Claude session — not typed by your user...' } });
     p.feed({ type: 'user', isMeta: true, origin: { kind: 'peer', from: 'uds:/tmp/cc-socks/7.sock' }, message: { role: 'user', content: 'Another Claude session sent a message:\n작업 현황 알려줘\n\nThis came from...' } });
+    const q = new ClaudeParser(true);
+    q.feed({ type: 'user', origin: { kind: 'task-notification' }, message: { role: 'user', content: '<task-notification>\n<task-id>a6c4</task-id>\n<status>completed</status>\n<summary>Agent "B3 lifetime experiment R6" is waiting</summary>\n<result>long…</result>\n</task-notification>' } });
+    q.feed({ type: 'user', origin: { kind: 'human' }, message: { role: 'user', content: '사람이 친 말' } });
+    assert.deepStrictEqual(q.items.map(i => [i.role, i.text]), [['system', '백그라운드 작업 끝남: Agent "B3 lifetime experiment R6" is waiting'], ['user', '사람이 친 말']]);
     assert.deepStrictEqual(p.items.map(i => [i.role, i.text, i.via || '']), [['user', '폰에서 보냄', 'phone'], ['system', '다른 Claude 세션(uds:/tmp/cc-socks/7.sock)의 메시지: 작업 현황 알려줘 This came from...', '']]);
     // 인증 실패 흉내: 서버가 바로 끊으면 오류
     srv.close();
