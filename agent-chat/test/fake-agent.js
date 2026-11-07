@@ -47,7 +47,7 @@ function claudeTurn(input, done) {
   return turn;
 }
 
-if (kind === 'codex' && args[0] === 'app-server') {
+if (args[0] === 'app-server') {
   // 가짜 Codex app-server: 줄(queue) 요청만 흉내. 줄은 $CODEX_HOME/fake_queue.json
   const qf = path.join(process.env.CODEX_HOME, 'fake_queue.json');
   const readQ = () => { try { return JSON.parse(fs.readFileSync(qf, 'utf8')); } catch { return []; } };
@@ -68,6 +68,9 @@ if (kind === 'codex' && args[0] === 'app-server') {
         const q = readQ(); const id = crypto.randomUUID();
         q.push({ id, threadId: p.threadId, input: p.input, clientUserMessageId: p.clientUserMessageId }); writeQ(q);
         reply(o.id, {});
+      } else if (o.method === 'account/rateLimits/read') {
+        const snap = l => ({ limitId: l, primary: { usedPercent: 96, windowDurationMins: 10080, resetsAt: 1794300000 }, secondary: null });
+        reply(o.id, { rateLimits: snap(null), rateLimitsByLimitId: { codex: snap('codex') } });
       } else if (o.method === 'thread/queue/list') reply(o.id, { data: readQ().filter(x => x.threadId === p.threadId), nextCursor: null });
       else if (o.method === 'thread/queue/delete') { const q = readQ(); const n = q.filter(x => x.id !== p.queuedSubmissionId); writeQ(n); reply(o.id, { deleted: n.length !== q.length }); }
       else reply(o.id, null, { code: -32601, message: 'unknown' });

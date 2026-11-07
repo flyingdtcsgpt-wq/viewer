@@ -401,6 +401,12 @@ test('남은 사용량: Claude 작업 이벤트 · 계정 조회, Codex 기록',
   assert.deepStrictEqual(u.claude.windows.map(w => [w.key, w.pct]), [['five_hour', 12.5], ['seven_day', 67]], '창이 합쳐지고 5시간이 앞');
   u.fromCodex({ primary: { used_percent: 40, window_minutes: 300, resets_in_seconds: 600 }, secondary: { used_percent: 81.5, window_minutes: 10080, resets_at: 1794200000 } }, 1000);
   assert.deepStrictEqual(u.codex.windows.map(w => [w.label, w.pct, w.resetsAt]), [['5시간', 40, 601000], ['주간', 81.5, 1794200000000]]);
+  // Codex 계정 조회 (app-server account/rateLimits/read): codex 칸을 먼저
+  u.fromCodexAccount({ rateLimits: { primary: { usedPercent: 1, windowDurationMins: 300 } }, rateLimitsByLimitId: { codex: { primary: { usedPercent: 96, windowDurationMins: 10080, resetsAt: 1794300000 } } } });
+  assert.deepStrictEqual(u.codex.windows.map(w => [w.label, w.pct, w.resetsAt]), [['주간', 96, 1794300000000]]);
+  assert.strictEqual(u.codex.source, 'account');
+  u.fromCodex({ primary: { used_percent: 10, window_minutes: 10080 } }, 5000);
+  assert.strictEqual(u.codex.windows[0].pct, 96, '오래된 기록 값이 계정 조회 값을 덮지 않는다');
 
   // 서버: Claude 는 로그인 정보로 조회(가짜 사용량 서버), Codex 는 기록의 token_count
   const http = require('http');
@@ -424,7 +430,9 @@ test('남은 사용량: Claude 작업 이벤트 · 계정 조회, Codex 기록',
     assert.strictEqual(gotAuth, 'Bearer oauth-test-token');
     assert.deepStrictEqual(r.claude.windows.map(w => [w.label, w.pct]), [['5시간', 32], ['주간', 67.4]]);
     assert.strictEqual(r.claude.source, 'account');
-    assert.deepStrictEqual(r.codex.windows.map(w => [w.label, w.pct]), [['5시간', 12], ['주간', 55]]);
+    // Codex 는 계정 조회(가짜 app-server)가 되면 그 값, 기록의 오래된 값이 아니라
+    assert.deepStrictEqual(r.codex.windows.map(w => [w.label, w.pct]), [['주간', 96]]);
+    assert.strictEqual(r.codex.source, 'account');
   } finally {
     child.kill(); fake.close();
     fs.rmSync(path.join(tmp, 'claude', '.credentials.json'), { force: true });

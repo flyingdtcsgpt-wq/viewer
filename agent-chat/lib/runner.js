@@ -529,4 +529,4 @@ class Runner extends EventEmitter {
 function nonJson(s) { return s.split('\n').filter(l => !/^\s*\{/.test(l)).join('\n'); }
 function httpError(status, message) { const e = new Error(message); e.status = status; return e; }
 
-module.exports = { Runner, CLAUDE_MODES, CODEX_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, CODEX_EFFORTS, cleanOpts, resolveBin, buildArgs, npmShimTarget, decode, httpError, ID_RE };
+module.exports = { Runner, launch, CLAUDE_MODES, CODEX_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, CODEX_EFFORTS, cleanOpts, resolveBin, buildArgs, npmShimTarget, decode, httpError, ID_RE };

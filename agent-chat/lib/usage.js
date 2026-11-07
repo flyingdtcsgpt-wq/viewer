@@ -4,7 +4,8 @@
 //  Claude : 1) 휴대폰에서 시킨 작업이 내보내는 rate_limit_event (utilization 0~1)
 //           2) PC 의 Claude 로그인 정보로 사용량 조회 (/api/oauth/usage, Claude Code 의 /usage 와 같은 곳).
 //              공식 문서에 없는 주소라 실패하면 조용히 1) 만 쓴다. 1분에 한 번만 묻는다.
-//  Codex  : 대화 기록의 token_count 이벤트에 남는 rate_limits (used_percent 0~100) 중 가장 최근 것
+//  Codex  : 1) codex app-server 의 account/rateLimits/read (Codex 확장 · 웹과 같은 계정 조회). 1분에 한 번.
+//           2) 그게 안 되면 대화 기록의 token_count 이벤트에 남는 rate_limits (used_percent 0~100) 중 가장 최근 것
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
@@ -26,6 +27,8 @@ class Usage {
     this.codex = null;
     this.lastFetch = 0;
     this.fetching = null;
+    this.lastCodexFetch = 0;
+    this.codexFetching = null;
     this.url = process.env.AGENT_CHAT_CLAUDE_USAGE_URL || 'https://api.anthropic.com/api/oauth/usage';
   }
 
@@ -58,6 +61,36 @@ class Usage {
       list.push({ key: k, label: windowLabel(w.window_minutes) || (k === 'primary' ? '짧은 창' : '긴 창'), pct: pct(w.used_percent), resetsAt });
     }
     if (list.length) this.codex = { windows: list, at, source: 'log' };
+  }
+
+  /** codex app-server account/rateLimits/read 결과 {rateLimits, rateLimitsByLimitId} */
+  fromCodexAccount(r) {
+    if (!r || typeof r !== 'object') return;
+    const by = r.rateLimitsByLimitId && typeof r.rateLimitsByLimitId === 'object' ? r.rateLimitsByLimitId : null;
+    const snap = (by && by.codex) || r.rateLimits;
+    if (!snap || typeof snap !== 'object') return;
+    const list = [];
+    for (const k of ['primary', 'secondary']) {
+      const w = snap[k];
+      if (!w || w.usedPercent == null) continue;
+      list.push({ key: k, label: windowLabel(w.windowDurationMins) || (k === 'primary' ? '짧은 창' : '긴 창'), pct: pct(w.usedPercent), resetsAt: toMs(w.resetsAt) });
+    }
+    if (list.length) this.codex = { windows: list, at: Date.now(), source: 'account' };
+  }
+
+  /** Codex 계정 사용량 조회 (1분에 한 번). openServer() → codexPeer 의 AppServer */
+  refreshCodex(openServer) {
+    if (Date.now() - this.lastCodexFetch < 60 * 1000) return this.codexFetching || Promise.resolve();
+    this.lastCodexFetch = Date.now();
+    this.codexFetching = (async () => {
+      let s = null;
+      try {
+        s = await openServer();
+        const r = await s.rpc('account/rateLimits/read', undefined, 8000);
+        if (r && r.result) this.fromCodexAccount(r.result);
+      } catch { /* 로그인 안 됨 · 옛 버전 → 기록에서 읽은 값 */ } finally { if (s) s.close(); }
+    })().finally(() => { this.codexFetching = null; });
+    return this.codexFetching;
   }
 
   credentials() {

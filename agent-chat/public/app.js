@@ -86,7 +86,8 @@
       const d = el('div', 'udetail');
       d.append(el('b', '', name + ' '), document.createTextNode(info.windows.map(w => `${w.label} ${Math.round(w.pct)}% 사용${w.resetsAt ? ' · ' + when(w.resetsAt) + ' 초기화' : ''}`).join('  /  ')));
       const age = Math.round((Date.now() - info.at) / 60000);
-      d.append(el('span', 'uage', `  (${age < 1 ? '방금' : age + '분 전'} 기준${info.source === 'log' ? ', 마지막 Codex 작업' : info.source === 'run' ? ', 마지막 작업' : ''})`));
+      const ago = age < 1 ? '방금' : age < 60 ? age + '분 전' : age < 1440 ? Math.round(age / 60) + '시간 전' : Math.round(age / 1440) + '일 전';
+      d.append(el('span', 'uage', `  (${ago} 기준${info.source === 'log' ? ', 마지막 Codex 작업' : info.source === 'run' ? ', 마지막 작업' : ''})`));
       more.append(d);
     };
     line.append(el('span', 'ulabel', '남은 사용량'));

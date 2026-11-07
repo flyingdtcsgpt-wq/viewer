@@ -9,7 +9,8 @@ const os = require('os');
 const zlib = require('zlib');
 const crypto = require('crypto');
 const { Store } = require('./lib/sources');
-const { Runner, CLAUDE_MODES, CODEX_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, CODEX_EFFORTS, ID_RE } = require('./lib/runner');
+const { Runner, CLAUDE_MODES, CODEX_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, CODEX_EFFORTS, ID_RE, resolveBin, launch } = require('./lib/runner');
+const codexPeer = require('./lib/codexPeer');
 const { ProjectAuth } = require('./lib/auth');
 const { Usage } = require('./lib/usage');
 const peer = require('./lib/peer');
@@ -168,6 +169,15 @@ function stream(req, res, q) {
   res.on('error', close);
 }
 
+// Codex 계정 사용량: 잠깐 띄운 우리만의 codex app-server 로 묻는다 (Codex 가 없으면 건너뜀)
+function codexUsage() {
+  const bin = resolveBin('codex', config);
+  if (!bin) return Promise.resolve();
+  const env = { ...process.env };
+  delete env.CODEX_API_KEY; delete env.OPENAI_API_KEY; // 구독(로그인) 계정의 한도를 본다
+  return usage.refreshCodex(() => codexPeer.open(launch, bin, os.homedir(), env));
+}
+
 async function api(req, res, url) {
   const q = url.searchParams;
   const p = url.pathname;
@@ -204,7 +214,7 @@ async function api(req, res, url) {
   }
   if (p === '/api/stream' && req.method === 'GET') return stream(req, res, q);
   if (p === '/api/usage' && req.method === 'GET') {
-    await usage.refreshClaude();
+    await Promise.all([usage.refreshClaude(), codexUsage()]);
     store.list(150);
     const c = store.latestCodexRate();
     if (c) usage.fromCodex(c.rl, c.at);
