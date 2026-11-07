@@ -197,6 +197,8 @@ class Runner extends EventEmitter {
       relayed: !!j.relay, relayPid: j.relayPid || 0, relayWaiting: !j.done && !!j.relayWaiting,
     };
   }
+  /** Agent Chat 이 직접 띄워 둔 claude 프로세스들의 pid (VS Code 세션으로 착각하지 않게) */
+  ownPids() { return new Set([...this.lives.values()].map(L => L.pid).filter(Boolean)); }
   running(agent, id) { const j = this.jobs.get(agent + ':' + id); return !!(j && !j.done); }
   changed(job) { job.v++; if (job.id) this.emit('change', job.agent + ':' + job.id); }
 
@@ -223,7 +225,7 @@ class Runner extends EventEmitter {
     if (isNew && agent === 'claude') id = crypto.randomUUID();
     if (agent === 'claude' && !isNew && this.config.relayToLive !== false) {
       // VS Code(또는 터미널)에 이 대화가 열려 있으면 그 Claude 에게 넣는다. 새 Claude 를 띄우지 않는다.
-      const live = peer.findLive(id);
+      const live = peer.findLive(id, this.ownPids());
       if (live) return this.relay(live, { id, cwd, prompt });
     }
     if (agent === 'codex' && !isNew && this.config.relayToLive !== false) {

@@ -582,6 +582,25 @@ test('Codex: VS Code 에 열린 대화면 Codex 의 줄에 넣어 그쪽이 처�
   } finally { clearInterval(consumer); child.kill(); }
 });
 
+test('VS Code 세션 고르기: Agent Chat 이 띄운 claude 는 빼고, VS Code 쪽을 먼저', async () => {
+  const { spawn } = require('child_process');
+  const peer = require('../lib/peer');
+  const sdir = path.join(process.env.CLAUDE_CONFIG_DIR, 'sessions');
+  fs.mkdirSync(sdir, { recursive: true });
+  const id = 'abcdef01-2345-4678-9abc-def012345678';
+  // 살아 있는 pid 두 개: 하나는 "우리가 띄운 claude -p", 하나는 VS Code 확장
+  const a = spawn(process.execPath, ['-e', 'setTimeout(()=>{},20000)']);
+  const b = spawn(process.execPath, ['-e', 'setTimeout(()=>{},20000)']);
+  try {
+    const now = Date.now();
+    fs.writeFileSync(path.join(sdir, `${a.pid}.json`), JSON.stringify({ pid: a.pid, sessionId: id, messagingSocketPath: 'x', entrypoint: 'sdk-cli', startedAt: now }));
+    fs.writeFileSync(path.join(sdir, `${b.pid}.json`), JSON.stringify({ pid: b.pid, sessionId: id, messagingSocketPath: 'y', entrypoint: 'claude-vscode', startedAt: now - 86400000 }));
+    assert.strictEqual(peer.findLive(id).pid, b.pid, '더 오래 켜져 있어도 VS Code 쪽');
+    assert.strictEqual(peer.findLive(id, new Set([b.pid])).pid, a.pid);
+    assert.strictEqual(peer.findLive(id, new Set([a.pid, b.pid])), null, '우리가 띄운 것만 있으면 없음');
+  } finally { a.kill(); b.kill(); for (const p of [a.pid, b.pid]) fs.rmSync(path.join(sdir, `${p}.json`), { force: true }); }
+});
+
 test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {
   const { npmShimTarget, decode } = require('../lib/runner');
   const npm = path.join(tmp, 'npm');

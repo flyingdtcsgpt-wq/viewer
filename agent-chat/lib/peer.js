@@ -56,10 +56,15 @@ function liveSessions() {
   return out;
 }
 
-function findLive(sessionId) {
+/**
+ * 이 대화가 열려 있는 Claude. exclude = Agent Chat 이 직접 띄운 claude 의 pid (그건 VS Code 창이 아니다).
+ * 여럿이면 VS Code 쪽을 먼저, 그다음 가장 최근에 켠 것.
+ */
+function findLive(sessionId, exclude) {
   const id = String(sessionId || '').toLowerCase();
-  const all = liveSessions().filter(s => s.sessionId === id);
-  all.sort((a, b) => b.startedAt - a.startedAt);
+  const all = liveSessions().filter(s => s.sessionId === id && !(exclude && exclude.has(s.pid)));
+  const ide = s => /vscode|ide|cursor/i.test(s.entrypoint) ? 1 : 0;
+  all.sort((a, b) => ide(b) - ide(a) || b.startedAt - a.startedAt);
   return all[0] || null;
 }
 

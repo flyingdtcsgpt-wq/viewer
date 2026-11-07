@@ -154,7 +154,7 @@ function stream(req, res, q) {
     const k = JSON.stringify(j);
     if (k !== jobKey) { jobKey = k; out('job', j || { running: false }); }
     // VS Code(터미널)에 열려 있는지와 그쪽 상태 (busy / idle)
-    const lv = agent === 'claude' ? peer.findLive(id) : null;
+    const lv = agent === 'claude' ? peer.findLive(id, runner.ownPids()) : null;
     const lk = lv ? `${lv.pid}:${lv.status}:${lv.name}` : '';
     if (lk !== liveKey) { liveKey = lk; out('live', lv ? { pid: lv.pid, status: lv.status, name: lv.name, entrypoint: lv.entrypoint } : null); }
   };
@@ -172,7 +172,8 @@ async function api(req, res, url) {
   const q = url.searchParams;
   const p = url.pathname;
   if (p === '/api/sessions' && req.method === 'GET') {
-    const lives = new Map(peer.liveSessions().map(l => [l.sessionId, l]));
+    const own = runner.ownPids();
+    const lives = new Map(peer.liveSessions().filter(l => !own.has(l.pid)).map(l => [l.sessionId, l]));
     const list = store.list(Number(q.get('limit')) || 150).map(s => {
       const j = runner.job(s.agent, s.id);
       const running = !!(j && j.running);
