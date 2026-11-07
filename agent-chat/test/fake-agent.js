@@ -47,7 +47,34 @@ function claudeTurn(input, done) {
   return turn;
 }
 
-if (kind === 'claude' && args.includes('--input-format')) {
+if (kind === 'codex' && args[0] === 'app-server') {
+  // 가짜 Codex app-server: 줄(queue) 요청만 흉내. 줄은 $CODEX_HOME/fake_queue.json
+  const qf = path.join(process.env.CODEX_HOME, 'fake_queue.json');
+  const readQ = () => { try { return JSON.parse(fs.readFileSync(qf, 'utf8')); } catch { return []; } };
+  const writeQ = q => fs.writeFileSync(qf, JSON.stringify(q));
+  let buf = '';
+  const reply = (id, result, error) => process.stdout.write(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result }) + '\n');
+  process.stdin.on('data', d => {
+    buf += d;
+    let i;
+    while ((i = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, i); buf = buf.slice(i + 1);
+      let o; try { o = JSON.parse(line); } catch { continue; }
+      if (o.id == null) continue;
+      const p = o.params || {};
+      if (o.method === 'initialize') reply(o.id, { userAgent: 'fake' });
+      else if (o.method === 'thread/queue/add') {
+        if (!p.clientUserMessageId) { reply(o.id, null, { code: -32600, message: 'missing field `clientUserMessageId`' }); continue; }
+        const q = readQ(); const id = crypto.randomUUID();
+        q.push({ id, threadId: p.threadId, input: p.input, clientUserMessageId: p.clientUserMessageId }); writeQ(q);
+        reply(o.id, {});
+      } else if (o.method === 'thread/queue/list') reply(o.id, { data: readQ().filter(x => x.threadId === p.threadId), nextCursor: null });
+      else if (o.method === 'thread/queue/delete') { const q = readQ(); const n = q.filter(x => x.id !== p.queuedSubmissionId); writeQ(n); reply(o.id, { deleted: n.length !== q.length }); }
+      else reply(o.id, null, { code: -32601, message: 'unknown' });
+    }
+  });
+  process.stdin.on('end', () => process.exit(0));
+} else if (kind === 'claude' && args.includes('--input-format')) {
   // 한 프로세스에서 메시지를 차례로
   const q = [];
   let cur = null, ended = false, buf = '';

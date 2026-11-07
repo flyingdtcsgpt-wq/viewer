@@ -110,7 +110,12 @@ PC 는 켜져 있어야 하고 절전으로 들어가면 안 된다 (Windows 설
 - 그 창의 백그라운드 작업 · 예약 · 기억이 그대로 이어진다. 세션이 바뀌지 않는다. 모델 · 추론 · 권한은 VS Code 의 설정을 따른다.
 - VS Code 를 닫으면(등록이 사라지면) 다음 메시지부터 아래 "한 대화 = 한 Claude 프로세스" 방식으로 돈다.
 - 끄려면 `config.json` 에 `"relayToLive": false`.
-- Codex 는 이런 통로가 없어 그대로다.
+- **Codex 도 같다.** Codex 는 대화마다 "줄 선 메시지"(`$CODEX_HOME/queue_1.sqlite`, `codex queue` 명령과 같은 길)를 두고,
+  그 대화를 열어 둔 VS Code 의 Codex 가 하던 일을 끝내면 그 줄을 가져가 **정상 사용자 메시지로** 처리한다.
+  서버는 잠깐 띄운 자기 app-server 로 줄에 넣고(`thread/queue/add`) 몇 초 지켜본다.
+  - 바로 가져가면 → VS Code 의 Codex 가 처리 중 (`VS Code 로 전달됨`).
+  - 안 가져갔는데 그 대화가 지금 바쁘면 → 그쪽 일이 끝날 때까지 줄에서 기다린다 (`VS Code 작업 뒤 대기`, 중지하면 줄에서 뺀다).
+  - 안 가져갔고 조용하면 → 아무 데도 안 열려 있는 것: 줄에서 빼고(나중에 두 번 실행되지 않게) 예전처럼 `codex exec resume` 으로 따로 실행한다.
 
 ## 한 대화 = 한 Claude 프로세스
 - 휴대폰에서 어떤 대화에 처음 보내면 그 대화용 Claude 를 하나 띄우고(`claude -p --input-format stream-json --resume <id>`), **다음 메시지부터는 같은 프로세스에 이어서 넣는다.** 대화 id 도 그대로라 대화가 끊기지 않는다.

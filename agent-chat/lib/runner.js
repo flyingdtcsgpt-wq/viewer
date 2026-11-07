@@ -11,6 +11,8 @@ const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { spawn } = require('child_process');
 const peer = require('./peer');
+const codexPeer = require('./codexPeer');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const isWin = process.platform === 'win32';
 const ID_RE = /^[0-9A-Za-z][0-9A-Za-z-]{6,63}$/;
@@ -192,7 +194,7 @@ class Runner extends EventEmitter {
       live: j.done ? '' : j.live.text, tool: j.done ? '' : j.live.tool, queued: j.queue.length, v: j.v,
       // 이 대화의 claude 프로세스가 켜져 있으면 그 번호 (메시지마다 새로 뜨지 않는다는 표시)
       pid: (this.lives.get(agent + ':' + id) || {}).pid || 0,
-      relayed: !!j.relay, relayPid: j.relayPid || 0,
+      relayed: !!j.relay, relayPid: j.relayPid || 0, relayWaiting: !j.done && !!j.relayWaiting,
     };
   }
   running(agent, id) { const j = this.jobs.get(agent + ':' + id); return !!(j && !j.done); }
@@ -224,6 +226,10 @@ class Runner extends EventEmitter {
       const live = peer.findLive(id);
       if (live) return this.relay(live, { id, cwd, prompt });
     }
+    if (agent === 'codex' && !isNew && this.config.relayToLive !== false) {
+      // VS Code 의 Codex 가 이 대화를 열어 두었으면 Codex 의 정식 "줄" 에 넣어 그쪽이 처리하게 한다
+      return this.relayCodex(bin, { id, cwd, prompt, mode, env, opts });
+    }
     if (agent === 'claude' && this.config.claudeLive !== false) return this.claudeTurn(bin, { id, isNew, cwd, prompt, mode, env, opts, queue: [] });
     return this.run(agent, bin, { id, isNew, cwd, prompt, mode, env, opts, queue: [] });
   }
@@ -247,6 +253,65 @@ class Runner extends EventEmitter {
     this.changed(job);
     if (job.error) throw httpError(502, job.error);
     return { id, relayed: true, pid: live.pid };
+  }
+
+  // ---------- Codex: VS Code 에 열려 있는 대화의 줄에 넣기 ----------
+  // 1) 줄에 넣고 몇 초 안에 누가 가져가면 → VS Code 의 Codex 가 처리 중
+  // 2) 안 가져갔는데 대화가 지금 바쁘면(기록이 최근에 바뀜) → 그쪽 일이 끝날 때까지 줄에서 기다림
+  // 3) 안 가져갔고 조용하면 → 아무 데도 안 열려 있음: 줄에서 빼고(두 번 실행 방지) 예전처럼 따로 실행
+  async relayCodex(bin, { id, cwd, prompt, mode, env, opts }) {
+    const key = 'codex:' + id;
+    const job = {
+      agent: 'codex', id, cwd, bin, env, relay: true, startedAt: Date.now(), done: false, live: { text: '', tool: '' }, v: 0, queue: [],
+      relayWaiting: false,
+    };
+    this.jobs.set(key, job);
+    this.changed(job);
+    const fallback = () => { if (this.jobs.get(key) === job) this.jobs.delete(key); return this.run('codex', bin, { id, isNew: false, cwd, prompt, mode, env, opts, queue: [] }); };
+    let s;
+    try { s = await codexPeer.open(launch, bin, cwd, envFor('codex', env, opts)); } catch { return fallback(); }
+    let qid;
+    try { qid = (await codexPeer.add(s, id, prompt)).id; } catch { s.close(); return fallback(); }
+    if (!qid) { s.close(); return fallback(); }
+    const gone = async () => { try { return !(await codexPeer.list(s, id)).some(x => x.id === qid); } catch { return false; } };
+    const settle = (extra = {}) => { Object.assign(job, extra); job.done = true; job.endedAt = Date.now(); this.changed(job); s.close(); };
+    const waitMs = this.config.codexPickupMs || 4000;
+    for (let t = 0; t < waitMs; t += 500) {
+      await sleep(500);
+      if (await gone()) { settle(); return { id, relayed: true }; }
+    }
+    const active = () => (this.activeCheck ? this.activeCheck('codex', id) : false);
+    if (active()) {
+      // VS Code 쪽이 일하는 중 → 끝나면 가져간다. 그동안 상태를 "대기" 로 둔다
+      job.relayWaiting = true;
+      this.changed(job);
+      this.waitCodexPickup(s, job, { id, qid, gone, active, settle, fallback });
+      return { id, relayed: true, waiting: true };
+    }
+    try { await codexPeer.remove(s, id, qid); } catch { /* 이미 가져갔을 수도 */ }
+    s.close();
+    return fallback();
+  }
+
+  waitCodexPickup(s, job, { id, qid, gone, active, settle, fallback }) {
+    let quietSince = 0;
+    const started = Date.now();
+    const tick = async () => {
+      if (job.done) return;
+      if (job.stopped) { try { await codexPeer.remove(s, id, qid); } catch { /* 이미 */ } settle(); return; }
+      if (await gone()) { settle(); return; }
+      if (active()) quietSince = 0;
+      else if (!quietSince) quietSince = Date.now();
+      // 90초 넘게 조용한데도 안 가져가면 열려 있는 곳이 없는 것 → 빼고 따로 실행
+      if ((quietSince && Date.now() - quietSince > (this.config.codexQuietMs || 90000)) || Date.now() - started > 6 * 3600 * 1000) {
+        try { await codexPeer.remove(s, id, qid); } catch { /* 이미 */ }
+        settle({ relayWaiting: false });
+        try { await fallback(); } catch (e) { job.error = e.message; this.changed(job); }
+        return;
+      }
+      job.waitTimer = setTimeout(tick, 3000);
+    };
+    job.waitTimer = setTimeout(tick, 3000);
   }
 
   // ---------- Claude: 대화마다 프로세스 하나를 켜 두고 메시지를 이어서 넣는다 ----------
@@ -435,6 +500,7 @@ class Runner extends EventEmitter {
     if (!j || j.done) return false;
     j.stopped = true;
     j.queue.length = 0;
+    if (j.relay) return true; // 줄에서 기다리는 Codex 메시지는 다음 확인 때 줄에서 뺀다
     if (j.L && !j.L.dead) {
       // 켜 둔 claude: 먼저 "중단" 을 보내 보고, 5초 안에 안 멈추면 프로세스를 끈다
       try { j.L.child.stdin.write(JSON.stringify({ type: 'control_request', request_id: 'stop-' + Date.now(), request: { subtype: 'interrupt' } }) + '\n'); } catch { /* 닫힘 */ }

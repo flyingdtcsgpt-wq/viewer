@@ -110,7 +110,7 @@ async function startServer(kind, extra = {}) {
   const home = path.join(tmp, 'home-' + kind);
   fs.mkdirSync(home, { recursive: true });
   const fake = path.join(__dirname, 'fake-agent.js');
-  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ token: 'test-token-1234567890', port: 0, host: '127.0.0.1', claudeBin: fake, codexBin: fake, ...extra }));
+  fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({ token: 'test-token-1234567890', port: 0, host: '127.0.0.1', claudeBin: fake, codexBin: fake, codexPickupMs: 500, codexActiveMs: 0, codexQuietMs: 1500, ...extra }));
   const port = 18000 + Math.floor(Math.random() * 2000);
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
     env: { ...process.env, AGENT_CHAT_HOME: home, AGENT_CHAT_PORT: String(port), FAKE_KIND: kind }, stdio: ['ignore', 'pipe', 'pipe'],
@@ -534,6 +534,52 @@ test('VS Code 에 열린 대화: 새 Claude 를 띄우지 않고 그 세션의 �
     fs.rmSync(path.join(sdir, `${pid}.json`), { force: true });
     fs.rmSync(path.join(sdir, `${pid}.${hash}.key`), { force: true });
   }
+});
+
+test('Codex: VS Code 에 열린 대화면 Codex 의 줄에 넣어 그쪽이 처리, 아니면 줄에서 빼고 따로 실행', async () => {
+  const qf = path.join(tmp, 'codex', 'fake_queue.json');
+  const rollout = () => { const d = path.join(tmp, 'codex', 'sessions'); const walk = x => fs.readdirSync(x, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(x, e.name)) : [path.join(x, e.name)]); return walk(d).find(f => f.includes(XID)); };
+  const readQ = () => { try { return JSON.parse(fs.readFileSync(qf, 'utf8')); } catch { return []; } };
+  // 가짜 "VS Code 의 Codex": 이 대화의 줄을 가져가 정상 사용자 메시지로 처리
+  let consuming = true;
+  const consumer = setInterval(() => {
+    if (!consuming) return;
+    const q = readQ(); const mine = q.filter(x => x.threadId === XID);
+    if (!mine.length) return;
+    fs.writeFileSync(qf, JSON.stringify(q.filter(x => x.threadId !== XID)));
+    for (const m of mine) {
+      const t = m.input.map(i => i.text).join('');
+      fs.appendFileSync(rollout(), JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: t }] } }) + '\n' +
+        JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'vscode-codex: ' + t }] } }) + '\n');
+    }
+  }, 150);
+  const { child, call } = await startServer('codex', { codexPickupMs: 2000, codexActiveMs: 4000, codexQuietMs: 2500 });
+  const items = () => call(`/api/messages?agent=codex&id=${XID}`).then(x => x.body.items.map(i => i.text));
+  try {
+    // 1) 열려 있음: 줄에 넣으면 VS Code 쪽이 처리 (우리 codex exec 는 안 돈다)
+    let r = await call('/api/send', { agent: 'codex', id: XID, prompt: '폰에서 1', mode: 'read-only' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.relayed, true);
+    await waitFor(async () => (await items()).includes('vscode-codex: 폰에서 1'));
+    assert.ok(!(await items()).some(t => /^codex: 폰에서 1/.test(t)), '따로 실행하지 않음');
+    // 2) 아무도 안 가져가고 조용함: 줄에서 빼고 따로 실행
+    consuming = false;
+    await new Promise(res => setTimeout(res, 4500)); // 기록이 조용해지도록
+    r = await call('/api/send', { agent: 'codex', id: XID, prompt: '폰에서 2', mode: 'read-only' });
+    assert.strictEqual(r.status, 200);
+    assert.ok(!r.body.relayed);
+    await waitFor(async () => (await items()).some(t => /^codex: 폰에서 2/.test(t)), 15000);
+    assert.strictEqual(readQ().filter(x => x.threadId === XID).length, 0, '줄에서 뺐음 (나중에 두 번 실행 안 됨)');
+    // 3) 대화가 바쁨(방금 기록됨): 줄에서 기다렸다가 VS Code 쪽이 처리
+    fs.appendFileSync(rollout(), JSON.stringify({ type: 'event_msg', payload: { type: 'task_started' } }) + '\n');
+    r = await call('/api/send', { agent: 'codex', id: XID, prompt: '폰에서 3', mode: 'read-only' });
+    assert.strictEqual(r.body.waiting, true);
+    const j = (await call(`/api/messages?agent=codex&id=${XID}`)).body.job;
+    assert.strictEqual(j.relayWaiting, true);
+    consuming = true;
+    await waitFor(async () => (await items()).includes('vscode-codex: 폰에서 3'), 15000);
+    await waitFor(async () => !(await call(`/api/messages?agent=codex&id=${XID}`)).body.job.running, 10000);
+  } finally { clearInterval(consumer); child.kill(); }
 });
 
 test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오류 글자 읽기', () => {

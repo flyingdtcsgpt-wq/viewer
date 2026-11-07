@@ -415,6 +415,8 @@
       if (j && j.error) setStatus(j.error, true);
       else if (c.live.status === 'busy') setStatus('VS Code 의 Claude 가 작업 중 (이 창에서 보낸 말도 그쪽으로 들어갑니다)', false);
       else $('status').hidden = true;
+    } else if (j && j.running && j.relayWaiting) {
+      setStatus('VS Code 의 Codex 가 하던 일을 끝내면 이어서 처리합니다', false, true);
     } else if (j && j.running) {
       let t = j.tool ? '실행 중: ' + j.tool : j.live ? '답하는 중…' : '생각하는 중…';
       if (j.queued) t += ` (대기 ${j.queued}개)`;
@@ -480,7 +482,7 @@
       input.value = ''; grow();
       const p = el('div', 'msg user pending'); p.append(el('div', 'bubble', text));
       if (r.queued) p.firstChild.append(el('div', 'qtag', '대기 중'));
-      if (r.relayed) p.firstChild.append(el('div', 'qtag', 'VS Code 로 전달됨'));
+      if (r.relayed) p.firstChild.append(el('div', 'qtag', r.waiting ? 'VS Code 작업 뒤 대기' : 'VS Code 로 전달됨'));
       c.pending.push({ el: p, text });
       c.watched = true; watchInApp(c);
       $('msgs').append(p);

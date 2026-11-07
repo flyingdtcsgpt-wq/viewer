@@ -57,6 +57,8 @@ auth.refresh();
 const store = new Store();
 const runner = new Runner(config);
 runner.setMaxListeners(100);
+// Codex 대화가 지금 어디선가 작업 중인지 (기록 파일이 최근 60초 안에 바뀜)
+runner.activeCheck = (agent, id) => { const e = store.find(agent, id); if (!e) return false; try { return Date.now() - fs.statSync(e.file).mtimeMs < (config.codexActiveMs ?? 60000); } catch { return false; } };
 const usage = new Usage();
 runner.on('usage', (agent, info) => { if (agent === 'claude') usage.fromClaudeEvent(info); });
 
