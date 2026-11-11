@@ -14,7 +14,7 @@
   let info = {
     modes: { claude: ['acceptEdits', 'auto', 'bypassPermissions', 'plan'], codex: ['workspace-write', 'read-only', 'danger-full-access'] },
     models: { claude: ['fable', 'opus', 'sonnet', 'haiku'], codex: [] },
-    efforts: { claude: ['low', 'medium', 'high', 'xhigh', 'max'], codex: ['minimal', 'low', 'medium', 'high', 'xhigh'] },
+    efforts: { claude: ['low', 'medium', 'high', 'xhigh', 'max'], codex: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
   };
   let filter = store.get('ac_filter', 'all');
   let hideTools = store.get('ac_hideTools', '0') === '1';
@@ -173,7 +173,7 @@
   let cur = null; // {agent, id, rendered: Map(n→{json, el}), limit, pending, job, ctrl}
   // ---------- 보낼 때 설정: 권한 · 모델 · 추론 강도 · 생각 ----------
   const LABEL = {
-    low: '낮음', medium: '보통', high: '높음', xhigh: '매우 높음', max: '최대', minimal: '최소',
+    low: '낮음', medium: '보통', high: '높음', xhigh: '매우 높음', max: '최대', minimal: '최소', ultra: '울트라', none: '없음',
     fable: 'Fable', opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku',
   };
   function getOpts(agent) {
@@ -209,9 +209,7 @@
     sel.replaceChildren(...opts.map(([v, t]) => { const x = el('option', '', t); x.value = v; return x; }));
     sel.value = o.model || '';
     $('optModelCustom').hidden = true; $('optModelCustom').value = '';
-    const efforts = (info.efforts && info.efforts[agent]) || [];
-    $('optEffort').replaceChildren(...[['', '기본 (PC 설정)'], ...efforts.map(e => [e, `${LABEL[e] || e} (${e})`])].map(([v, t]) => { const x = el('option', '', t); x.value = v; return x; }));
-    $('optEffort').value = o.effort || '';
+    fillEfforts(agent, o.model, o.effort || '');
     $('optThinkRow').hidden = agent !== 'claude';
     $('optThinking').value = o.thinking || '';
     let now = cur && cur.agent === agent && cur.model ? `지금 이 대화가 쓰는 모델: ${cur.model}${cur.effort ? ' · 추론 ' + (LABEL[cur.effort] || cur.effort) : ''}` : '';
@@ -219,7 +217,17 @@
     $('optNow').textContent = now; $('optNow').hidden = !now;
     $('optSheet').hidden = false;
   }
-  $('optModel').onchange = () => { const c = $('optModel').value === '__custom'; $('optModelCustom').hidden = !c; if (c) $('optModelCustom').focus(); };
+  // 추론 강도: Codex 는 고른 모델이 지원하는 것만 (Codex 가 알려 준 목록이 있으면)
+  function fillEfforts(agent, model, keep) {
+    const per = agent === 'codex' && info.codexModelEfforts && info.codexModelEfforts[model];
+    const efforts = (per && per.length ? per : (info.efforts && info.efforts[agent])) || [];
+    $('optEffort').replaceChildren(...[['', '기본 (PC 설정)'], ...efforts.map(e => [e, `${LABEL[e] || e} (${e})`])].map(([v, t]) => { const x = el('option', '', t); x.value = v; return x; }));
+    $('optEffort').value = efforts.includes(keep) ? keep : '';
+  }
+  $('optModel').onchange = () => {
+    const c = $('optModel').value === '__custom'; $('optModelCustom').hidden = !c; if (c) $('optModelCustom').focus();
+    if (optCtx && !c) fillEfforts(optCtx.agent, $('optModel').value, $('optEffort').value);
+  };
   $('optReset').onclick = () => { $('optModel').value = ''; $('optModelCustom').hidden = true; $('optEffort').value = ''; $('optThinking').value = ''; };
   $('optSheet').onclick = e => { if (e.target === $('optSheet')) $('optForm').requestSubmit(); };
   $('optForm').onsubmit = e => {
@@ -648,6 +656,7 @@
     if (d.modes) info.modes = d.modes;
     if (d.models) info.models = d.models;
     if (d.efforts) info.efforts = d.efforts;
+    if (d.codexModelEfforts) info.codexModelEfforts = d.codexModelEfforts;
   }).catch(() => {}).finally(() => route());
 
   // ---------- 아주 작은 마크다운 (HTML 은 모두 이스케이프) ----------

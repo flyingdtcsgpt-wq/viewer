@@ -68,6 +68,12 @@ if (args[0] === 'app-server') {
         const q = readQ(); const id = crypto.randomUUID();
         q.push({ id, threadId: p.threadId, input: p.input, clientUserMessageId: p.clientUserMessageId }); writeQ(q);
         reply(o.id, {});
+      } else if (o.method === 'model/list') {
+        reply(o.id, { data: [
+          { id: 'gpt-6.2-astra', model: 'gpt-6.2-astra', hidden: false, supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }, { reasoningEffort: 'ultra' }] },
+          { id: 'gpt-6-luna', model: 'gpt-6-luna', hidden: false, supportedReasoningEfforts: [{ reasoningEffort: 'medium' }, { reasoningEffort: 'max' }] },
+          { id: 'secret', model: 'secret', hidden: true, supportedReasoningEfforts: [] },
+        ], nextCursor: null });
       } else if (o.method === 'account/rateLimits/read') {
         const snap = l => ({ limitId: l, primary: { usedPercent: 96, windowDurationMins: 10080, resetsAt: 1794300000 }, secondary: null });
         reply(o.id, { rateLimits: snap(null), rateLimitsByLimitId: { codex: snap('codex') } });

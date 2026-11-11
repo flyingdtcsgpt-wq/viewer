@@ -179,6 +179,39 @@ function stream(req, res, q) {
   res.on('error', close);
 }
 
+// Codex 가 고를 수 있게 내놓는 모델 목록 (app-server model/list). 1시간에 한 번, 실패하면 이전 값
+const catalog = { at: 0, models: [], efforts: [], byModel: {}, pending: null };
+function codexCatalog() {
+  if (Date.now() - catalog.at < 3600 * 1000) return Promise.resolve(catalog);
+  if (!catalog.pending) {
+    catalog.at = Date.now();
+    catalog.pending = (async () => {
+      const bin = resolveBin('codex', config);
+      if (!bin) return;
+      let s = null;
+      try {
+        s = await codexPeer.open(launch, bin, os.homedir(), process.env);
+        const r = await s.rpc('model/list', { limit: 100 }, 8000);
+        const data = (r && r.result && Array.isArray(r.result.data)) ? r.result.data.filter(m => m && !m.hidden && (m.model || m.id)) : [];
+        if (!data.length) return;
+        const order = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+        const eff = new Set(); const byModel = {};
+        for (const m of data) {
+          const list = (m.supportedReasoningEfforts || []).map(e => (typeof e === 'string' ? e : e && (e.reasoningEffort || e.effort))).filter(e => typeof e === 'string');
+          byModel[m.model || m.id] = list;
+          for (const e of list) eff.add(e);
+        }
+        catalog.models = data.map(m => m.model || m.id);
+        catalog.efforts = [...eff].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+        catalog.byModel = byModel;
+      } catch { /* Codex 없음 · 옛 버전 */ } finally { if (s) s.close(); }
+    })().finally(() => { catalog.pending = null; });
+  }
+  // 처음 한 번은 결과를 잠깐 기다리고, 그 뒤로는 기다리지 않는다
+  if (catalog.models.length || !catalog.pending) return Promise.resolve(catalog);
+  return Promise.race([catalog.pending.then(() => catalog), new Promise(r => setTimeout(() => r(catalog), 6000))]);
+}
+
 // Codex 계정 사용량: 잠깐 띄운 우리만의 codex app-server 로 묻는다 (Codex 가 없으면 건너뜀)
 function codexUsage() {
   const bin = resolveBin('codex', config);
@@ -233,11 +266,13 @@ async function api(req, res, url) {
   if (p === '/api/projects' && req.method === 'GET') return send(req, res, 200, { projects: projects() });
   if (p === '/api/info' && req.method === 'GET') {
     const k = auth.keys();
-    // Codex 모델 목록: 이 PC 에서 실제로 쓴 모델들
-    const codexModels = [...new Set(store.list(300).filter(s => s.agent === 'codex' && s.model).map(s => s.model))];
+    // Codex 모델 목록: Codex 가 알려 주는 목록(새 모델이 나오면 Codex 업데이트와 함께 자동으로) + 이 PC 에서 실제로 쓴 모델
+    const cat = await codexCatalog();
+    const codexModels = [...new Set([...cat.models, ...store.list(300).filter(s => s.agent === 'codex' && s.model).map(s => s.model)])];
+    const codexEfforts = cat.efforts.length ? cat.efforts : CODEX_EFFORTS;
     return send(req, res, 200, {
       bins: runner.bins(), modes: { claude: CLAUDE_MODES.slice(0, 4), codex: CODEX_MODES }, host: os.hostname(), keys: { anthropic: k.anthropic, openai: k.openai },
-      models: { claude: CLAUDE_MODELS, codex: codexModels }, efforts: { claude: CLAUDE_EFFORTS, codex: CODEX_EFFORTS },
+      models: { claude: CLAUDE_MODELS, codex: codexModels }, efforts: { claude: CLAUDE_EFFORTS, codex: codexEfforts }, codexModelEfforts: cat.byModel,
     });
   }
   // 첨부 파일: 올리기 (본문 = 파일 그대로) / 보기 (그 대화 프로젝트의 첨부 폴더 안 파일만)

@@ -368,7 +368,7 @@ test('보낼 때 모델 · 추론 강도 · 생각: 고른 것만 넘기고, 이
     r = await call('/api/send', { agent: 'claude', id: CID, prompt: '옵션2', mode: 'plan', opts: { model: 'x; rm -rf /', effort: 'huge', thinking: 'on' } });
     await waitFor(async () => { const x = await call(`/api/messages?agent=claude&id=${CID}`); return x.body.items.some(i => i.text === 'echo: 옵션2 mode=plan think=on'); });
     const info = (await call('/api/info')).body;
-    assert.ok(info.models.claude.includes('opus') && info.efforts.claude.includes('max') && info.efforts.codex.includes('minimal'));
+    assert.ok(info.models.claude.includes('opus') && info.efforts.claude.includes('max') && info.efforts.codex.length > 0);
   } finally { child.kill(); }
 });
 
@@ -606,6 +606,20 @@ test('Codex: VS Code 에 열린 대화면 Codex 의 줄에 넣어 그쪽이 처�
     await waitFor(async () => (await items()).includes('vscode-codex: 폰에서 4'), 15000);
     fs.rmSync(lock, { force: true });
   } finally { clearInterval(consumer); child.kill(); }
+});
+
+test('Codex 모델 목록은 Codex 가 알려 주는 대로 (새 모델 자동 추가), 강도도 모델별로', async () => {
+  const { child, call } = await startServer('codex');
+  try {
+    const d = (await call('/api/info')).body;
+    assert.deepStrictEqual(d.models.codex.slice(0, 2), ['gpt-6.2-astra', 'gpt-6-luna']);
+    assert.ok(!d.models.codex.includes('secret'), '숨긴 모델은 빼기');
+    assert.deepStrictEqual(d.efforts.codex, ['low', 'medium', 'high', 'max', 'ultra']);
+    assert.deepStrictEqual(d.codexModelEfforts['gpt-6.2-astra'], ['low', 'high', 'ultra']);
+    const { cleanOpts } = require('../lib/runner');
+    assert.deepStrictEqual(cleanOpts('codex', { model: 'gpt-6.2-astra', effort: 'ultra' }), { model: 'gpt-6.2-astra', effort: 'ultra' });
+    assert.deepStrictEqual(cleanOpts('codex', { effort: 'x; rm' }), {});
+  } finally { child.kill(); }
 });
 
 test('첨부: 프로젝트 폴더의 .agent-chat-uploads 에 저장, 보낼 글에 경로, 그 폴더 밖은 거부', async () => {

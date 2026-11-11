@@ -21,7 +21,7 @@ const CODEX_MODES = ['workspace-write', 'read-only', 'danger-full-access'];
 // 보낼 때 고르는 모델 · 추론 강도 · 생각(thinking)
 const CLAUDE_MODELS = ['fable', 'opus', 'sonnet', 'haiku'];
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
-const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\-\[\]]{0,79}$/;
 
 /** 화면에서 온 값을 검사해서 쓸 수 있는 것만 남긴다 */
@@ -29,8 +29,8 @@ function cleanOpts(agent, o) {
   o = o && typeof o === 'object' ? o : {};
   const out = {};
   if (typeof o.model === 'string' && MODEL_RE.test(o.model.trim())) out.model = o.model.trim();
-  const efforts = agent === 'claude' ? CLAUDE_EFFORTS : CODEX_EFFORTS;
-  if (efforts.includes(o.effort)) out.effort = o.effort;
+  // Codex 는 모델마다 새 강도가 생길 수 있어(목록은 Codex 가 알려 줌) 모양만 본다
+  if (agent === 'claude' ? CLAUDE_EFFORTS.includes(o.effort) : typeof o.effort === 'string' && /^[a-z][a-z0-9-]{1,15}$/.test(o.effort)) out.effort = o.effort;
   if (agent === 'claude' && (o.thinking === 'on' || o.thinking === 'off')) out.thinking = o.thinking;
   return out;
 }
