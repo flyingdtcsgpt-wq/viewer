@@ -912,9 +912,14 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
     if (e case ItemEntry i when !multi) ...[
       item('finished', Icons.done_all, i.item.progress >= 0.98 ? '안 읽음으로 표시' : '읽음으로 표시'),
       item('reset', Icons.restart_alt, '읽기 진행률 초기화'),
+      if (state.isInProgress(i.item)) item('uncontinue', Icons.playlist_remove, '보던 목록에서 빼기'),
       item('rate', Icons.star, '평점 수정'),
       item('fav', i.item.favorite ? Icons.favorite : Icons.favorite_border, i.item.favorite ? '즐겨찾기 해제' : '즐겨찾기'),
       item('info', Icons.edit_note, '메타데이터 관리'),
+      const PopupMenuDivider(),
+    ],
+    if (multi && state.selectedItemsDeep.any(state.isInProgress)) ...[
+      item('uncontinue', Icons.playlist_remove, '선택한 것 보던 목록에서 빼기'),
       const PopupMenuDivider(),
     ],
     if (e is SeriesEntry && admin && !multi) ...[
@@ -950,6 +955,9 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
       if (e is ItemEntry) state.markFinished(e.item, e.item.progress < 0.98);
     case 'reset':
       if (e is ItemEntry) state.markFinished(e.item, false);
+    case 'uncontinue':
+      final list = multi ? state.selectedItemsDeep.where(state.isInProgress).toList() : [if (e is ItemEntry) e.item];
+      removeFromContinueWithUndo(context, list);
     case 'rate':
       if (e is ItemEntry) showRatingDialog(context, e.item);
     case 'fav':
@@ -1151,4 +1159,18 @@ class _SizeSliderState extends State<_SizeSlider> {
       },
     );
   }
+}
+
+
+/// 보던 목록에서 빼고 "되돌리기" 안내 (다시 열면 저절로 돌아온다)
+void removeFromContinueWithUndo(BuildContext context, List<MediaItem> items) {
+  if (items.isEmpty) return;
+  final state = context.read<AppState>();
+  state.removeFromContinue(items);
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text(items.length == 1 ? '"${items.first.title}" 을(를) 보던 목록에서 뺐습니다. 다시 열면 돌아옵니다.' : '${items.length}개를 보던 목록에서 뺐습니다. 다시 열면 돌아옵니다.'),
+      action: SnackBarAction(label: '되돌리기', onPressed: () => state.restoreToContinue(items)),
+    ));
 }

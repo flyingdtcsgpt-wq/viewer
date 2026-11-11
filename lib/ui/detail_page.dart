@@ -9,7 +9,7 @@ import '../app_state.dart';
 import '../models/media_item.dart';
 import 'cover_tile.dart';
 import 'metadata_search_dialog.dart';
-import 'browser.dart' show fileSize, showRatingDialog;
+import 'browser.dart' show fileSize, removeFromContinueWithUndo, showRatingDialog;
 import 'series_widgets.dart';
 import 'tools/image_editor.dart';
 import 'viewers/open_item.dart';
@@ -197,6 +197,12 @@ class _DetailPageState extends State<DetailPage> {
               ? (item.progress > 0 ? '이어보기' : '재생')
               : (item.progress > 0 ? '이어읽기 ${(item.progress * 100).round()}%' : '보기')),
         ),
+        if (context.watch<AppState>().isInProgress(item))
+          OutlinedButton.icon(
+            onPressed: () => removeFromContinueWithUndo(context, [item]),
+            icon: const Icon(Icons.playlist_remove),
+            label: const Text('보던 목록에서 빼기'),
+          ),
         OutlinedButton.icon(
           onPressed: () => openWithSystem(item.path),
           icon: const Icon(Icons.open_in_new),

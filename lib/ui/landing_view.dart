@@ -8,6 +8,7 @@ import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../models/series.dart';
 import 'brand.dart';
+import 'browser.dart' show removeFromContinueWithUndo;
 import 'cover_tile.dart';
 import 'detail_page.dart';
 import 'series_widgets.dart';
@@ -26,7 +27,8 @@ class LandingView extends StatelessWidget {
     final favorites = state.allItems.where((e) => e.favorite).take(24).map<Entry>(ItemEntry.new).toList();
 
     final rows = <Widget>[
-      if (cont.isNotEmpty) _Row(title: '${state.user?.name ?? ''} 님이 보던 작품', entries: cont.map<Entry>(ItemEntry.new).toList(), wideCards: true),
+      if (cont.isNotEmpty)
+        _Row(title: '${state.user?.name ?? ''} 님이 보던 작품', entries: cont.map<Entry>(ItemEntry.new).toList(), wideCards: true, removable: true),
       _Row(title: '최근 추가된 작품', entries: state.rootEntries(), onMore: () => state.setFilter(clearKind: true)),
       for (final k in [MediaKind.comic, MediaKind.book, MediaKind.video, MediaKind.image])
         _Row(title: kindLabel(k), entries: state.rootEntries(kind: k), onMore: () => state.setFilter(kind: k)),
@@ -244,7 +246,8 @@ class _Row extends StatefulWidget {
   final List<Entry> entries;
   final VoidCallback? onMore;
   final bool wideCards; // "보던 작품" 은 진행 막대가 잘 보이게 조금 크게
-  const _Row({required this.title, required this.entries, this.onMore, this.wideCards = false});
+  final bool removable; // 카드마다 "보던 목록에서 빼기" (×)
+  const _Row({required this.title, required this.entries, this.onMore, this.wideCards = false, this.removable = false});
 
   @override
   State<_Row> createState() => _RowState();
@@ -313,14 +316,34 @@ class _RowState extends State<_Row> {
                           onLongPress: () => state.enterSeries(s.series.id),
                           onEdit: state.isAdmin ? () => showSeriesEditor(context, s.series) : () {},
                         ),
-                      ItemEntry it => CoverTile(
-                          item: it.item,
-                          hidden: state.isHiddenItem(it.item),
-                          showVolume: it.item.seriesId != null,
-                          onTap: () => openItem(context, it.item, siblings: siblings),
-                          onLongPress: () => _info(context, it.item),
-                          onInfo: () => _info(context, it.item),
-                        ),
+                      ItemEntry it => Stack(children: [
+                          CoverTile(
+                            item: it.item,
+                            hidden: state.isHiddenItem(it.item),
+                            showVolume: it.item.seriesId != null,
+                            onTap: () => openItem(context, it.item, siblings: siblings),
+                            onLongPress: () => _info(context, it.item),
+                            onInfo: () => _info(context, it.item),
+                          ),
+                          // 보던 목록에서 빼기 (읽은 위치는 그대로, 다시 열면 돌아옴)
+                          if (widget.removable)
+                            Positioned(
+                              top: 4,
+                              left: 4,
+                              child: Tooltip(
+                                message: '보던 목록에서 빼기',
+                                child: Material(
+                                  color: Colors.black54,
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () => removeFromContinueWithUndo(context, [it.item]),
+                                    child: const Padding(padding: EdgeInsets.all(5), child: Icon(Icons.close, size: 16, color: Colors.white)),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ]),
                     },
                   ),
                 );

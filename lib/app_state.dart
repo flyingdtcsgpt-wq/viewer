@@ -184,7 +184,7 @@ class AppState extends ChangeNotifier {
       case Collection.recent:
         return (items.where((e) => e.lastOpened != null).toList()..sort(byOpened)).take(100).map<Entry>(ItemEntry.new).toList();
       case Collection.reading:
-        return (items.where((e) => e.progress > 0 && e.progress < 0.98).toList()..sort(byOpened)).map<Entry>(ItemEntry.new).toList();
+        return (items.where(isInProgress).toList()..sort(byOpened)).map<Entry>(ItemEntry.new).toList();
       case Collection.finished:
         return (items.where((e) => e.progress >= 0.98).toList()..sort(byOpened)).map<Entry>(ItemEntry.new).toList();
       case Collection.recentAdded:
@@ -812,8 +812,54 @@ class AppState extends ChangeNotifier {
 
   // ---------------- 첫 화면 줄들 ----------------
 
+  // ---- 보던 목록에서 빼기 (사용자마다) ----
+  // 뺀 시각을 적어 두고, 그보다 나중에 다시 열면(last_opened 가 더 크면) 저절로 다시 나온다
+  Map<int, int>? _cwOff;
+  int? _cwOffUser;
+  Map<int, int> get _continueOff {
+    final uid = user?.id ?? 0;
+    if (_cwOff == null || _cwOffUser != uid) {
+      _cwOff = settings.continueOff(uid);
+      _cwOffUser = uid;
+    }
+    return _cwOff!;
+  }
+
+  /// 읽다 만 것인가 (다 읽었거나 사용자가 보던 목록에서 뺀 것은 아님)
+  bool isInProgress(MediaItem e) {
+    if (e.progress <= 0.0 || e.progress >= 0.98) return false;
+    final off = e.id == null ? null : _continueOff[e.id];
+    return off == null || (e.lastOpened?.millisecondsSinceEpoch ?? 0) > off;
+  }
+
+  /// "보던 작품 · 읽는 중" 에서 빼기 (읽은 위치는 그대로, 다시 열면 돌아온다)
+  void removeFromContinue(Iterable<MediaItem> items) {
+    final m = _continueOff;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final e in items) {
+      if (e.id != null) m[e.id!] = now;
+    }
+    // 이미 다시 열어서 의미가 없어진 기록은 정리
+    m.removeWhere((id, t) {
+      final it = rawItemById(id);
+      return it == null || (it.lastOpened?.millisecondsSinceEpoch ?? 0) > t;
+    });
+    settings.setContinueOff(_cwOffUser ?? 0, m);
+    notifyListeners();
+  }
+
+  /// 빼기 되돌리기
+  void restoreToContinue(Iterable<MediaItem> items) {
+    final m = _continueOff;
+    for (final e in items) {
+      m.remove(e.id);
+    }
+    settings.setContinueOff(_cwOffUser ?? 0, m);
+    notifyListeners();
+  }
+
   /// 이어서 보기: 읽다 만 것 (최근 연 순)
-  List<MediaItem> get continueWatching => _memo('continue', () => allItems.where((e) => e.progress > 0.0 && e.progress < 0.98).toList()
+  List<MediaItem> get continueWatching => _memo('continue', () => allItems.where(isInProgress).toList()
     ..sort((a, b) => (b.lastOpened?.millisecondsSinceEpoch ?? 0).compareTo(a.lastOpened?.millisecondsSinceEpoch ?? 0)));
 
   /// 맨 위 칸들(묶음 + 낱권) 중 [kind] 가 들어 있는 것, 최근 추가순

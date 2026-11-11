@@ -188,6 +188,20 @@ class Settings extends ChangeNotifier {
   void setSpeakerVoices(int bookId, Map<String, String> m) =>
       _set(() => m.isEmpty ? _p.remove('spk_$bookId') : _p.setString('spk_$bookId', jsonEncode(m)));
 
+  /// 사용자마다 "보던 작품 · 읽는 중" 에서 뺀 항목 { 항목 id: 뺀 시각(ms) }. 그 뒤에 다시 열면 저절로 돌아온다
+  Map<int, int> continueOff(int userId) {
+    final raw = _p.getString('cwOff_$userId');
+    if (raw == null) return {};
+    try {
+      return (jsonDecode(raw) as Map<String, dynamic>).map((k, v) => MapEntry(int.parse(k), (v as num).toInt()));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  void setContinueOff(int userId, Map<int, int> m) =>
+      _set(() => m.isEmpty ? _p.remove('cwOff_$userId') : _p.setString('cwOff_$userId', jsonEncode(m.map((k, v) => MapEntry('$k', v)))));
+
   // ---------- 공유 서버 ----------
   /// 공용 아이디로 접속했을 때 적용할 앱 사용자 (없으면 -1 = 숨김만 빼고 전부)
   int get shareAsUser => _p.getInt('shareAsUser') ?? -1;

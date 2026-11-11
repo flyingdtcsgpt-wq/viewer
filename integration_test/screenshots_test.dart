@@ -505,6 +505,29 @@ void main() {
       });
     });
 
+    // 보던 목록에서 빼기: 빼면 사라지고, 다시 열면(진행 저장) 돌아온다
+    await step('continue list', () async {
+      await tester.runAsync(() async {
+        final it = state.allItems.firstWhere((e) => e.kind != MediaKind.video);
+        await state.saveProgress(it, '1', 0.4);
+        state.refresh();
+        final before = state.continueWatching.contains(it);
+        state.removeFromContinue([it]);
+        final afterRemove = state.continueWatching.contains(it);
+        final inReading = state.isInProgress(it);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await state.saveProgress(it, '2', 0.45); // 다시 열어서 읽음
+        state.refresh();
+        final back = state.continueWatching.contains(it);
+        debugPrint('CHECK continue before=$before removed=${!afterRemove} reading=$inReading back=$back');
+        expect(before, isTrue);
+        expect(afterRemove, isFalse);
+        expect(inReading, isFalse);
+        expect(back, isTrue);
+        await state.markFinished(it, false);
+      });
+    });
+
     // WebDAV · HTTPS: 우리 서버를 WebDAV 로 둘러보고 받기, 이어받기(Range), 가족 계정 권한, HTTPS(자체 서명), 다른 서버 응답 읽기
     await step('webdav', () async {
       await tester.runAsync(() async {
