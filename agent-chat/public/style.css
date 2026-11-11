@@ -173,6 +173,7 @@ body.connect { overflow: auto; }
 .ugroup { display: inline-flex; gap: 6px; align-items: baseline; }
 .uname { color: var(--text); font-weight: 600; }
 .uwin b { font-variant-numeric: tabular-nums; }
+.ureset { font-size: 11px; opacity: .8; white-space: nowrap; }
 .u-ok { color: #16a34a; } .u-warn { color: #d97706; } .u-bad { color: var(--err); }
 .unone { opacity: .7; }
 .usagemore { display: block; margin-top: 3px; }

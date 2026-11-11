@@ -69,7 +69,21 @@
     if (d.toDateString() === now.toDateString()) return '오늘 ' + hm;
     return `${d.getMonth() + 1}/${d.getDate()}(${'일월화수목금토'[d.getDay()]}) ${hm}`;
   }
+  // 초기화까지 남은 시간 (짧게): 40분 · 5시간 · 1일 5시간 · 4일
+  function untilText(ms) {
+    if (!ms) return '';
+    const m = Math.round((ms - Date.now()) / 60000);
+    if (m <= 0) return '곧';
+    if (m < 60) return m + '분';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + '시간';
+    const d = Math.floor(h / 24), rh = h % 24;
+    return d < 3 && rh ? `${d}일 ${rh}시간` : d + '일';
+  }
+  let lastUsage = null;
+  setInterval(() => { if (lastUsage && !document.hidden) renderUsage(lastUsage); }, 60000); // 남은 시간이 줄어드는 게 보이게
   function renderUsage(u) {
+    lastUsage = u;
     const line = $('usageLine'), more = $('usageMore');
     line.replaceChildren(); more.replaceChildren();
     const add = (name, info) => {
@@ -80,6 +94,8 @@
         const r = remain(w.pct);
         const s = el('span', 'uwin');
         s.append(el('span', '', w.label + ' '), el('b', 'u-' + lvl(r), r + '%'));
+        const left = untilText(w.resetsAt);
+        if (left) { const z = el('span', 'ureset', ' ↻' + left); z.title = when(w.resetsAt) + ' 초기화'; s.append(z); }
         g.append(s);
       }
       line.append(g);
