@@ -15,6 +15,7 @@ const { ProjectAuth } = require('./lib/auth');
 const { Usage } = require('./lib/usage');
 const peer = require('./lib/peer');
 const files = require('./lib/files');
+const codexRules = require('./lib/codexRules');
 
 const HOME = process.env.AGENT_CHAT_HOME || path.join(os.homedir(), '.agent-chat');
 const CONFIG_FILE = path.join(HOME, 'config.json');
@@ -306,8 +307,10 @@ async function api(req, res, url) {
       return send(req, res, 200, fs.readFileSync(f), files.contentType(f), { 'Cache-Control': 'private, max-age=86400' });
     }
   }
+  if (p === '/api/codex-rules' && req.method === 'GET') return send(req, res, 200, codexRules.status());
   if (req.method !== 'POST') return send(req, res, 404, { error: '없는 주소' });
   const body = await readBody(req);
+  if (p === '/api/codex-rules') return send(req, res, 200, codexRules.set(!!body.on));
   if (p === '/api/project-auth') return send(req, res, 200, auth.set(String(body.cwd || ''), body.mode));
   const agent = agentOf(body.agent);
   if (!agent) return send(req, res, 400, { error: '에이전트를 골라 주세요' });

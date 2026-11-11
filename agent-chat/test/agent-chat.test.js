@@ -677,6 +677,29 @@ test('목록: 프로그램이 돌린 대화(codex exec · 하위 에이전트 ·
   }
 });
 
+test('Codex 운영 규칙: ~/.codex/AGENTS.md 에 표시한 덩어리만 넣고 빼고, 원래 내용은 그대로', async () => {
+  const f = path.join(tmp, 'codex', 'AGENTS.md');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, '# 내 규칙\n- 한국어로 답해\n');
+  const { child, call } = await startServer('codex');
+  try {
+    let r = (await call('/api/codex-rules')).body;
+    assert.strictEqual(r.installed, false);
+    assert.match(r.rules, /codex queue --thread/);
+    r = (await call('/api/codex-rules', { on: true })).body;
+    assert.strictEqual(r.installed, true);
+    let t = fs.readFileSync(f, 'utf8');
+    assert.ok(t.startsWith('# 내 규칙\n- 한국어로 답해\n\n<!-- agent-chat:codex-rules:start'));
+    assert.match(t, /--ephemeral/);
+    await call('/api/codex-rules', { on: true }); // 두 번 켜도 한 번만
+    assert.strictEqual(fs.readFileSync(f, 'utf8').split('agent-chat:codex-rules:start').length, 2);
+    r = (await call('/api/codex-rules', { on: false })).body;
+    assert.strictEqual(r.installed, false);
+    assert.strictEqual(fs.readFileSync(f, 'utf8'), '# 내 규칙\n- 한국어로 답해\n', '원래 내용 그대로');
+    assert.strictEqual((await call('/api/codex-rules', { on: true }, 'wrong-token')).status, 401);
+  } finally { child.kill(); fs.rmSync(f, { force: true }); }
+});
+
 test('첨부: 프로젝트 폴더의 .agent-chat-uploads 에 저장, 보낼 글에 경로, 그 폴더 밖은 거부', async () => {
   const { child, call, port } = await startServer('claude');
   const H = { Authorization: 'Bearer test-token-1234567890' };

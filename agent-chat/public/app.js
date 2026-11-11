@@ -183,7 +183,29 @@
       return b;
     }));
     if (autoN) box.append(tog);
+    const rb = el('button', 'autotoggle', 'Codex 운영 규칙 (정기 보고를 한 대화에서)'); rb.type = 'button'; rb.onclick = openRules;
+    box.append(rb);
   }
+  // Codex 운영 규칙 (PC 의 ~/.codex/AGENTS.md 에 Agent Chat 이 관리하는 한 덩어리)
+  let rulesOn = false;
+  async function openRules() {
+    $('rulesErr').className = 'err'; $('rulesErr').textContent = ''; $('rulesSheet').hidden = false; $('rulesText').textContent = '불러오는 중…';
+    try {
+      const d = await api('/api/codex-rules');
+      rulesOn = d.installed; $('rulesPath').textContent = d.path; $('rulesText').textContent = d.rules;
+      $('rulesToggle').textContent = rulesOn ? '끄기 (지우기)' : '켜기';
+      $('rulesToggle').classList.toggle('primary', !rulesOn);
+    } catch (e) { $('rulesErr').textContent = e.message; }
+  }
+  $('rulesToggle').onclick = async () => {
+    try {
+      await api('/api/codex-rules', { on: !rulesOn }); await openRules();
+      $('rulesErr').className = 'okmsg';
+      $('rulesErr').textContent = rulesOn ? '켰습니다. Codex 가 다음 메시지부터(이어 가는 대화 포함) 이 규칙을 읽습니다.' : '껐습니다.';
+    } catch (e) { $('rulesErr').className = 'err'; $('rulesErr').textContent = e.message; }
+  };
+  $('rulesClose').onclick = () => { $('rulesSheet').hidden = true; };
+  $('rulesSheet').onclick = e => { if (e.target === $('rulesSheet')) $('rulesSheet').hidden = true; };
   if (native) { $('pcBtn').hidden = false; $('pcBtn').onclick = () => native.servers(); }
   for (const c of $('filters').children) {
     c.classList.toggle('on', c.dataset.f === filter);

@@ -126,6 +126,15 @@
     </div>
   </form>
 </div>
+<div id="rulesSheet" class="sheet" hidden>
+  <div class="sheet-box">
+    <h2>Codex 운영 규칙</h2>
+    <p class="muted small">켜면 PC 의 Codex 전역 안내문(<span id="rulesPath"></span>)에 아래 규칙을 넣습니다. 모든 Codex 대화(VS Code 포함)가 따릅니다. 끄면 이 부분만 지웁니다.</p>
+    <pre id="rulesText" class="note-box"></pre>
+    <p id="rulesErr" class="err"></p>
+    <div class="row"><button id="rulesClose" type="button">닫기</button><button id="rulesToggle" type="button" class="primary">켜기</button></div>
+  </div>
+</div>
 <div id="viewer" class="viewer" hidden><img id="viewerImg" alt=""></div>
 </body>
 </html>

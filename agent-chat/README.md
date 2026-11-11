@@ -127,6 +127,14 @@ PC 는 켜져 있어야 하고 절전으로 들어가면 안 된다 (Windows 설
   첫 턴이 끝나면 app-server 를 닫아 대화를 놓아 준다. 끄려면 `"codexNewViaAppServer": false`.
 - 이 기능 전에 휴대폰에서 만든 대화는 여전히 VS Code 목록에 안 나온다 (휴대폰 앱 목록에는 보인다).
 
+## Codex 운영 규칙 (정기 보고를 한 대화에서)
+- "매시간 보고해" 같은 일을 시키면 Codex 는 감시 스크립트가 매번 `codex exec` 를 새로 띄우게 만들기 쉽고, 그때마다 새 대화가 생긴다.
+- 휴대폰 목록 맨 아래 **Codex 운영 규칙** 에서 켜면, Codex 가 모든 대화에서 읽는 전역 안내문 `~/.codex/AGENTS.md` 에 규칙 한 덩어리를 넣는다
+  (표시 줄 `<!-- agent-chat:codex-rules:start … -->` ~ `<!-- agent-chat:codex-rules:end -->` 사이만. 끄면 그 부분만 지운다).
+  - 사용자에게 보일 보고 · 다음 할 일 → 지금 대화의 줄에 넣기: `codex queue --thread "<이 대화 id>" --message "…"` (이 대화 id = Codex 셸의 `CODEX_THREAD_ID`)
+  - 사용자가 볼 필요 없는 점검 → 기록을 남기지 않는 `codex exec --ephemeral`
+- 안내문이라 Codex 가 따르도록 "요청" 하는 것이고, 이미 돌고 있는 감시 스크립트는 바뀌지 않는다. 켠 뒤 Codex 에게 감시 스크립트를 이 규칙대로 다시 만들라고 하면 된다.
+
 ## 한 대화 = 한 Claude 프로세스
 - 휴대폰에서 어떤 대화에 처음 보내면 그 대화용 Claude 를 하나 띄우고(`claude -p --input-format stream-json --resume <id>`), **다음 메시지부터는 같은 프로세스에 이어서 넣는다.** 대화 id 도 그대로라 대화가 끊기지 않는다.
 - 그래서 휴대폰에서 시킨 백그라운드 작업 · 기억이 메시지 사이에 이어진다. 대화 화면 위에 `● 연결 유지` 가 보이면 켜져 있는 것.

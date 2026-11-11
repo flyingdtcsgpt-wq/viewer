@@ -202,3 +202,5 @@ body.connect { overflow: auto; }
 
 .badge.auto { background: #8a8f99; }
 .autotoggle { display: block; margin: 6px auto 70px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 99px; padding: 5px 14px; font-size: 13px; }
+.sheet-box .muted.small { color: var(--muted); font-size: 12.5px; margin: 0; word-break: break-all; }
+.okmsg { color: var(--codex); font-size: 13px; margin: 4px 0; }
