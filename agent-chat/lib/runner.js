@@ -214,7 +214,9 @@ class Runner extends EventEmitter {
     if (!isNew && !ID_RE.test(id)) throw httpError(400, '세션 id 가 이상합니다');
     // 작업 중에 또 보내면 PC 처럼 줄 세워 두었다가 끝나면 이어서 보낸다
     const busy = !isNew && this.jobs.get(agent + ':' + id);
-    if (busy && !busy.done) {
+    // Codex 를 VS Code 줄로 넘기는 중이면 이것도 Codex 의 줄로 (순서는 Codex 가 지킨다)
+    const codexRelay = agent === 'codex' && busy && busy.relay && this.config.relayToLive !== false;
+    if (busy && !busy.done && !codexRelay) {
       if (busy.queue.length >= 5) throw httpError(429, '대기 중인 메시지가 너무 많습니다');
       busy.queue.push({ prompt, mode, opts });
       this.changed(busy);
@@ -261,7 +263,8 @@ class Runner extends EventEmitter {
   // 1) 줄에 넣고 몇 초 안에 누가 가져가면 → VS Code 의 Codex 가 처리 중
   // 2) 안 가져갔는데 대화가 지금 바쁘면(기록이 최근에 바뀜) → 그쪽 일이 끝날 때까지 줄에서 기다림
   // 3) 안 가져갔고 조용하면 → 아무 데도 안 열려 있음: 줄에서 빼고(두 번 실행 방지) 예전처럼 따로 실행
-  async relayCodex(bin, { id, cwd, prompt, mode, env, opts }) {
+  // mustWait: 따로 실행했다가 "다른 Codex 가 이 대화를 쓰는 중" 으로 막힌 메시지 → 가져갈 때까지 줄에서 기다린다
+  async relayCodex(bin, { id, cwd, prompt, mode, env, opts, mustWait }) {
     const key = 'codex:' + id;
     const job = {
       agent: 'codex', id, cwd, bin, env, relay: true, startedAt: Date.now(), done: false, live: { text: '', tool: '' }, v: 0, queue: [],
@@ -289,7 +292,7 @@ class Runner extends EventEmitter {
       await sleep(500);
       if (await gone()) { settle(); return { id, relayed: true }; }
     }
-    const active = () => locked() || (this.activeCheck ? this.activeCheck('codex', id) : false);
+    const active = () => !!mustWait || locked() || (this.activeCheck ? this.activeCheck('codex', id) : false);
     if (active()) {
       // VS Code 쪽이 일하는 중 → 끝나면 가져간다. 그동안 상태를 "대기" 로 둔다
       job.relayWaiting = true;
@@ -435,7 +438,7 @@ class Runner extends EventEmitter {
     const child = launch(bin, buildArgs(agent, { id, isNew, mode, opts }, this.config), cwd, envFor(agent, env, opts));
     const job = {
       agent, id, cwd, bin, env, child, startedAt: Date.now(), out: Buffer.alloc(0), err: Buffer.alloc(0), done: false,
-      live: { text: '', tool: '' }, v: 0, queue,
+      live: { text: '', tool: '' }, v: 0, queue, prompt, mode, opts, isNew,
     };
     if (id) this.jobs.set(agent + ':' + id, job);
 
@@ -491,14 +494,29 @@ class Runner extends EventEmitter {
       job.done = true; job.endedAt = Date.now(); job.code = code;
       if (code !== 0 && !job.stopped && !job.error) {
         const txt = (decode(job.err).trim() || nonJson(decode(job.out)).trim());
+        // 다른 Codex(VS Code 확장, 또는 Claude 가 돌린 codex)가 이 대화를 쓰는 중 → 오류로 끝내지 말고 그쪽 줄에 넣어 기다린다
+        if (agent === 'codex' && job.id && !job.isNew && /already has an active writer/i.test(txt) && this.config.relayToLive !== false) {
+          job.requeued = true; job.endedAt = Date.now();
+          const rest = job.queue.splice(0);
+          this.relayCodex(job.bin, { id: job.id, cwd: job.cwd, prompt: job.prompt, mode: job.mode, env: job.env, opts: job.opts, mustWait: true })
+            .then(() => { for (const n of rest) this.relayCodex(job.bin, { id: job.id, cwd: job.cwd, prompt: n.prompt, mode: n.mode, env: job.env, opts: n.opts, mustWait: true }).catch(() => {}); })
+            .catch(e => { job.error = e.message; this.changed(job); });
+          return;
+        }
         job.error = txt.split('\n').slice(-8).join('\n') || `종료 코드 ${code}`;
       }
       if (!job.id) { job.reject(httpError(500, job.error || 'Codex 세션을 시작하지 못했습니다')); return; }
       this.changed(job);
-      // 줄 서 있던 메시지를 이어서 (멈춤 · 오류면 버린다)
+      // 줄 서 있던 메시지를 이어서 (멈춤 · 오류면 버린다). Codex 는 VS Code 가 그새 열었을 수 있으니 줄 넘기기부터
       if (job.queue.length && !job.stopped && !job.error) {
         const next = job.queue.shift();
-        try { this.run(agent, job.bin, { id: job.id, isNew: false, cwd: job.cwd, prompt: next.prompt, mode: next.mode, opts: next.opts, env: job.env, queue: job.queue }); } catch (e) { job.error = e.message; }
+        const a = { id: job.id, isNew: false, cwd: job.cwd, prompt: next.prompt, mode: next.mode, opts: next.opts, env: job.env, queue: job.queue };
+        try {
+          if (agent === 'codex' && this.config.relayToLive !== false) {
+            const rest = job.queue.splice(0);
+            this.relayCodex(job.bin, a).then(() => { for (const n of rest) this.start('codex', { id: job.id, cwd: job.cwd, prompt: n.prompt, mode: n.mode, env: job.env, opts: n.opts }); }).catch(e => { job.error = e.message; this.changed(job); });
+          } else this.run(agent, job.bin, a);
+        } catch (e) { job.error = e.message; }
       }
     };
 

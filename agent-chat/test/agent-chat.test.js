@@ -605,6 +605,23 @@ test('Codex: VS Code 에 열린 대화면 Codex 의 줄에 넣어 그쪽이 처�
     consuming = true;
     await waitFor(async () => (await items()).includes('vscode-codex: 폰에서 4'), 15000);
     fs.rmSync(lock, { force: true });
+    await waitFor(async () => !(await call(`/api/messages?agent=codex&id=${XID}`)).body.job.running, 10000);
+    // 5) 잠금 파일은 없는데 따로 실행이 "already has an active writer" 로 막힘: 오류로 끝내지 않고 줄에 넣어 기다린다
+    consuming = false;
+    const busyF = path.join(tmp, 'codex', 'fake_writer_busy'); fs.writeFileSync(busyF, '');
+    await new Promise(res => setTimeout(res, 4500));
+    r = await call('/api/send', { agent: 'codex', id: XID, prompt: '폰에서 5', mode: 'read-only' });
+    assert.strictEqual(r.status, 200);
+    await waitFor(async () => { const j = (await call(`/api/messages?agent=codex&id=${XID}`)).body.job; return j && j.relayWaiting && readQ().some(x => x.threadId === XID); }, 15000);
+    // 기다리는 동안 하나 더 보내도 Codex 의 줄로
+    r = await call('/api/send', { agent: 'codex', id: XID, prompt: '폰에서 6', mode: 'read-only' });
+    assert.strictEqual(r.status, 200);
+    await new Promise(res => setTimeout(res, 5000)); // 조용해도 다시 따로 실행하지 않음
+    let j5 = (await call(`/api/messages?agent=codex&id=${XID}`)).body.job;
+    assert.ok(!j5.error, '오류로 끝나지 않음: ' + j5.error);
+    consuming = true;
+    await waitFor(async () => { const t = await items(); return t.includes('vscode-codex: 폰에서 5') && t.includes('vscode-codex: 폰에서 6'); }, 15000);
+    fs.rmSync(busyF, { force: true });
   } finally { clearInterval(consumer); child.kill(); }
 });
 

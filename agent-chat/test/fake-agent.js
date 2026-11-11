@@ -111,6 +111,11 @@ if (args[0] === 'app-server') {
     if (kind === 'claude') { claudeTurn(input, () => {}); return; }
     if (input.includes('FAIL')) { process.stderr.write('일부러 실패\n'); process.exit(3); }
     const resume = args[1] === 'resume';
+    // 다른 Codex 가 이 대화를 쓰는 중인 흉내 (잠금 파일 없이도 진짜 Codex 는 이렇게 실패할 수 있다)
+    if (resume && fs.existsSync(path.join(process.env.CODEX_HOME, 'fake_writer_busy'))) {
+      process.stderr.write(`ERROR codex_core::session: Failed to create session: thread-store conflict: thread ${args[args.length - 2]} already has an active writer\nError: thread/resume: thread/resume failed: thread ${args[args.length - 2]} already has an active writer (code -32600)\n`);
+      process.exit(1);
+    }
     const id = resume ? args[args.length - 2] : crypto.randomUUID();
     const dir = path.join(process.env.CODEX_HOME, 'sessions', '2026', '11', '06');
     fs.mkdirSync(dir, { recursive: true });
