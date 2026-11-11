@@ -591,6 +591,20 @@ test('Codex: VS Code 에 열린 대화면 Codex 의 줄에 넣어 그쪽이 처�
     consuming = true;
     await waitFor(async () => (await items()).includes('vscode-codex: 폰에서 3'), 15000);
     await waitFor(async () => !(await call(`/api/messages?agent=codex&id=${XID}`)).body.job.running, 10000);
+    // 4) VS Code 가 대화를 연 채(잠금 파일) 오래 일함: 기록이 조용해도 따로 실행하지 않고 끝까지 기다린다
+    //    (따로 돌리면 진짜 Codex 는 "already has an active writer" 로 실패)
+    consuming = false;
+    const lock = path.join(tmp, 'codex', 'thread-writer-locks', XID + '.lock');
+    fs.mkdirSync(path.dirname(lock), { recursive: true }); fs.writeFileSync(lock, '');
+    await new Promise(res => setTimeout(res, 4500));
+    r = await call('/api/send', { agent: 'codex', id: XID, prompt: '폰에서 4', mode: 'read-only' });
+    assert.strictEqual(r.body.waiting, true);
+    await new Promise(res => setTimeout(res, 6000)); // codexQuietMs(2.5초) 를 훌쩍 넘김
+    assert.ok(!(await items()).some(t => /^codex: 폰에서 4/.test(t)), '잠금이 있으면 따로 실행하지 않음');
+    assert.strictEqual(readQ().filter(x => x.threadId === XID).length, 1, '줄에서 기다리는 중');
+    consuming = true;
+    await waitFor(async () => (await items()).includes('vscode-codex: 폰에서 4'), 15000);
+    fs.rmSync(lock, { force: true });
   } finally { clearInterval(consumer); child.kill(); }
 });
 

@@ -270,11 +270,18 @@ class Runner extends EventEmitter {
     this.jobs.set(key, job);
     this.changed(job);
     const fallback = () => { if (this.jobs.get(key) === job) this.jobs.delete(key); return this.run('codex', bin, { id, isNew: false, cwd, prompt, mode, env, opts, queue: [] }); };
+    // VS Code 의 Codex 가 이 대화를 열어 두었으면(잠금 파일) 따로 실행하면 안 된다 → 줄에서 기다린다
+    const locked = () => codexPeer.writerLocked(id);
     let s;
-    try { s = await codexPeer.open(launch, bin, cwd, envFor('codex', env, opts)); } catch { return fallback(); }
+    const cantQueue = why => {
+      if (!locked()) return fallback();
+      if (this.jobs.get(key) === job) this.jobs.delete(key);
+      throw httpError(409, `VS Code 의 Codex 가 이 대화를 열어 두어 따로 실행할 수 없고, 그쪽 줄에 넣지도 못했습니다 (${why}). VS Code 의 Codex 창에서 보내 주세요`);
+    };
+    try { s = await codexPeer.open(launch, bin, cwd, envFor('codex', env, opts)); } catch (e) { return cantQueue(e.message); }
     let qid;
-    try { qid = (await codexPeer.add(s, id, prompt)).id; } catch { s.close(); return fallback(); }
-    if (!qid) { s.close(); return fallback(); }
+    try { qid = (await codexPeer.add(s, id, prompt)).id; } catch (e) { s.close(); return cantQueue(e.message); }
+    if (!qid) { s.close(); return cantQueue('줄 번호 없음'); }
     const gone = async () => { try { return !(await codexPeer.list(s, id)).some(x => x.id === qid); } catch { return false; } };
     const settle = (extra = {}) => { Object.assign(job, extra); job.done = true; job.endedAt = Date.now(); this.changed(job); s.close(); };
     const waitMs = this.config.codexPickupMs || 4000;
@@ -282,7 +289,7 @@ class Runner extends EventEmitter {
       await sleep(500);
       if (await gone()) { settle(); return { id, relayed: true }; }
     }
-    const active = () => (this.activeCheck ? this.activeCheck('codex', id) : false);
+    const active = () => locked() || (this.activeCheck ? this.activeCheck('codex', id) : false);
     if (active()) {
       // VS Code 쪽이 일하는 중 → 끝나면 가져간다. 그동안 상태를 "대기" 로 둔다
       job.relayWaiting = true;
@@ -290,8 +297,10 @@ class Runner extends EventEmitter {
       this.waitCodexPickup(s, job, { id, qid, gone, active, settle, fallback });
       return { id, relayed: true, waiting: true };
     }
-    try { await codexPeer.remove(s, id, qid); } catch { /* 이미 가져갔을 수도 */ }
+    let removed = true;
+    try { removed = !!(await codexPeer.remove(s, id, qid)); } catch { /* 이미 가져갔을 수도 */ }
     s.close();
+    if (!removed) { settle(); return { id, relayed: true }; }
     return fallback();
   }
 
@@ -304,8 +313,10 @@ class Runner extends EventEmitter {
       if (await gone()) { settle(); return; }
       if (active()) quietSince = 0;
       else if (!quietSince) quietSince = Date.now();
-      // 90초 넘게 조용한데도 안 가져가면 열려 있는 곳이 없는 것 → 빼고 따로 실행
-      if ((quietSince && Date.now() - quietSince > (this.config.codexQuietMs || 90000)) || Date.now() - started > 6 * 3600 * 1000) {
+      // VS Code 가 대화를 연 채(잠금 파일)면 그쪽 일이 아무리 길어도 기다린다.
+      // 잠금이 없고 90초 넘게 조용한데도 안 가져가면 열려 있는 곳이 없는 것 → 빼고 따로 실행
+      const quietLong = quietSince && Date.now() - quietSince > (this.config.codexQuietMs || 90000) && !locked();
+      if (quietLong || Date.now() - started > 6 * 3600 * 1000) {
         try { await codexPeer.remove(s, id, qid); } catch { /* 이미 */ }
         settle({ relayWaiting: false });
         try { await fallback(); } catch (e) { job.error = e.message; this.changed(job); }

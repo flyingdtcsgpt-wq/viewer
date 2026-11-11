@@ -57,6 +57,16 @@ async function open(launch, bin, cwd, env) {
   return s;
 }
 
+/**
+ * 다른 Codex(VS Code 확장 등)가 이 대화를 열어 두었는가.
+ * Codex 는 대화를 연 동안 $CODEX_HOME/thread-writer-locks/<id>.lock 을 두고, 닫으면 지운다.
+ * 이때 우리가 따로 codex exec resume 을 돌리면 "already has an active writer" 로 실패한다.
+ */
+function writerLocked(id) {
+  const home = process.env.CODEX_HOME || require('path').join(require('os').homedir(), '.codex');
+  try { return require('fs').existsSync(require('path').join(home, 'thread-writer-locks', String(id).toLowerCase() + '.lock')); } catch { return false; }
+}
+
 const err = r => (r && r.error ? r.error.message || JSON.stringify(r.error) : '');
 
 async function add(s, threadId, text) {
@@ -86,4 +96,4 @@ async function remove(s, threadId, queuedSubmissionId) {
   return !!(r.result && r.result.deleted);
 }
 
-module.exports = { open, add, list, remove };
+module.exports = { open, add, list, remove, writerLocked };
