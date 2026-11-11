@@ -163,6 +163,9 @@ test('서버: Claude 세션에 이어서 보내기 · 새 세션 · 실패 표�
     assert.strictEqual(r.status, 200);
     const nid = r.body.id;
     await waitFor(async () => { const x = await call(`/api/messages?agent=claude&id=${nid}`); return x.status === 200 && x.body.items && x.body.items.length === 2; });
+    // Claude Code 의 대화 목록은 entrypoint 가 sdk-* 인 대화를 숨긴다 → 폰에서 만든 대화는 우리 이름으로
+    const nf = path.join(tmp, 'claude', 'projects', work.replace(/[^a-zA-Z0-9]/g, '-'), nid + '.jsonl');
+    assert.strictEqual(JSON.parse(fs.readFileSync(nf, 'utf8').split('\n')[0]).entrypoint, 'agent-chat');
 
     r = await call('/api/send', { agent: 'claude', id: nid, prompt: 'FAIL', mode: 'auto' });
     const err = await waitFor(async () => { const x = await call(`/api/messages?agent=claude&id=${nid}`); return x.body.job && x.body.job.error; });
@@ -180,7 +183,11 @@ test('서버: Codex 새 세션은 thread id 를 돌려주고, 이어 보내면 �
     assert.strictEqual(r.status, 200);
     const id = r.body.id;
     assert.match(id, /^[0-9a-f-]{36}$/);
-    await waitFor(async () => { const x = await call(`/api/messages?agent=codex&id=${id}`); return x.status === 200 && x.body.items && x.body.items.length === 2 && !x.body.job.running; });
+    const first = await waitFor(async () => { const x = await call(`/api/messages?agent=codex&id=${id}`); return x.status === 200 && x.body.items && x.body.items.length === 2 && !x.body.job.running ? x.body : null; });
+    // 새 대화는 VS Code 와 같은 길(app-server)로: 출처가 vscode 라 VS Code 의 Codex 목록에 보인다
+    assert.match(first.items[1].text, /^codex: 안녕 app-server sandbox=read-only approval=never/);
+    const rf = fs.readdirSync(path.join(tmp, 'codex', 'sessions', '2026', '11', '06')).find(n => n.includes(id));
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(tmp, 'codex', 'sessions', '2026', '11', '06', rf), 'utf8').split('\n')[0]).payload.source, 'vscode');
     r = await call('/api/send', { agent: 'codex', id, prompt: '다음', mode: 'workspace-write' });
     assert.strictEqual(r.status, 200);
     const m = await waitFor(async () => { const x = await call(`/api/messages?agent=codex&id=${id}`); return x.body.items && x.body.items.length === 4 ? x.body : null; });

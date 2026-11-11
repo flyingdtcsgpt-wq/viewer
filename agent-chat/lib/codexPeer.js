@@ -20,13 +20,21 @@ class AppServer {
     this.id = 0;
     this.pend = new Map();
     this.closed = false;
+    this.listeners = [];
+    this.onRequest = null;
     child.stdout.on('data', d => {
       this.buf += d;
       let i;
       while ((i = this.buf.indexOf('\n')) !== -1) {
         const line = this.buf.slice(0, i); this.buf = this.buf.slice(i + 1);
         let o; try { o = JSON.parse(line); } catch { continue; }
-        if (o && o.id != null && !o.method && this.pend.has(o.id)) { const p = this.pend.get(o.id); this.pend.delete(o.id); p(o); }
+        if (!o) continue;
+        if (o.id != null && !o.method && this.pend.has(o.id)) { const p = this.pend.get(o.id); this.pend.delete(o.id); p(o); }
+        else if (o.method && o.id != null) {
+          // app-server 가 우리에게 묻는 것(승인 등). 승인은 "never" 로 돌리므로 오지 않아야 하지만, 오면 거절해 멈추지 않게
+          const ans = this.onRequest ? this.onRequest(o.method, o.params) : null;
+          this.child.stdin.write(JSON.stringify(ans ? { jsonrpc: '2.0', id: o.id, result: ans } : { jsonrpc: '2.0', id: o.id, error: { code: -32601, message: 'Agent Chat 은 이 요청을 처리하지 않습니다' } }) + '\n');
+        } else if (o.method) for (const h of this.listeners) { try { h(o.method, o.params || {}); } catch { /* 무시 */ } }
       }
     });
     const fail = () => { this.closed = true; for (const p of this.pend.values()) p({ error: { message: 'Codex app-server 가 끝났습니다' } }); this.pend.clear(); };

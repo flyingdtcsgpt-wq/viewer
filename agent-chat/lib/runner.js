@@ -152,8 +152,12 @@ function buildArgs(agent, { id, isNew, mode, opts = {} }, config) {
 
 /** 생각 끄기는 환경변수로 */
 function envFor(agent, env, opts = {}) {
-  if (agent !== 'claude' || !opts.thinking) return env;
+  if (agent !== 'claude') return env;
   const e = { ...(env || process.env) };
+  // claude -p 는 기록에 entrypoint "sdk-cli" 를 남기고, Claude Code(VS Code 포함)의 대화 목록은 sdk-* 대화를 숨긴다.
+  // 폰에서 만든 대화가 VS Code 목록에도 보이도록 우리 이름을 붙인다 (동작은 그대로, 표시만 다름)
+  e.CLAUDE_CODE_ENTRYPOINT = 'agent-chat';
+  if (!opts.thinking) return e;
   if (opts.thinking === 'off') e.CLAUDE_CODE_DISABLE_THINKING = '1';
   else delete e.CLAUDE_CODE_DISABLE_THINKING;
   return e;
@@ -235,6 +239,7 @@ class Runner extends EventEmitter {
       return this.relayCodex(bin, { id, cwd, prompt, mode, env, opts });
     }
     if (agent === 'claude' && this.config.claudeLive !== false) return this.claudeTurn(bin, { id, isNew, cwd, prompt, mode, env, opts, queue: [] });
+    if (agent === 'codex' && isNew && this.config.codexNewViaAppServer !== false) return this.codexNew(bin, { cwd, prompt, mode, env, opts });
     return this.run(agent, bin, { id, isNew, cwd, prompt, mode, env, opts, queue: [] });
   }
 
@@ -257,6 +262,68 @@ class Runner extends EventEmitter {
     this.changed(job);
     if (job.error) throw httpError(502, job.error);
     return { id, relayed: true, pid: live.pid };
+  }
+
+  // ---------- Codex: 새 대화는 app-server 로 (VS Code 와 같은 길) ----------
+  // codex exec 로 만든 대화는 출처가 "exec" 라 VS Code 의 Codex 대화 목록(기본: 대화형 출처만)에 안 보인다.
+  // 우리만의 app-server 에서 thread/start + turn/start 로 첫 턴을 돌리면 VS Code 에서 만든 대화와 같은 출처가 된다.
+  // 첫 턴이 끝나면 app-server 를 닫아 대화를 놓아 준다 (VS Code 가 열 수 있게). 다음 메시지부터는 평소 길(줄 넘기기).
+  async codexNew(bin, { cwd, prompt, mode, env, opts }) {
+    const e = envFor('codex', env, opts);
+    let s;
+    try { s = await codexPeer.open(launch, bin, cwd, e); } catch { return this.run('codex', bin, { id: null, isNew: true, cwd, prompt, mode, env, opts, queue: [] }); }
+    const params = { cwd, sandbox: mode, approvalPolicy: 'never' };
+    if (opts.model) params.model = opts.model;
+    if (opts.effort) params.config = { model_reasoning_effort: opts.effort };
+    const r = await s.rpc('thread/start', params, 30000);
+    const id = r && r.result && r.result.thread && r.result.thread.id;
+    if (!id) { s.close(); return this.run('codex', bin, { id: null, isNew: true, cwd, prompt, mode, env, opts, queue: [] }); }
+    const key = 'codex:' + id;
+    const job = {
+      agent: 'codex', id, cwd, bin, env, app: s, startedAt: Date.now(), done: false, live: { text: '', tool: '' }, v: 0, queue: [], prompt, mode, opts,
+    };
+    this.jobs.set(key, job);
+    let turnId = null;
+    const finish = err => {
+      if (job.done) return;
+      job.done = true; job.endedAt = Date.now();
+      if (err && !job.stopped) job.error = err;
+      job.live = { text: '', tool: '' };
+      this.changed(job);
+      s.close();
+      this.drainCodexQueue(job);
+    };
+    job.interrupt = () => {
+      if (turnId) s.rpc('turn/interrupt', { threadId: id, turnId }, 5000).catch(() => {});
+      setTimeout(() => finish(null), 5000);
+    };
+    s.listeners.push((m, p) => {
+      if (p.threadId && p.threadId !== id) return;
+      if (m === 'turn/started' && p.turn) turnId = p.turn.id;
+      else if (m === 'item/agentMessage/delta' && typeof p.delta === 'string') { job.live.text += p.delta; job.live.tool = ''; this.changed(job); }
+      else if (m === 'item/started' && p.item && p.item.type !== 'agentMessage' && p.item.type !== 'userMessage' && p.item.type !== 'reasoning') { job.live.tool = p.item.type === 'commandExecution' ? 'shell' : p.item.type; this.changed(job); }
+      else if (m === 'item/completed' && p.item && p.item.type === 'agentMessage') { job.live.text = ''; this.changed(job); }
+      else if (m === 'turn/completed') {
+        const t = p.turn || {};
+        finish(t.status === 'failed' ? ((t.error && t.error.message) || 'Codex 턴이 실패했습니다') : null);
+      } else if (m === 'error' && p.error && !p.willRetry) job.lastError = p.error.message;
+    });
+    s.child.on('close', () => finish(job.lastError || (job.done ? null : 'Codex app-server 가 끝났습니다')));
+    this.changed(job);
+    const t = await s.rpc('turn/start', { threadId: id, input: [{ type: 'text', text: prompt, text_elements: [] }] }, 30000);
+    if (t.error) { finish('Codex 에 보내지 못했습니다: ' + (t.error.message || '')); throw httpError(502, job.error || 'Codex 에 보내지 못했습니다'); }
+    if (t.result && t.result.turn) turnId = t.result.turn.id;
+    return { id };
+  }
+
+  // 우리 Codex 작업이 끝난 뒤 그 사이 보낸 메시지들: VS Code 가 그새 열었을 수도 있으니 줄 넘기기부터
+  drainCodexQueue(job) {
+    if (!job.queue.length || job.stopped || job.error) return;
+    const rest = job.queue.splice(0);
+    const first = rest.shift();
+    this.relayCodex(job.bin, { id: job.id, cwd: job.cwd, prompt: first.prompt, mode: first.mode, env: job.env, opts: first.opts })
+      .then(() => { for (const n of rest) this.start('codex', { id: job.id, cwd: job.cwd, prompt: n.prompt, mode: n.mode, env: job.env, opts: n.opts }); })
+      .catch(e => { job.error = e.message; this.changed(job); });
   }
 
   // ---------- Codex: VS Code 에 열려 있는 대화의 줄에 넣기 ----------
@@ -532,6 +599,7 @@ class Runner extends EventEmitter {
     j.stopped = true;
     j.queue.length = 0;
     if (j.relay) return true; // 줄에서 기다리는 Codex 메시지는 다음 확인 때 줄에서 뺀다
+    if (j.interrupt) { j.interrupt(); return true; } // app-server 로 돌리는 Codex 턴
     if (j.L && !j.L.dead) {
       // 켜 둔 claude: 먼저 "중단" 을 보내 보고, 5초 안에 안 멈추면 프로세스를 끈다
       try { j.L.child.stdin.write(JSON.stringify({ type: 'control_request', request_id: 'stop-' + Date.now(), request: { subtype: 'interrupt' } }) + '\n'); } catch { /* 닫힘 */ }
@@ -550,7 +618,7 @@ class Runner extends EventEmitter {
     } catch { try { j.child.kill(); } catch { /* 이미 끝 */ } }
   }
   stopAll() {
-    for (const j of this.jobs.values()) if (!j.done && !j.L) this.kill(j);
+    for (const j of this.jobs.values()) if (!j.done && !j.L) { if (j.app) j.app.close(); else if (j.child) this.kill(j); }
     for (const L of [...this.lives.values()]) this.endLive(L, true);
   }
 }

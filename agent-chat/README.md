@@ -116,6 +116,16 @@ PC 는 켜져 있어야 하고 절전으로 들어가면 안 된다 (Windows 설
   - 바로 가져가면 → VS Code 의 Codex 가 처리 중 (`VS Code 로 전달됨`).
   - 안 가져갔는데 그 대화가 지금 바쁘면 → 그쪽 일이 끝날 때까지 줄에서 기다린다 (`VS Code 작업 뒤 대기`, 중지하면 줄에서 뺀다).
   - 안 가져갔고 조용하면 → 아무 데도 안 열려 있는 것: 줄에서 빼고(나중에 두 번 실행되지 않게) 예전처럼 `codex exec resume` 으로 따로 실행한다.
+  - VS Code 가 그 대화를 연 채면(`$CODEX_HOME/thread-writer-locks/<id>.lock`) 따로 실행하지 않고 그쪽 일이 아무리 길어도 줄에서 기다린다.
+    따로 실행이 `already has an active writer` 로 막혀도 오류로 끝내지 않고 줄에 넣어 기다린다.
+
+## 휴대폰에서 만든 새 대화도 VS Code 목록에 보인다
+- **Claude**: `claude -p` 로 만든 대화는 기록에 `entrypoint: "sdk-cli"` 가 남고, Claude Code(VS Code 확장 포함)의 대화 목록은 `sdk-*` 대화를 숨긴다.
+  서버가 띄우는 claude 에는 `CLAUDE_CODE_ENTRYPOINT=agent-chat` 을 붙여 목록에 보이게 한다 (동작은 같다).
+- **Codex**: `codex exec` 로 만든 대화는 출처가 `exec` 라 VS Code 의 Codex 목록(기본: 대화형 출처만)에 안 나온다.
+  새 대화는 잠깐 띄운 app-server 에서 `thread/start` + `turn/start` 로 첫 턴을 돌려 VS Code 에서 만든 것과 같은 출처(`vscode`)로 만들고,
+  첫 턴이 끝나면 app-server 를 닫아 대화를 놓아 준다. 끄려면 `"codexNewViaAppServer": false`.
+- 이 기능 전에 휴대폰에서 만든 대화는 여전히 VS Code 목록에 안 나온다 (휴대폰 앱 목록에는 보인다).
 
 ## 한 대화 = 한 Claude 프로세스
 - 휴대폰에서 어떤 대화에 처음 보내면 그 대화용 Claude 를 하나 띄우고(`claude -p --input-format stream-json --resume <id>`), **다음 메시지부터는 같은 프로세스에 이어서 넣는다.** 대화 id 도 그대로라 대화가 끊기지 않는다.

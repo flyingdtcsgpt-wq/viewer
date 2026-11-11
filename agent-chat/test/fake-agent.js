@@ -22,7 +22,7 @@ function claudeTurn(input, done) {
     (args.includes('--model') ? ' model=' + args[args.indexOf('--model') + 1] : '') +
     (args.includes('--effort') ? ' effort=' + args[args.indexOf('--effort') + 1] : '') +
     (args.includes('--settings') ? ' think=on' : '') + (process.env.CLAUDE_CODE_DISABLE_THINKING ? ' think=off' : '');
-  w({ type: 'user', cwd: process.cwd(), sessionId: id, message: { role: 'user', content: input } });
+  w({ type: 'user', cwd: process.cwd(), sessionId: id, entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT || 'sdk-cli', message: { role: 'user', content: input } });
   out({ type: 'stream_event', event: { type: 'message_start' } });
   // 글자 단위로 흘려보내기 (실시간 표시 시험)
   const parts = answer.match(/.{1,6}/gs);
@@ -68,6 +68,41 @@ if (args[0] === 'app-server') {
         const q = readQ(); const id = crypto.randomUUID();
         q.push({ id, threadId: p.threadId, input: p.input, clientUserMessageId: p.clientUserMessageId }); writeQ(q);
         reply(o.id, {});
+      } else if (o.method === 'thread/start') {
+        // 진짜처럼: 대화를 만들고, 첫 턴에서 기록 파일을 쓴다 (출처 vscode)
+        globalThis.threads = globalThis.threads || {};
+        const id = crypto.randomUUID();
+        globalThis.threads[id] = p;
+        reply(o.id, { thread: { id } });
+      } else if (o.method === 'turn/start') {
+        const t = globalThis.threads && globalThis.threads[p.threadId];
+        if (!t) { reply(o.id, null, { code: -32600, message: 'no thread' }); continue; }
+        const text = p.input.map(i => i.text).join('');
+        const turnId = 'turn-' + Date.now();
+        reply(o.id, { turn: { id: turnId, status: 'inProgress' } });
+        const note = (method, params) => process.stdout.write(JSON.stringify({ method, params: { threadId: p.threadId, ...params } }) + '\n');
+        const dir = path.join(process.env.CODEX_HOME, 'sessions', '2026', '11', '06');
+        fs.mkdirSync(dir, { recursive: true });
+        const f = path.join(dir, `rollout-2026-11-06T00-00-00-${p.threadId}.jsonl`);
+        const w = x => fs.appendFileSync(f, JSON.stringify(x) + '\n');
+        const answer = `codex: ${text} app-server sandbox=${t.sandbox} approval=${t.approvalPolicy}` + (t.model ? ' model=' + t.model : '') + (t.config && t.config.model_reasoning_effort ? ' effort=' + t.config.model_reasoning_effort : '') + (process.env.CODEX_API_KEY ? ' auth=api:' + process.env.CODEX_API_KEY : '');
+        w({ type: 'session_meta', payload: { id: p.threadId, cwd: t.cwd, originator: 'agent-chat', source: 'vscode' } });
+        w({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
+        note('turn/started', { turn: { id: turnId } });
+        const delay = text.includes('HANG') ? 60000 : 150;
+        let k = 0; const parts = answer.match(/.{1,8}/gs);
+        const tick = () => {
+          if (globalThis.stopped) return;
+          if (k < parts.length) { note('item/agentMessage/delta', { delta: parts[k++] }); setTimeout(tick, delay); return; }
+          w({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: answer }] } });
+          note('item/completed', { item: { type: 'agentMessage', text: answer } });
+          note('turn/completed', { turn: { id: turnId, status: 'completed' } });
+        };
+        setTimeout(tick, delay);
+      } else if (o.method === 'turn/interrupt') {
+        globalThis.stopped = true;
+        reply(o.id, {});
+        process.stdout.write(JSON.stringify({ method: 'turn/completed', params: { threadId: p.threadId, turn: { id: p.turnId, status: 'interrupted' } } }) + '\n');
       } else if (o.method === 'model/list') {
         reply(o.id, { data: [
           { id: 'gpt-6.2-astra', model: 'gpt-6.2-astra', hidden: false, supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }, { reasoningEffort: 'ultra' }] },
