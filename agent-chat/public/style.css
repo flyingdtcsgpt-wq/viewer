@@ -199,3 +199,6 @@ body.connect { overflow: auto; }
 .atts .afile { background: rgba(255,255,255,.18); border-radius: 8px; padding: 4px 8px; font-size: 12.5px; word-break: break-all; }
 .viewer { position: fixed; inset: 0; background: rgba(0,0,0,.92); z-index: 30; display: flex; align-items: center; justify-content: center; }
 .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.badge.auto { background: #8a8f99; }
+.autotoggle { display: block; margin: 6px auto 70px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 99px; padding: 5px 14px; font-size: 13px; }

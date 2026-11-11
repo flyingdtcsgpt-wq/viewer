@@ -179,6 +179,18 @@ function stream(req, res, q) {
   res.on('error', close);
 }
 
+// 휴대폰에서 만든 대화 id (예전엔 codex exec · claude -p 로 만들어 "자동 실행" 처럼 보이므로 목록에서 숨기지 않으려고)
+const ownSessions = (() => {
+  const f = path.join(HOME, 'own-sessions.json');
+  let ids = [];
+  try { ids = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* 처음 */ }
+  const set = new Set(Array.isArray(ids) ? ids : []);
+  return {
+    has: id => set.has(id),
+    add(id) { if (set.has(id)) return; set.add(id); try { fs.writeFileSync(f, JSON.stringify([...set].slice(-1000))); } catch { /* 무시 */ } },
+  };
+})();
+
 // Codex 가 고를 수 있게 내놓는 모델 목록 (app-server model/list). 1시간에 한 번, 실패하면 이전 값
 const catalog = { at: 0, models: [], efforts: [], byModel: {}, pending: null };
 function codexCatalog() {
@@ -236,7 +248,7 @@ async function api(req, res, url) {
       const lv = s.agent === 'claude' ? lives.get(s.id) : null;
       const live = lv ? { pid: lv.pid, status: lv.status, name: lv.name, entrypoint: lv.entrypoint } : null;
       const busy = running || (lv ? lv.status === 'busy' : (active && !justEnded));
-      return { ...s, running, active, busy, error: (j && !j.running && j.error) || '', auth: auth.mode(s.cwd), live };
+      return { ...s, auto: s.auto && !ownSessions.has(s.id), running, active, busy, error: (j && !j.running && j.error) || '', auth: auth.mode(s.cwd), live };
     });
     return send(req, res, 200, { sessions: list });
   }
@@ -314,6 +326,7 @@ async function api(req, res, url) {
     const cwd = String(body.cwd || '');
     if (body.auth === 'api' || body.auth === 'sub') { if (auth.mode(cwd) !== body.auth) auth.set(cwd, body.auth); }
     const r = await runner.start(agent, { id: null, cwd, prompt: body.prompt, mode: body.mode, opts: body.opts, env: auth.env(agent, cwd) });
+    if (r && r.id) ownSessions.add(r.id);
     return send(req, res, 200, r);
   }
   if (p === '/api/stop') {

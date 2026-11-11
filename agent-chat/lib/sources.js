@@ -36,6 +36,16 @@ function attachShort(t) {
   return t.slice(0, i) + ` 📎${n}`;
 }
 
+/**
+ * 사람이 대화창에서 연 게 아니라 프로그램이 돌린 대화인가 (VS Code 목록도 이런 건 숨긴다).
+ * Codex: 출처가 exec(codex exec — 예: 매시간 보고하는 감시 스크립트) · 하위 에이전트.
+ * Claude: entrypoint 가 sdk-*(claude -p 를 부르는 스크립트).
+ */
+function isAutoSession(agent, m) {
+  if (agent === 'codex') return !!m.source && m.source !== 'vscode' && m.source !== 'cli';
+  return /^sdk-/.test(m.entrypoint || '');
+}
+
 function oneLine(s, n = 140) {
   s = String(s || '').replace(/\s+/g, ' ').trim();
   return s.length > n ? s.slice(0, n) + '…' : s;
@@ -168,6 +178,7 @@ class ClaudeParser extends BaseParser {
   feed(o) {
     const m = this.meta;
     if (o.cwd && !m.cwd) m.cwd = normCwd(o.cwd);
+    if (o.entrypoint && !m.entrypoint && (o.type === 'user' || o.type === 'assistant')) m.entrypoint = o.entrypoint;
     switch (o.type) {
       case 'ai-title': if (o.aiTitle) m.aiTitle = o.aiTitle; return;
       case 'custom-title': if (o.customTitle) m.customTitle = o.customTitle; return;
@@ -283,6 +294,8 @@ class CodexParser extends BaseParser {
       m.id = p.id || p.session_id || m.id;
       if (p.cwd) m.cwd = normCwd(p.cwd);
       if (p.originator) m.originator = p.originator;
+      // 출처: "vscode" · "cli" · "exec" · {subagent: …}
+      if (p.source) m.source = typeof p.source === 'string' ? p.source : Object.keys(p.source)[0] || 'other';
       return;
     }
     if (t === 'turn_context') {
@@ -452,6 +465,7 @@ class Store {
       return {
         agent: e.agent, id: e.id, title: t.parser.title(), cwd: m.cwd, project: m.cwd ? path.basename(m.cwd) : '',
         mtime: e.mtime, preview: m.last, lastRole: m.lastRole, originator: m.originator || '', model: m.model || '', effort: m.effort || '',
+        auto: isAutoSession(e.agent, m),
       };
     }).filter(s => s.preview || s.title !== '(제목 없음)');
   }

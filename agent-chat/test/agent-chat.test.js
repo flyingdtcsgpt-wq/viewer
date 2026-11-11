@@ -646,6 +646,37 @@ test('Codex 모델 목록은 Codex 가 알려 주는 대로 (새 모델 자동 �
   } finally { child.kill(); }
 });
 
+test('목록: 프로그램이 돌린 대화(codex exec · 하위 에이전트 · claude -p)는 "자동" 표시, 폰에서 만든 건 아님', async () => {
+  const d = path.join(tmp, 'codex', 'sessions', '2026', '11', '12');
+  fs.mkdirSync(d, { recursive: true });
+  const mk = (id, source) => fs.writeFileSync(path.join(d, `rollout-2026-11-12T00-00-00-${id}.jsonl`), [
+    { type: 'session_meta', payload: { id, cwd: work, source, originator: 'x' } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Reply with exactly OK' }] } },
+  ].map(x => JSON.stringify(x)).join('\n') + '\n');
+  mk('aaaaaaaa-0000-4000-8000-000000000001', 'exec');
+  mk('aaaaaaaa-0000-4000-8000-000000000002', { subagent: { thread_spawn: {} } });
+  mk('aaaaaaaa-0000-4000-8000-000000000003', 'vscode');
+  const cdir = path.join(tmp, 'claude', 'projects', 'auto-test');
+  fs.mkdirSync(cdir, { recursive: true });
+  fs.writeFileSync(path.join(cdir, 'aaaaaaaa-0000-4000-8000-000000000004.jsonl'), JSON.stringify({ type: 'user', cwd: work, entrypoint: 'sdk-cli', sessionId: 'aaaaaaaa-0000-4000-8000-000000000004', message: { role: 'user', content: '스크립트가 보냄' } }) + '\n');
+  const { child, call } = await startServer('codex');
+  try {
+    const r = await call('/api/new', { agent: 'codex', cwd: work, prompt: '폰에서 만든 것', mode: 'read-only' });
+    await waitFor(async () => (await call('/api/sessions')).body.sessions.some(x => x.id === r.body.id));
+    const list = (await call('/api/sessions')).body.sessions;
+    const auto = id => list.find(x => x.id === id).auto;
+    assert.strictEqual(auto('aaaaaaaa-0000-4000-8000-000000000001'), true, 'codex exec');
+    assert.strictEqual(auto('aaaaaaaa-0000-4000-8000-000000000002'), true, '하위 에이전트');
+    assert.strictEqual(auto('aaaaaaaa-0000-4000-8000-000000000003'), false, 'VS Code');
+    assert.strictEqual(auto('aaaaaaaa-0000-4000-8000-000000000004'), true, 'claude -p');
+    assert.strictEqual(auto(r.body.id), false, '폰에서 만든 대화');
+  } finally {
+    child.kill();
+    for (let i = 1; i <= 3; i++) fs.rmSync(path.join(d, `rollout-2026-11-12T00-00-00-aaaaaaaa-0000-4000-8000-00000000000${i}.jsonl`), { force: true });
+    fs.rmSync(cdir, { recursive: true, force: true });
+  }
+});
+
 test('첨부: 프로젝트 폴더의 .agent-chat-uploads 에 저장, 보낼 글에 경로, 그 폴더 밖은 거부', async () => {
   const { child, call, port } = await startServer('claude');
   const H = { Authorization: 'Bearer test-token-1234567890' };

@@ -157,15 +157,23 @@
     }
     if (again && location.hash.startsWith('#/s/') === false) schedule(() => loadList(true), 5000);
   }
+  // 프로그램이 돌린 대화(매시간 보고하는 codex exec, claude -p 스크립트, 하위 에이전트)는 VS Code 처럼 기본으로 숨긴다
+  let showAuto = store.get('ac_showAuto', '') === '1';
   function renderList() {
     const box = $('sessions');
-    const list = sessions.filter(s => filter === 'all' || s.agent === filter);
-    if (!list.length) { box.replaceChildren(el('div', 'empty', '대화가 없습니다. ＋ 로 새로 시작하세요.')); return; }
+    const mine = sessions.filter(s => filter === 'all' || s.agent === filter);
+    const autoN = mine.filter(s => s.auto).length;
+    const list = showAuto ? mine : mine.filter(s => !s.auto);
+    const tog = el('button', 'autotoggle', showAuto ? `자동 실행 대화 숨기기 (${autoN})` : `자동 실행 대화 ${autoN}개 숨김 · 보기`);
+    tog.type = 'button';
+    tog.onclick = () => { showAuto = !showAuto; store.set('ac_showAuto', showAuto ? '1' : ''); renderList(); };
+    if (!list.length) { box.replaceChildren(el('div', 'empty', '대화가 없습니다. ＋ 로 새로 시작하세요.'), ...(autoN ? [tog] : [])); return; }
     box.replaceChildren(...list.map(s => {
       const b = el('button', 'sess');
       const top = el('div', 'top');
       top.append(el('span', 'badge ' + s.agent, s.agent === 'claude' ? 'Claude' : 'Codex'), el('span', '', s.project || ''));
       if (s.auth === 'api') top.append(el('span', 'badge api', 'API'));
+      if (s.auto) top.append(el('span', 'badge auto', '자동'));
       if (s.live) top.append(el('span', 'badge vsc', 'VS Code'));
       top.append(el('span', 'grow'));
       if (s.busy ?? (s.running || s.active)) top.append(el('span', 'dot'));
@@ -174,6 +182,7 @@
       b.onclick = () => { location.hash = `#/s/${s.agent}/${s.id}`; };
       return b;
     }));
+    if (autoN) box.append(tog);
   }
   if (native) { $('pcBtn').hidden = false; $('pcBtn').onclick = () => native.servers(); }
   for (const c of $('filters').children) {
