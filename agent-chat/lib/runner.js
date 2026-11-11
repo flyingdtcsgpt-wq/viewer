@@ -187,6 +187,19 @@ class Runner extends EventEmitter {
     this.config = config;
     this.jobs = new Map(); // "agent:id" → job (한 번의 주고받기)
     this.lives = new Map(); // "claude:id" → 계속 켜 두는 claude 프로세스
+    // 폰에서 띄워 둔 claude 가 쉬는 동안 같은 대화를 VS Code 에서 열면, 우리 것을 닫는다
+    // (Claude 는 한 대화에 두 프로세스가 붙어도 막지 않아서, 둘이 따로 이어 쓰면 대화가 갈라진다)
+    this.handoffTimer = setInterval(() => this.handOffToVsCode(), this.config.handoffCheckMs || 5000);
+    if (this.handoffTimer.unref) this.handoffTimer.unref();
+  }
+  handOffToVsCode() {
+    if (!this.lives.size) return;
+    const own = this.ownPids();
+    for (const L of [...this.lives.values()]) {
+      if (L.dead || (L.job && !L.job.done)) continue; // 답하는 중이면 끝난 뒤에
+      const id = L.key.slice('claude:'.length);
+      if (peer.findLive(id, own)) this.endLive(L);
+    }
   }
   bins() { return { claude: resolveBin('claude', this.config), codex: resolveBin('codex', this.config) }; }
   job(agent, id) {
@@ -618,6 +631,7 @@ class Runner extends EventEmitter {
     } catch { try { j.child.kill(); } catch { /* 이미 끝 */ } }
   }
   stopAll() {
+    clearInterval(this.handoffTimer);
     for (const j of this.jobs.values()) if (!j.done && !j.L) { if (j.app) j.app.close(); else if (j.child) this.kill(j); }
     for (const L of [...this.lives.values()]) this.endLive(L, true);
   }

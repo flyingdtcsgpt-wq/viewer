@@ -678,6 +678,22 @@ test('첨부: 프로젝트 폴더의 .agent-chat-uploads 에 저장, 보낼 글�
   } finally { child.kill(); }
 });
 
+test('폰에서 띄워 둔 claude 가 쉬는 중에 VS Code 가 같은 대화를 열면 우리 것을 닫는다 (대화가 갈라지지 않게)', async () => {
+  const { spawn } = require('child_process');
+  const { child, call } = await startServer('claude', { handoffCheckMs: 300 });
+  const sdir = path.join(process.env.CLAUDE_CONFIG_DIR, 'sessions');
+  const vs = spawn(process.execPath, ['-e', 'setTimeout(()=>{},20000)']);
+  try {
+    let r = await call('/api/send', { agent: 'claude', id: CID, prompt: '넘기기 전', mode: 'plan' });
+    assert.strictEqual(r.status, 200);
+    const j = await waitFor(async () => { const b = (await call(`/api/messages?agent=claude&id=${CID}`)).body; return b.items.some(i => (i.text || '').startsWith('echo: 넘기기 전')) && !b.job.running ? b.job : null; });
+    assert.ok(j.pid > 0, '우리 claude 가 켜져 있음');
+    fs.mkdirSync(sdir, { recursive: true });
+    fs.writeFileSync(path.join(sdir, `${vs.pid}.json`), JSON.stringify({ pid: vs.pid, sessionId: CID, messagingSocketPath: path.join(tmp, 'none.sock'), entrypoint: 'claude-vscode', status: 'idle', startedAt: Date.now() }));
+    await waitFor(async () => (await call(`/api/messages?agent=claude&id=${CID}`)).body.job.pid === 0, 5000);
+  } finally { vs.kill(); fs.rmSync(path.join(sdir, `${vs.pid}.json`), { force: true }); child.kill(); }
+});
+
 test('VS Code 세션 고르기: Agent Chat 이 띄운 claude 는 빼고, VS Code 쪽을 먼저', async () => {
   const { spawn } = require('child_process');
   const peer = require('../lib/peer');
