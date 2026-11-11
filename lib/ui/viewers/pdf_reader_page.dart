@@ -57,8 +57,17 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
     super.dispose();
   }
 
+  bool _end = false; // 마지막 쪽에서 더 넘기면 "권 끝" 카드
+
   void _go(int page) {
     if (_pages == 0) return;
+    // 마지막 쪽에서 더 넘기면 다음 권 안내
+    if (page > _pages) {
+      setState(() => _end = true);
+      _app.saveProgress(item, '$_pages', 1.0);
+      return;
+    }
+    if (_end) setState(() => _end = false);
     _ctrl.goToPage(pageNumber: page.clamp(1, _pages));
   }
 
@@ -218,6 +227,39 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                   ),
                 ),
                   ),
+                  // 마지막 쪽에 오면 아래에 작게 안내 (넘기지 않고도 다음 권으로)
+                  if (!_end && _pages > 1 && _page >= _pages)
+                    Positioned(
+                      right: 16,
+                      bottom: 16,
+                      child: Material(
+                        color: const Color(0xE0202020),
+                        borderRadius: BorderRadius.circular(24),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: () => setState(() => _end = true),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            child: Text(
+                              _app.nextVolume(item) == null ? '마지막 쪽 · 다음 권이 없습니다' : '마지막 쪽 · 다음 권 보기 ›',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (_end)
+                    Positioned.fill(
+                      child: GestureDetector(
+                        onTap: () {},
+                        child: Container(
+                          color: Colors.black.withValues(alpha: 0.75),
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.all(16),
+                          child: VolumeEndCard(item: item, onStay: () => setState(() => _end = false)),
+                        ),
+                      ),
+                    ),
                   if (_readAloud && _doc != null)
                     Positioned(
                       left: 12,

@@ -43,6 +43,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   int _dir = 1; // 마지막 이동 방향 (애니메이션용)
   bool _panel = false; // 오른쪽 설정 패널
   bool _chrome = true; // 위/아래 막대
+  bool _end = false; // 마지막 쪽에서 더 넘기면 "권 끝" 카드
   bool _fullscreen = false;
   final _zoom = TransformationController();
   final _strip = ScrollController();
@@ -185,6 +186,17 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   /// +1 다음, -1 이전 (읽는 순서 기준)
   void _turn(int d) {
+    // 권 끝 카드가 떠 있으면: 앞으로 넘기면 카드를 닫고 마지막 쪽으로
+    if (_end) {
+      if (d < 0) setState(() => _end = false);
+      return;
+    }
+    // 마지막 쪽에서 더 넘기면 다음 권 안내
+    if (d > 0 && _s.comicMode != 2 && _spread >= _spreads.length - 1) {
+      setState(() => _end = true);
+      _app.saveProgress(item, '$_page', 1.0);
+      return;
+    }
     if (_s.comicMode == 2) {
       if (!_scroll.hasClients) return;
       final pos = _scroll.position;
@@ -431,6 +443,19 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               : Container(color: viewerBg),
         ),
         Positioned.fill(child: content),
+        // 권 끝: 다음 권 보기 / 다음 권이 없습니다
+        if (_end && s.comicMode != 2)
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () {}, // 뒤 화면으로 탭이 넘어가지 않게
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.75),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.all(16),
+                child: VolumeEndCard(item: item, onStay: () => setState(() => _end = false)),
+              ),
+            ),
+          ),
         // 썸네일 줄 접기/펼치기 탭
         if (_chrome && s.comicMode != 2)
           Positioned(
@@ -629,11 +654,14 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             width: maxW,
             child: ListView.builder(
               controller: _scroll,
-              itemCount: _n,
-              itemBuilder: (_, i) => KeyedSubtree(
-                key: _pageKeys.putIfAbsent(i, () => GlobalKey()),
-                child: _img(i, fit: BoxFit.fitWidth, width: maxW),
-              ),
+              itemCount: _n + 1,
+              itemBuilder: (_, i) => i == _n
+                  // 웹툰은 마지막 그림 아래로 이어서 다음 화 안내
+                  ? Padding(padding: const EdgeInsets.fromLTRB(12, 32, 12, 120), child: Center(child: VolumeEndCard(item: item)))
+                  : KeyedSubtree(
+                      key: _pageKeys.putIfAbsent(i, () => GlobalKey()),
+                      child: _img(i, fit: BoxFit.fitWidth, width: maxW),
+                    ),
             ),
           ),
         ),

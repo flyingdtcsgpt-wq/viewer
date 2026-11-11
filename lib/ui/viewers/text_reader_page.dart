@@ -1147,8 +1147,15 @@ class _TextReaderPageState extends State<TextReaderPage> {
             ),
             SliverPadding(
               key: _centerKey,
-              padding: EdgeInsets.fromLTRB(hPad, 0, hPad, screenH * 0.5),
+              padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 24),
               sliver: SliverList(delegate: SliverChildBuilderDelegate((_, i) => itemAt(_anchor + i), childCount: blocks.length - _anchor)),
+            ),
+            // 글 끝: 다음 권으로 자연스럽게 (없으면 "다음 권이 없습니다")
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(16, 40, 16, screenH * 0.4),
+                child: Center(child: VolumeEndCard(item: item)),
+              ),
             ),
           ],
         ),
