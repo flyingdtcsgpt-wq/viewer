@@ -17,35 +17,46 @@ jobs:
       - name: Install
         run: |
           $ErrorActionPreference = 'Continue'
-          winget --version
-          winget search antigravity --accept-source-agreements --disable-interactivity 2>&1 | Select-Object -Last 12
-          winget install -e --id Google.Antigravity --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Select-Object -Last 8
-          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles" -Recurse -Filter Antigravity.exe -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1
-          "exe: $($exe.FullName)"
-          if (-not $exe) { exit 1 }
-          "AG_EXE=$($exe.FullName)" | Out-File -Append $env:GITHUB_ENV
+          foreach ($id in 'Google.AntigravityIDE', 'Google.AntigravityCLI') {
+            "== winget install $id"
+            winget install -e --id $id --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Select-Object -Last 3
+          }
+          "== Programs"; (Get-ChildItem "$env:LOCALAPPDATA\Programs" -Directory | ForEach-Object { $_.Name }) -join ' '
+          $cands = Get-ChildItem "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles", "$env:LOCALAPPDATA\Microsoft\WinGet\Packages", "$env:LOCALAPPDATA\Microsoft\WinGet\Links" -Recurse -Filter *.exe -Depth 3 -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'antigravity|^agy|jetski' }
+          $cands | ForEach-Object { "exe: $($_.FullName) $([math]::Round($_.Length/1MB))MB" }
+          $ide = $null
+          foreach ($c in $cands) {
+            $d = Split-Path -Parent $c.FullName
+            $pj = @(Join-Path $d 'resources\app\product.json') + @(Get-ChildItem $d -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'resources\app\product.json' }) | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($pj -and $c.Name -notmatch 'unins') { $ide = $c.FullName; "IDE exe: $ide"; "AG_EXE=$ide" | Out-File -Append $env:GITHUB_ENV; "AG_PRODUCT=$pj" | Out-File -Append $env:GITHUB_ENV; break }
+          }
+          if (-not $ide) { "no VS Code family exe found" }
+          "== CLI"
+          foreach ($n in 'antigravity', 'agy', 'antigravity-cli') { $g = Get-Command $n -ErrorAction SilentlyContinue; if ($g) { "$n -> $($g.Source)"; & $g.Source --version 2>&1 | Select-Object -First 3; & $g.Source --help 2>&1 | Select-Object -First 70 } }
       - name: Static look
+        if: env.AG_EXE != ''
         run: |
+          $ErrorActionPreference = 'Continue'
           $root = Split-Path -Parent $env:AG_EXE
-          Get-ChildItem $root | ForEach-Object { $_.Name } | Join-String -Separator ' '
-          $pj = Get-ChildItem $root -Recurse -Filter product.json -Depth 4 | Select-Object -First 1
-          "product.json: $($pj.FullName)"
-          $p = Get-Content -Raw $pj.FullName | ConvertFrom-Json
+          (Get-ChildItem $root | ForEach-Object { $_.Name }) -join ' '
+          "product.json: $env:AG_PRODUCT"
+          $p = Get-Content -Raw $env:AG_PRODUCT | ConvertFrom-Json
           $p | Select-Object nameShort, nameLong, applicationName, dataFolderName, urlProtocol, version, ideVersion, win32MutexName | Format-List
           "trusted uri handlers: $($p.trustedExtensionProtocolHandlers -join ', ')"
-          $ext = Join-Path (Split-Path -Parent $pj.FullName) 'extensions'
+          $ext = Join-Path (Split-Path -Parent $env:AG_PRODUCT) 'extensions'
           (Get-ChildItem $ext -Directory | ForEach-Object { $_.Name }) -join ' '
           foreach ($d in Get-ChildItem $ext -Directory | Where-Object { $_.Name -match 'antigravity|jetski|cascade|windsurf|codeium|agent|gemini' }) {
             "=== ext $($d.Name)"
             $pk = Join-Path $d.FullName 'package.json'
             if (Test-Path $pk) {
               $j = Get-Content -Raw $pk | ConvertFrom-Json
-              "commands:"; $j.contributes.commands | ForEach-Object { "  $($_.command) | $($_.title)" } | Select-Object -First 120
-              "keybindings:"; $j.contributes.keybindings | ForEach-Object { "  $($_.command) | $($_.key) | $($_.when)" } | Select-Object -First 80
+              "commands:"; $j.contributes.commands | ForEach-Object { "  $($_.command) | $($_.title)" } | Select-Object -First 140
+              "keybindings:"; $j.contributes.keybindings | ForEach-Object { "  $($_.command) | $($_.key) | $($_.when)" } | Select-Object -First 90
             }
             Get-ChildItem $d.FullName -Recurse -File | Where-Object { $_.Length -gt 5MB } | ForEach-Object { "  big: $($_.FullName.Substring($d.FullName.Length)) $([math]::Round($_.Length/1MB))MB" }
           }
       - name: Launch with a debugging port and dump what the window shows
+        if: env.AG_EXE != ''
         run: |
           $ErrorActionPreference = 'Continue'
           $work = Join-Path $env:RUNNER_TEMP 'ag-work'; New-Item -ItemType Directory -Force $work | Out-Null; 'hello' | Out-File (Join-Path $work 'hello.txt')
