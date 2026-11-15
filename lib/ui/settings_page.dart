@@ -2,11 +2,13 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../models/media_item.dart';
+import '../services/backup.dart';
 import '../services/kokoro_tts.dart';
 import '../services/natural_tts.dart';
 import '../services/paddle_ocr.dart';
@@ -267,6 +269,30 @@ class _General extends StatelessWidget {
         ),
       ])),
       _Card(_seg<int>('기본 목록 보기', s.viewMode, const [(0, '표'), (1, '격자'), (2, '카드 목록')], (v) => s.viewMode = v)),
+      _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('보던 작품 · 읽는 중', style: TextStyle(fontWeight: FontWeight.w700)),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('살짝 열어만 본 작품은 넣지 않기'),
+          subtitle: const Text('영상 1분 미만 · 만화/PDF 두 쪽 이내 · 소설 첫 부분만 본 것. 읽은 위치는 그대로 기억합니다'),
+          value: s.continueSkipBrief,
+          onChanged: (v) {
+            s.continueSkipBrief = v;
+            context.read<AppState>().refresh();
+          },
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('다 본 권의 다음 권을 이어서 보여 주기'),
+          subtitle: const Text('3권을 다 보면 "보던 작품" 에 4권이 "다음 권" 으로 나옵니다 (최근 60일 안에 본 묶음)'),
+          value: s.continueNextUp,
+          onChanged: (v) {
+            s.continueNextUp = v;
+            context.read<AppState>().refresh();
+          },
+        ),
+        const Text('카드의 × 또는 오른쪽 클릭(길게 누르기) › "보던 목록에서 빼기" 로 하나씩 뺄 수도 있습니다.', style: TextStyle(fontSize: 12)),
+      ])),
     ]);
   }
 }
@@ -481,6 +507,22 @@ class _Viewer extends StatelessWidget {
         _seg<int>('넘김효과', s.viewerEffect, const [(0, '없음'), (1, '슬라이드'), (2, '페이드'), (3, '책 넘김')], (v) => s.viewerEffect = v),
         _seg<bool>('배경', s.viewerImmersive, const [(false, '단색'), (true, '몰입형')], (v) => s.viewerImmersive = v),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('화면 좌우 눌러 넘기기'), value: s.tapToTurn, onChanged: (v) => s.tapToTurn = v),
+        if (Platform.isAndroid) ...[
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('읽는 동안 화면 켜 두기'),
+            subtitle: const Text('만화 · 소설 · PDF 를 보는 동안 화면이 저절로 꺼지지 않습니다'),
+            value: s.keepScreenOn,
+            onChanged: (v) => s.keepScreenOn = v,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('볼륨 버튼으로 쪽 넘기기'),
+            subtitle: const Text('볼륨 내림 = 다음 쪽, 올림 = 이전 쪽. 소리 내어 읽는 중에는 음량 조절'),
+            value: s.volumeKeyTurn,
+            onChanged: (v) => s.volumeKeyTurn = v,
+          ),
+        ],
         const Divider(height: 28),
         const Text('영상', style: TextStyle(fontWeight: FontWeight.w800)),
         SwitchListTile(
@@ -617,8 +659,183 @@ class _About extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall),
           ),
         ])),
+        if (context.watch<AppState>().isAdmin) const _BackupCard(),
         if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) const _PortableCard(),
       ]);
+}
+
+/// 서재 백업 · 복원 (앱을 지웠다 다시 깔거나 PC 를 바꿀 때)
+class _BackupCard extends StatefulWidget {
+  const _BackupCard();
+  @override
+  State<_BackupCard> createState() => _BackupCardState();
+}
+
+class _BackupCardState extends State<_BackupCard> {
+  bool _busy = false;
+  String _status = '';
+
+  Future<String> _defaultDir() async {
+    if (Platform.isAndroid) return '/storage/emulated/0/Download/ARARIFlex 백업';
+    return p.join((await getApplicationDocumentsDirectory()).path, 'ARARIFlex 백업');
+  }
+
+  Future<void> _backup() async {
+    final app = context.read<AppState>();
+    final settings = context.read<Settings>();
+    var dir = await _defaultDir();
+    var covers = true;
+    if (!mounted) return;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => AlertDialog(
+          icon: const Icon(Icons.backup),
+          title: const Text('서재 백업 만들기'),
+          content: SizedBox(
+            width: 460,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('서재 목록 · 묶음 · 계정 · 읽은 위치 · 열람 기록 · 접근 권한 · 모든 설정을 파일 하나(zip)로 저장합니다. '
+                  '책 · 만화 · 영상 파일 자체와 내려받은 AI 음성 모델은 들어가지 않습니다.'),
+              const SizedBox(height: 10),
+              SelectableText(dir, style: const TextStyle(fontSize: 12)),
+              TextButton(
+                onPressed: () async {
+                  final d = await FilePicker.getDirectoryPath(dialogTitle: '백업을 저장할 폴더');
+                  if (d != null) set(() => dir = d);
+                },
+                child: const Text('다른 폴더'),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: covers,
+                onChanged: (v) => set(() => covers = v ?? true),
+                title: const Text('표지도 넣기'),
+                subtitle: const Text('직접 고른 표지까지 그대로 되살립니다 (파일이 커짐). 끄면 복원 뒤 표지를 다시 만듭니다'),
+              ),
+              const Text('백업 파일에는 계정 비밀번호(암호화된 값)와 검색 · AI API 키가 들어 있으니 남에게 주지 마세요.', style: TextStyle(fontSize: 12)),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('백업')),
+          ],
+        ),
+      ),
+    );
+    if (go != true || !mounted) return;
+    setState(() {
+      _busy = true;
+      _status = '백업 만드는 중…';
+    });
+    try {
+      final support = (await getApplicationSupportDirectory()).path;
+      final coverDir = Directory(p.join(support, 'covers'));
+      final coverCount = covers && await coverDir.exists() ? await coverDir.list().length : 0;
+      final info = Backup.describe(items: app.rawItems.length, series: app.allSeries.length, users: app.users.length, covers: coverCount);
+      String out;
+      try {
+        out = await Backup.create(db: app.db, prefs: settings.exportAll(), outDir: dir, info: info, covers: covers);
+      } on FileSystemException {
+        // 그 폴더에 쓸 수 없으면 (안드로이드 권한 등) 앱 폴더에 만든 뒤 저장 위치를 고르게 한다
+        final tmp = p.join((await getTemporaryDirectory()).path, 'arari_backup');
+        final made = await Backup.create(db: app.db, prefs: settings.exportAll(), outDir: tmp, info: info, covers: covers);
+        final saved = await FilePicker.saveFile(dialogTitle: '백업 저장', fileName: p.basename(made), bytes: await File(made).readAsBytes());
+        await File(made).delete();
+        if (saved == null) throw const BackupError('저장을 취소했습니다');
+        out = saved.scheme == 'file' ? saved.toFilePath() : Uri.decodeFull(saved.toString());
+      }
+      settings.lastBackup = '${DateTime.now().toIso8601String().substring(0, 16).replaceFirst('T', ' ')} · $out';
+      if (mounted) setState(() => _status = '백업했습니다: $out');
+    } catch (e) {
+      if (mounted) setState(() => _status = '백업하지 못했습니다: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _restore() async {
+    final app = context.read<AppState>();
+    final picked = await FilePicker.pickFiles(dialogTitle: 'ARARIFlex 백업 파일 (zip)', type: FileType.custom, allowedExtensions: ['zip']);
+    final path = picked.firstOrNull?.path;
+    if (path == null || !mounted) return;
+    setState(() {
+      _busy = true;
+      _status = '백업 파일 확인 중…';
+    });
+    BackupInfo info;
+    try {
+      info = await Backup.stage(path);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _status = '$e';
+        });
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _status = '';
+    });
+    final go = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.restore),
+        title: const Text('이 백업으로 되돌릴까요?'),
+        content: SizedBox(
+          width: 460,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('만든 때: ${info.created.length >= 16 ? info.created.substring(0, 16).replaceFirst('T', ' ') : info.created}  (판 ${info.version} · ${info.platform})'),
+            Text('작품 ${info.items}개 · 묶음 ${info.series}개 · 계정 ${info.users}개${info.covers > 0 ? ' · 표지 ${info.covers}개' : ''}'),
+            const SizedBox(height: 10),
+            const Text('지금 서재 목록 · 계정 · 읽은 위치 · 설정이 모두 이 백업의 것으로 바뀝니다. '
+                '지금 서재는 한 번 남겨 두므로(library.before-restore.db) 잘못 복원해도 되돌릴 수 있습니다.\n\n'
+                '앱을 끝냈다가 다시 켜면 적용됩니다. 책 파일이 백업할 때와 같은 자리에 있어야 열립니다.'),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('앱 끝내고 적용')),
+        ],
+      ),
+    );
+    if (go != true) {
+      await Backup.cancelPending();
+      return;
+    }
+    try {
+      await app.db.close();
+    } catch (_) {}
+    exit(0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final last = context.watch<Settings>().lastBackup;
+    return _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        const Icon(Icons.backup),
+        const SizedBox(width: 8),
+        Text('서재 백업 · 복원', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+      ]),
+      const SizedBox(height: 8),
+      const Text('앱을 지웠다 다시 깔거나 PC 를 바꿔도 서재 목록 · 읽던 위치 · 계정 · 설정을 되살릴 수 있게 파일로 저장해 둡니다.'),
+      const SizedBox(height: 4),
+      Text(last.isEmpty ? '아직 백업한 적이 없습니다' : '마지막 백업: $last', style: text.bodySmall),
+      const SizedBox(height: 10),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        FilledButton.icon(onPressed: _busy ? null : _backup, icon: const Icon(Icons.backup), label: const Text('백업 만들기')),
+        OutlinedButton.icon(onPressed: _busy ? null : _restore, icon: const Icon(Icons.restore), label: const Text('백업에서 복원')),
+      ]),
+      if (_busy) const Padding(padding: EdgeInsets.only(top: 10), child: LinearProgressIndicator()),
+      if (_status.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: SelectableText(_status, style: text.bodySmall)),
+    ]));
+  }
 }
 
 /// 휴대용 모드: 앱 폴더째 USB 로 옮겨 인터넷 없는 PC 에서 그대로

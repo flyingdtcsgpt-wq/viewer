@@ -188,6 +188,26 @@ class Settings extends ChangeNotifier {
   void setSpeakerVoices(int bookId, Map<String, String> m) =>
       _set(() => m.isEmpty ? _p.remove('spk_$bookId') : _p.setString('spk_$bookId', jsonEncode(m)));
 
+  /// 마지막 백업 (때 · 파일)
+  String get lastBackup => _p.getString('lastBackup') ?? '';
+  set lastBackup(String v) => _set(() => _p.setString('lastBackup', v));
+
+  /// 살짝 열어만 본 작품(영상 1분 미만 · 만화/PDF 두 쪽 이내 · 소설 첫 부분)은 "보던 작품 · 읽는 중" 에 넣지 않는다
+  bool get continueSkipBrief => _p.getBool('continueSkipBrief') ?? true;
+  set continueSkipBrief(bool v) => _set(() => _p.setBool('continueSkipBrief', v));
+
+  /// 다 본 권의 다음 권을 "보던 작품" 에 이어서 보여 준다
+  bool get continueNextUp => _p.getBool('continueNextUp') ?? true;
+  set continueNextUp(bool v) => _set(() => _p.setBool('continueNextUp', v));
+
+  /// 읽는 동안 화면이 꺼지지 않게 (안드로이드)
+  bool get keepScreenOn => _p.getBool('keepScreenOn') ?? true;
+  set keepScreenOn(bool v) => _set(() => _p.setBool('keepScreenOn', v));
+
+  /// 볼륨 버튼으로 쪽 넘기기 (안드로이드, 소리 내어 읽는 중에는 음량 조절)
+  bool get volumeKeyTurn => _p.getBool('volumeKeyTurn') ?? false;
+  set volumeKeyTurn(bool v) => _set(() => _p.setBool('volumeKeyTurn', v));
+
   /// 사용자마다 "보던 작품 · 읽는 중" 에서 뺀 항목 { 항목 id: 뺀 시각(ms) }. 그 뒤에 다시 열면 저절로 돌아온다
   Map<int, int> continueOff(int userId) {
     final raw = _p.getString('cwOff_$userId');

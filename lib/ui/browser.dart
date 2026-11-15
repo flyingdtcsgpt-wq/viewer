@@ -912,7 +912,7 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
     if (e case ItemEntry i when !multi) ...[
       item('finished', Icons.done_all, i.item.progress >= 0.98 ? '안 읽음으로 표시' : '읽음으로 표시'),
       item('reset', Icons.restart_alt, '읽기 진행률 초기화'),
-      if (state.isInProgress(i.item)) item('uncontinue', Icons.playlist_remove, '보던 목록에서 빼기'),
+      if (state.isInProgress(i.item) || state.isNextUp(i.item)) item('uncontinue', Icons.playlist_remove, '보던 목록에서 빼기'),
       item('rate', Icons.star, '평점 수정'),
       item('fav', i.item.favorite ? Icons.favorite : Icons.favorite_border, i.item.favorite ? '즐겨찾기 해제' : '즐겨찾기'),
       item('info', Icons.edit_note, '메타데이터 관리'),
@@ -920,6 +920,12 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
     ],
     if (multi && state.selectedItemsDeep.any(state.isInProgress)) ...[
       item('uncontinue', Icons.playlist_remove, '선택한 것 보던 목록에서 빼기'),
+      const PopupMenuDivider(),
+    ],
+    // 묶음 전체 · 여러 개를 한꺼번에 읽음 / 안 읽음으로
+    if (multi || e is SeriesEntry) ...[
+      item('readall', Icons.done_all, multi ? '선택한 것 모두 읽음으로 표시' : '묶음 전체 읽음으로 표시'),
+      item('unreadall', Icons.remove_done, multi ? '선택한 것 모두 안 읽음으로 표시' : '묶음 전체 안 읽음으로 표시'),
       const PopupMenuDivider(),
     ],
     if (e is SeriesEntry && admin && !multi) ...[
@@ -955,6 +961,12 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
       if (e is ItemEntry) state.markFinished(e.item, e.item.progress < 0.98);
     case 'reset':
       if (e is ItemEntry) state.markFinished(e.item, false);
+    case 'readall' || 'unreadall':
+      final list = multi ? state.selectedItemsDeep : (e is SeriesEntry ? state.itemsUnderSeries(e.series.id!).where(state.canSeeItem).toList() : <MediaItem>[]);
+      final n = await state.markFinishedMany(list, v == 'readall');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(v == 'readall' ? '$n개를 읽음으로 표시했습니다' : '$n개를 안 읽음으로 표시했습니다')));
+      }
     case 'uncontinue':
       final list = multi ? state.selectedItemsDeep.where(state.isInProgress).toList() : [if (e is ItemEntry) e.item];
       removeFromContinueWithUndo(context, list);

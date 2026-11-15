@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../models/media_item.dart';
+import '../../services/background_reading.dart';
 import '../../services/ext_archive.dart';
 import '../../services/zip_pages.dart';
 import '../../services/settings.dart';
@@ -44,6 +45,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   bool _panel = false; // 오른쪽 설정 패널
   bool _chrome = true; // 위/아래 막대
   bool _end = false; // 마지막 쪽에서 더 넘기면 "권 끝" 카드
+  bool _awake = false; // 화면 켜 두기를 걸었는가
   bool _fullscreen = false;
   final _zoom = TransformationController();
   final _strip = ScrollController();
@@ -52,7 +54,14 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   final _focus = FocusNode();
 
   MediaItem get item => widget.item;
-  double get _progress => _n <= 1 ? 1 : _page / (_n - 1);
+  /// 읽은 정도: 지금 화면에 보이는 마지막 쪽 기준 (두 장 보기에서 마지막 화면이면 100%)
+  double get _progress {
+    if (_n <= 1) return 1;
+    if (_s.comicMode == 2) return _page / (_n - 1);
+    final sp = _spreads;
+    if (sp.isEmpty) return 0;
+    return sp[_spread].last / (_n - 1);
+  }
   double get _scale => _zoom.value.getMaxScaleOnAxis();
 
   @override
@@ -60,6 +69,10 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     super.initState();
     _app;
     _s;
+    if (_s.keepScreenOn) {
+      _awake = true;
+      ScreenAwake.hold();
+    }
     _open();
     _zoom.addListener(() => setState(() {}));
   }
@@ -90,6 +103,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   @override
   void dispose() {
     if (_n > 0) _app.saveProgress(item, '$_page', _progress).then((_) => _app.refresh());
+    if (_awake) ScreenAwake.release();
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _zip?.close();
     _loader?.close();
@@ -186,15 +200,20 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   /// +1 다음, -1 이전 (읽는 순서 기준)
   void _turn(int d) {
-    // 권 끝 카드가 떠 있으면: 앞으로 넘기면 카드를 닫고 마지막 쪽으로
+    // 권 끝 카드가 떠 있으면: 뒤로 넘기면 카드를 닫고 마지막 쪽으로, 한 번 더 넘기면 다음 권으로
     if (_end) {
-      if (d < 0) setState(() => _end = false);
+      if (d < 0) {
+        setState(() => _end = false);
+      } else {
+        final next = _app.nextVolume(item);
+        if (next != null) openNextVolume(context, next);
+      }
       return;
     }
     // 마지막 쪽에서 더 넘기면 다음 권 안내
     if (d > 0 && _s.comicMode != 2 && _spread >= _spreads.length - 1) {
       setState(() => _end = true);
-      _app.saveProgress(item, '$_page', 1.0);
+      _app.saveProgress(item, '$_page', _progress);
       return;
     }
     if (_s.comicMode == 2) {
@@ -266,6 +285,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
     return CallbackShortcuts(
       bindings: {
+        ...volumeKeyBindings(s.volumeKeyTurn, _turn),
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () => natural ? _visual(true) : _turn(-1),
         const SingleActivator(LogicalKeyboardKey.arrowRight): () => natural ? _visual(false) : _turn(1),
         const SingleActivator(LogicalKeyboardKey.arrowDown): () => _turn(1),
@@ -448,6 +468,11 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           Positioned.fill(
             child: GestureDetector(
               onTap: () {}, // 뒤 화면으로 탭이 넘어가지 않게
+              // 카드 위에서도 밀어서: 뒤로 밀면 마지막 쪽, 한 번 더 넘기면 다음 권
+              onHorizontalDragEnd: (d) {
+                final v = d.primaryVelocity ?? 0;
+                if (v.abs() >= 250) _visual(v > 0);
+              },
               child: Container(
                 color: Colors.black.withValues(alpha: 0.75),
                 alignment: Alignment.center,
@@ -633,6 +658,14 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     }
     return NotificationListener<ScrollEndNotification>(
       onNotification: (_) {
+        // 맨 아래까지 내렸으면 마지막 쪽까지 본 것 (마지막 그림이 짧아도 100%)
+        if (_scroll.hasClients && _n > 0 && _scroll.position.pixels >= _scroll.position.maxScrollExtent - 8) {
+          if (_page != _n - 1) {
+            setState(() => _page = _n - 1);
+            _app.saveProgress(item, '$_page', 1.0);
+          }
+          return false;
+        }
         for (final e in _pageKeys.entries) {
           final box = e.value.currentContext?.findRenderObject() as RenderBox?;
           if (box == null || !box.attached) continue;

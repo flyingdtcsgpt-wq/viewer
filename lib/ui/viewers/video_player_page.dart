@@ -37,6 +37,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   late int _index = widget.initialIndex;
   Duration? _a, _b; // 구간 반복
   bool _resumed = false;
+  bool _wasFinished = false; // 다 본 영상을 다시 연 것 (1분 넘게 다시 보기 전에는 "다 봄" 유지)
 
   MediaItem get _item => widget.playlist[_index];
 
@@ -82,7 +83,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _resumed = true;
     final ms = int.tryParse(_item.position ?? '') ?? 0;
     final at = Duration(milliseconds: ms);
-    if (at > const Duration(seconds: 5) && at < total - const Duration(seconds: 10)) {
+    // 다 본 영상은 처음부터 (끝부분에서 멈춘 자리로 가지 않게)
+    _wasFinished = _item.progress >= 0.98;
+    if (!_wasFinished && at > const Duration(seconds: 5) && at < total - const Duration(seconds: 10)) {
       _player.seek(at);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -102,7 +105,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final pos = _player.state.position;
     final total = _player.state.duration;
     if (total <= Duration.zero) return Future.value();
-    return _app.saveProgress(_item, '${pos.inMilliseconds}', pos.inMilliseconds / total.inMilliseconds);
+    // 다 본 영상을 잠깐 다시 틀어 본 것으로 "보는 중" 이 되지 않게
+    if (_wasFinished && pos < const Duration(minutes: 1)) return Future.value();
+    // 끝부분(엔딩 · 예고)만 남았으면 다 본 것으로: 남은 시간이 전체의 6% 이하(최대 3분)
+    final left = total - pos;
+    final tail = Duration(milliseconds: (total.inMilliseconds * 0.06).round().clamp(0, 180000));
+    final ratio = left <= tail ? 1.0 : pos.inMilliseconds / total.inMilliseconds;
+    return _app.saveProgress(_item, '${pos.inMilliseconds}', ratio);
   }
 
   void _abLoop() {

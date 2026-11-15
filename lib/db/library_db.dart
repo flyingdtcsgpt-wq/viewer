@@ -154,6 +154,43 @@ class LibraryDb {
     });
   }
 
+  // ---------- 백업 · 복원 ----------
+  String get path => _db.path;
+  Future<void> close() => _db.close();
+
+  /// 지금 DB 를 한 파일로 깔끔하게 복사 (쓰는 중이어도 일관된 사본). 오래된 SQLite 면 체크포인트 뒤 파일 복사
+  Future<void> copyTo(String out) async {
+    final f = File(out);
+    if (await f.exists()) await f.delete();
+    try {
+      await _db.execute("VACUUM INTO '${out.replaceAll("'", "''")}'");
+      if (await f.exists() && await f.length() > 0) return;
+    } catch (_) {}
+    try {
+      await _db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (_) {}
+    await File(_db.path).copy(out);
+  }
+
+  /// 표지 경로를 새 데이터 폴더에 맞게 고친다 (다른 PC · 다시 설치한 뒤 복원했을 때). 고친 수
+  Future<int> rewriteCoverPaths(String? Function(String path) fix) async {
+    var n = 0;
+    await _db.transaction((txn) async {
+      for (final table in ['items', 'series']) {
+        final rows = await txn.query(table, columns: ['id', 'cover_path'], where: 'cover_path IS NOT NULL');
+        final b = txn.batch();
+        for (final r in rows) {
+          final to = fix(r['cover_path'] as String);
+          if (to == null) continue;
+          b.update(table, {'cover_path': to}, where: 'id = ?', whereArgs: [r['id']]);
+          n++;
+        }
+        await b.commit(noResult: true);
+      }
+    });
+    return n;
+  }
+
   static Future<void> _createSeries(Database db) async {
     await db.execute('''
       CREATE TABLE series(
@@ -236,6 +273,23 @@ class LibraryDb {
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+
+  /// 여러 항목의 읽은 정도를 한 번에 저장
+  Future<void> saveProgressMany(int userId, Iterable<MediaItem> items) async {
+    final list = items.where((e) => e.id != null).toList();
+    if (list.isEmpty) return;
+    await _db.transaction((txn) async {
+      final b = txn.batch();
+      for (final e in list) {
+        b.insert(
+          'user_progress',
+          {'user_id': userId, 'item_id': e.id, 'progress': e.progress, 'position': e.position, 'last_opened': e.lastOpened?.millisecondsSinceEpoch},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await b.commit(noResult: true);
+    });
+  }
 
   Future<int> startHistory(int userId, int itemId) => _db.insert('history', {
         'user_id': userId,

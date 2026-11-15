@@ -92,12 +92,26 @@ class _TextReaderPageState extends State<TextReaderPage> {
 
   MediaItem get item => widget.item;
   int get _count => _doc?.blocks.length ?? 0;
-  double get _progress => _count <= 1 ? 1 : _current / (_count - 1);
+  bool _awake = false; // 화면 켜 두기를 걸었는가
+  bool _atEnd = false; // 마지막 문단이 화면에 다 보임 → 다 읽음
+  bool _wasFinished = false; // 다 읽은 책을 다시 연 것 (앞으로 돌아가지 않는 한 다 읽음 유지)
+  int _openedAt = 0;
+
+  /// 읽은 정도. 맨 위 문단 기준이라 끝까지 내려도 100% 가 안 되므로, 마지막 문단이 보이면 다 읽은 것으로 친다
+  double get _progress {
+    if (_count <= 1 || _atEnd) return 1;
+    if (_wasFinished && _current >= _openedAt) return 1;
+    return _current / (_count - 1);
+  }
 
   @override
   void initState() {
     super.initState();
     _app; // dispose 에서 context 를 쓰지 않도록 미리 잡아둔다
+    if (context.read<Settings>().keepScreenOn) {
+      _awake = true;
+      ScreenAwake.hold();
+    }
     _left = WidgetsBinding.instance.platformDispatcher.views.first.physicalSize.width /
             WidgetsBinding.instance.platformDispatcher.views.first.devicePixelRatio >=
         1200; // 넓은 화면이면 처음부터 목차를 연다
@@ -113,6 +127,12 @@ class _TextReaderPageState extends State<TextReaderPage> {
         _doc = doc;
         _anchor = saved.clamp(0, doc.blocks.isEmpty ? 0 : doc.blocks.length - 1);
         _current = _anchor;
+        _openedAt = _anchor;
+        _wasFinished = item.progress >= 0.98;
+      });
+      // 짧은 글은 스크롤 없이 끝까지 보이므로 처음 그린 뒤 한 번 확인
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _updateCurrent();
       });
       _prepareCast();
     } catch (e) {
@@ -127,6 +147,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
       _app.saveProgress(item, '$_current', _progress).then((_) => _app.refresh());
     }
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (_awake) ScreenAwake.release();
     _speaking = false;
     _sleepTick?.cancel();
     BackgroundReading.stop();
@@ -169,8 +190,18 @@ class _TextReaderPageState extends State<TextReaderPage> {
         best = index;
       }
     });
-    if (best != null && best != _current) {
-      setState(() => _current = best!);
+    // 마지막 문단의 아래 끝이 화면 안에 들어왔는가
+    var end = false;
+    final lastBox = _alive[_count - 1]?.findRenderObject() as RenderBox?;
+    if (lastBox != null && lastBox.attached && lastBox.hasSize) {
+      final bottom = lastBox.localToGlobal(Offset.zero).dy + lastBox.size.height;
+      end = bottom <= view.localToGlobal(Offset.zero).dy + view.size.height + 1;
+    }
+    if ((best != null && best != _current) || end != _atEnd) {
+      setState(() {
+        if (best != null) _current = best!;
+        _atEnd = end;
+      });
       _scheduleSave();
     }
   }
@@ -757,7 +788,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
         );
     const speeds = [-4, -2, 0, 2, 4, 6];
     return Material(
-      color: const Color(0xF0222222),
+      color: const Color(0xFF222222),
       elevation: 8,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
@@ -943,6 +974,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
 
     return CallbackShortcuts(
       bindings: {
+        // 소리 내어 읽는 중에는 볼륨 버튼이 음량을 바꾸게 둔다
+        ...volumeKeyBindings(s.volumeKeyTurn && !_speaking, _page),
         const SingleActivator(LogicalKeyboardKey.pageDown): () => _page(1),
         const SingleActivator(LogicalKeyboardKey.space): () => _page(1),
         const SingleActivator(LogicalKeyboardKey.arrowRight): () => _page(s.comicRtl ? -1 : 1),

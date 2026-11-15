@@ -163,7 +163,7 @@ class _ReadAloudBarState extends State<ReadAloudBar> {
     final s = context.watch<Settings>();
     const speeds = [-4, -2, 0, 2, 4, 6];
     return Material(
-      color: const Color(0xF0222222),
+      color: const Color(0xFF222222),
       elevation: 8,
       borderRadius: BorderRadius.circular(12),
       child: Padding(

@@ -240,6 +240,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 여러 개를 한꺼번에 읽음 / 안 읽음으로 (묶음 전체 · 여러 개 선택). 마지막으로 본 날짜와 열람 기록은 건드리지 않는다
+  Future<int> markFinishedMany(Iterable<MediaItem> items, bool finished) async {
+    final u = user;
+    final list = items.where((e) => finished ? e.progress < 0.98 : e.progress > 0).toList();
+    if (u == null || list.isEmpty) return 0;
+    for (final e in list) {
+      e.progress = finished ? 1 : 0;
+      if (!finished) e.position = '0';
+    }
+    await db.saveProgressMany(u.id!, list);
+    notifyListeners();
+    return list.length;
+  }
+
   /// 다중 선택 ('s:묶음id' / 'i:항목id')
   final Set<String> selected = {};
 
@@ -825,12 +839,59 @@ class AppState extends ChangeNotifier {
     return _cwOff!;
   }
 
-  /// 읽다 만 것인가 (다 읽었거나 사용자가 보던 목록에서 뺀 것은 아님)
+  /// 살짝 열어만 본 것인가 (영상 1분 미만 · 만화/PDF 두 쪽 이내 · 소설 첫 부분). 짧은 작품에서 10% 넘게 봤으면 아님
+  static bool barelyOpened(MediaItem e) {
+    if (e.progress >= 0.1) return false;
+    final pos = int.tryParse(e.position ?? '') ?? 0;
+    return switch (e.kind) {
+      MediaKind.video => pos < 60000,
+      MediaKind.comic => pos < 2, // 쪽 번호는 0부터
+      MediaKind.book => e.extension == '.pdf' ? pos <= 2 : (pos < 10 && e.progress < 0.02),
+      MediaKind.image => true,
+    };
+  }
+
+  /// 읽다 만 것인가 (다 읽었거나, 살짝 열어만 봤거나, 사용자가 보던 목록에서 뺀 것은 아님)
   bool isInProgress(MediaItem e) {
     if (e.progress <= 0.0 || e.progress >= 0.98) return false;
+    if (settings.continueSkipBrief && barelyOpened(e)) return false;
     final off = e.id == null ? null : _continueOff[e.id];
     return off == null || (e.lastOpened?.millisecondsSinceEpoch ?? 0) > off;
   }
+
+  /// 다 본 권의 다음 권 { 다음 권 id: 앞 권을 마지막으로 본 시각 } — 묶음마다 가장 최근에 다 본 권 기준.
+  /// 그 묶음에 읽다 만 권이 있으면 그 권이 먼저라 넣지 않는다. 60일 넘게 안 본 묶음도 넣지 않는다.
+  Map<int, int> get _nextUp => _memo('nextUp', () {
+        final out = <int, int>{};
+        if (!settings.continueNextUp) return out;
+        final latestDone = <int, MediaItem>{}; // 묶음 → 가장 최근에 다 본 권
+        final busy = <int>{}; // 읽다 만 권이 있는 묶음
+        for (final e in allItems) {
+          final sid = e.seriesId;
+          if (sid == null || e.lastOpened == null) continue;
+          if (e.progress >= 0.98) {
+            final cur = latestDone[sid];
+            if (cur == null || e.lastOpened!.isAfter(cur.lastOpened!)) latestDone[sid] = e;
+          } else if (isInProgress(e)) {
+            busy.add(sid);
+          }
+        }
+        final limit = DateTime.now().subtract(const Duration(days: 60));
+        for (final done in latestDone.values) {
+          if (busy.contains(done.seriesId) || done.lastOpened!.isBefore(limit)) continue;
+          final next = nextVolume(done);
+          if (next == null || next.id == null || next.progress >= 0.98 || next.missing) continue;
+          // 다음 권을 더 최근에 열어 봤으면(살짝 본 것 포함) 그쪽 기록을 따른다
+          final at = done.lastOpened!.millisecondsSinceEpoch;
+          final off = _continueOff[next.id];
+          if (off != null && off >= at) continue; // 사용자가 뺐음 (앞 권을 다시 보면 돌아옴)
+          out[next.id!] = at;
+        }
+        return out;
+      });
+
+  /// "보던 작품" 에 다음 권으로 나온 것인가
+  bool isNextUp(MediaItem e) => e.id != null && !isInProgress(e) && _nextUp.containsKey(e.id);
 
   /// "보던 작품 · 읽는 중" 에서 빼기 (읽은 위치는 그대로, 다시 열면 돌아온다)
   void removeFromContinue(Iterable<MediaItem> items) {
@@ -858,12 +919,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 이어서 보기: 읽다 만 것 (최근 연 순)
-  List<MediaItem> get continueWatching => _memo('continue', () => allItems.where(isInProgress).toList()
-    ..sort((a, b) => (b.lastOpened?.millisecondsSinceEpoch ?? 0).compareTo(a.lastOpened?.millisecondsSinceEpoch ?? 0)));
+  /// 이어서 보기: 읽다 만 것 + 다 본 권의 다음 권 (최근 본 순)
+  List<MediaItem> get continueWatching => _memo('continue', () {
+        final up = _nextUp;
+        int at(MediaItem e) => isInProgress(e) ? (e.lastOpened?.millisecondsSinceEpoch ?? 0) : (up[e.id] ?? 0);
+        return allItems.where((e) => isInProgress(e) || up.containsKey(e.id)).toList()..sort((a, b) => at(b).compareTo(at(a)));
+      });
 
   /// 맨 위 칸들(묶음 + 낱권) 중 [kind] 가 들어 있는 것, 최근 추가순
-  List<Entry> rootEntries({MediaKind? kind, int limit = 24}) {
+  List<Entry> rootEntries({MediaKind? kind, int limit = 24}) => _memo('root|${kind?.name}|$limit', () => _rootEntries(kind, limit));
+
+  List<Entry> _rootEntries(MediaKind? kind, int limit) {
     final t = tree;
     final out = <(DateTime, Entry)>[];
     for (final s in t.children[null] ?? const <Series>[]) {

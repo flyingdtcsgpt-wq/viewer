@@ -197,7 +197,7 @@ class _DetailPageState extends State<DetailPage> {
               ? (item.progress > 0 ? '이어보기' : '재생')
               : (item.progress > 0 ? '이어읽기 ${(item.progress * 100).round()}%' : '보기')),
         ),
-        if (context.watch<AppState>().isInProgress(item))
+        if (context.watch<AppState>().isInProgress(item) || context.watch<AppState>().isNextUp(item))
           OutlinedButton.icon(
             onPressed: () => removeFromContinueWithUndo(context, [item]),
             icon: const Icon(Icons.playlist_remove),
@@ -234,6 +234,24 @@ class _DetailPageState extends State<DetailPage> {
           child: Text(item.rating == 0 ? '평가하기' : '${item.rating} / 10'),
         ),
       ]),
+      // 읽은 정도 · 마지막으로 본 날, 한 번에 읽음/안 읽음
+      if (item.kind != MediaKind.image)
+        Wrap(alignment: WrapAlignment.center, crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, children: [
+          Text(
+            [
+              item.progress >= 0.98 ? '다 봄' : (item.progress > 0 ? '${(item.progress * 100).round()}% 봄' : '아직 안 봄'),
+              if (item.lastOpened != null) '마지막 ${item.lastOpened!.year}.${item.lastOpened!.month}.${item.lastOpened!.day}',
+            ].join(' · '),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          TextButton(
+            onPressed: () async {
+              await context.read<AppState>().markFinished(item, item.progress < 0.98);
+              if (mounted) setState(() {});
+            },
+            child: Text(item.progress >= 0.98 ? '안 읽음으로' : '읽음으로 표시'),
+          ),
+        ]),
     ]);
 
     Widget field(TextEditingController c, String label, {int lines = 1, TextInputType? type}) => Padding(

@@ -310,6 +310,11 @@ class MainActivity : FlutterActivity() {{
                         if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
                     }}
                     "stop" -> stopService(i)
+                    // 읽는 동안 화면이 꺼지지 않게
+                    "keepScreen" -> {{
+                        if (call.argument<Boolean>("on") == true) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }}
                 }}
                 result.success(true)
             }} catch (e: Exception) {{ result.success(false) }}

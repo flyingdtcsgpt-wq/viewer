@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import 'app_state.dart';
 import 'db/library_db.dart';
+import 'services/backup.dart';
 import 'services/cover_service.dart';
 import 'services/portable.dart';
 import 'services/settings.dart';
@@ -19,9 +20,16 @@ Future<void> main() async {
   MediaKit.ensureInitialized(); // 영상 플레이어(libmpv)
   _registerNativeLicenses();
   await Portable.init(); // 앱 옆 arariflex_data 가 있으면 모든 데이터를 거기에
+  // 백업에서 복원하기로 해 둔 것이 있으면 DB · 설정을 열기 전에 바꿔 넣는다
+  try {
+    await Backup.applyPending();
+  } catch (e) {
+    debugPrint('복원 실패: $e');
+  }
   final settings = Settings();
   await settings.load();
   final db = await LibraryDb.open();
+  await Backup.fixAfterRestore(db);
   final covers = CoverService();
   await covers.init();
   final state = AppState(db, settings, covers);

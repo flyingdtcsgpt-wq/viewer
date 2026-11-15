@@ -22,6 +22,7 @@ import 'package:media_shelf/services/ambient.dart';
 import 'package:media_shelf/services/speakers.dart';
 import 'package:media_shelf/services/audiobook.dart';
 import 'package:media_shelf/services/auth.dart';
+import 'package:media_shelf/services/backup.dart';
 import 'package:media_shelf/services/cover_service.dart';
 import 'package:media_shelf/services/epub_writer.dart';
 import 'package:media_shelf/services/file_tools.dart';
@@ -525,6 +526,76 @@ void main() {
         expect(inReading, isFalse);
         expect(back, isTrue);
         await state.markFinished(it, false);
+
+        // 살짝 열어만 본 것은 보던 목록에 안 나온다 (설정을 끄면 나옴)
+        final comic = state.allItems.firstWhere((e) => e.kind == MediaKind.comic && e.seriesId != null);
+        await state.saveProgress(comic, '1', 0.03);
+        state.refresh();
+        final briefHidden = !state.isInProgress(comic);
+        state.settings.continueSkipBrief = false;
+        state.refresh();
+        final briefShownWhenOff = state.isInProgress(comic);
+        state.settings.continueSkipBrief = true;
+        await state.markFinished(comic, false);
+
+        // 다 본 권의 다음 권이 "다음 권" 으로 나오고, 빼면 사라지고, 앞 권을 다시 다 보면 돌아온다
+        final vols = state.volumesOf(comic.seriesId!);
+        await state.saveProgress(vols[0], '3', 1.0);
+        state.refresh();
+        final nextShown = state.continueWatching.contains(vols[1]) && state.isNextUp(vols[1]);
+        state.removeFromContinue([vols[1]]);
+        final nextRemoved = !state.continueWatching.contains(vols[1]);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await state.saveProgress(vols[0], '3', 1.0);
+        state.refresh();
+        final nextBack = state.continueWatching.contains(vols[1]);
+
+        // 묶음 전체 읽음 / 안 읽음
+        final marked = await state.markFinishedMany(vols, true);
+        final allRead = vols.every((e) => e.progress >= 0.98);
+        final unmarked = await state.markFinishedMany(vols, false);
+        final allUnread = vols.every((e) => e.progress == 0);
+        debugPrint('CHECK continue briefHidden=$briefHidden briefShownWhenOff=$briefShownWhenOff nextShown=$nextShown nextRemoved=$nextRemoved nextBack=$nextBack '
+            'readAll=$marked/$allRead unreadAll=$unmarked/$allUnread');
+        expect([briefHidden, briefShownWhenOff, nextShown, nextRemoved, nextBack, allRead, allUnread], everyElement(isTrue));
+        expect(AppState.barelyOpened(MediaItem(path: 'a.mp4', kind: MediaKind.video, title: 'a')..position = '30000'..progress = 0.02), isTrue);
+        expect(AppState.barelyOpened(MediaItem(path: 'a.mp4', kind: MediaKind.video, title: 'a')..position = '90000'..progress = 0.05), isFalse);
+      });
+    });
+
+    // 백업 · 복원: 백업 파일을 만들고, 그 파일을 복원 준비까지 (실제 바꿔 넣기는 앱을 다시 켤 때라 여기서는 취소)
+    await step('backup', () async {
+      await tester.runAsync(() async {
+        final dir = p.join((await getTemporaryDirectory()).path, 'backup_test');
+        if (Directory(dir).existsSync()) Directory(dir).deleteSync(recursive: true);
+        final info = Backup.describe(items: state.rawItems.length, series: state.allSeries.length, users: state.users.length, covers: 0);
+        final sw = Stopwatch()..start();
+        final zip = await Backup.create(db: state.db, prefs: state.settings.exportAll(), outDir: dir, info: info);
+        final names = ZipDecoder().decodeBytes(File(zip).readAsBytesSync()).files.map((f) => f.name).toList();
+        final staged = await Backup.stage(zip);
+        final pending = await Backup.hasPending();
+        await Backup.cancelPending();
+        final bad = File(p.join(dir, 'bad.zip'))..writeAsBytesSync(ZipEncoder().encode(Archive()..addFile(ArchiveFile.string('x.txt', 'x'))));
+        var rejected = false;
+        try {
+          await Backup.stage(bad.path);
+        } on BackupError {
+          rejected = true;
+        }
+        debugPrint('CHECK backup file=${p.basename(zip)} size=${File(zip).lengthSync()} took=${sw.elapsedMilliseconds}ms '
+            'has=[db:${names.contains('library.db')},settings:${names.contains('settings.json')},covers:${names.where((n) => n.startsWith('covers/')).length}] '
+            'staged items=${staged.items}/${state.rawItems.length} users=${staged.users} pending=$pending rejectsBad=$rejected stillPending=${await Backup.hasPending()}');
+        expect(names, containsAll(['library.db', 'settings.json', 'manifest.json']));
+        expect(staged.items, state.rawItems.length);
+        expect(pending, isTrue);
+        expect(rejected, isTrue);
+        expect(await Backup.hasPending(), isFalse);
+        final moved = Backup.movedCover(r'C:\Old\Data\covers\abc.jpg', r'C:\Old\Data', '/new/data');
+        expect(moved, p.join('/new/data', 'covers', 'abc.jpg'));
+        expect(Backup.movedCover('/elsewhere/pic.jpg', '/old', '/new'), isNull);
+        try {
+          Directory(dir).deleteSync(recursive: true);
+        } catch (_) {}
       });
     });
 

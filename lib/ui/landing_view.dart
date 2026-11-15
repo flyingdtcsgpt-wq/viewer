@@ -316,34 +316,31 @@ class _RowState extends State<_Row> {
                           onLongPress: () => state.enterSeries(s.series.id),
                           onEdit: state.isAdmin ? () => showSeriesEditor(context, s.series) : () {},
                         ),
-                      ItemEntry it => Stack(children: [
-                          CoverTile(
-                            item: it.item,
-                            hidden: state.isHiddenItem(it.item),
-                            showVolume: it.item.seriesId != null,
-                            onTap: () => openItem(context, it.item, siblings: siblings),
-                            onLongPress: () => _info(context, it.item),
-                            onInfo: () => _info(context, it.item),
-                          ),
+                      ItemEntry it => CoverTile(
+                          item: it.item,
+                          hidden: state.isHiddenItem(it.item),
+                          showVolume: it.item.seriesId != null,
+                          onTap: () => openItem(context, it.item, siblings: siblings),
+                          onLongPress: () => _info(context, it.item),
+                          onInfo: () => _info(context, it.item),
+                          // 다 본 권의 다음 권
+                          note: widget.removable && state.isNextUp(it.item) ? '다음 권' : null,
                           // 보던 목록에서 빼기 (읽은 위치는 그대로, 다시 열면 돌아옴)
-                          if (widget.removable)
-                            Positioned(
-                              top: 4,
-                              left: 4,
-                              child: Tooltip(
-                                message: '보던 목록에서 빼기',
-                                child: Material(
-                                  color: Colors.black54,
-                                  shape: const CircleBorder(),
-                                  child: InkWell(
-                                    customBorder: const CircleBorder(),
-                                    onTap: () => removeFromContinueWithUndo(context, [it.item]),
-                                    child: const Padding(padding: EdgeInsets.all(5), child: Icon(Icons.close, size: 16, color: Colors.white)),
+                          corner: !widget.removable
+                              ? null
+                              : Tooltip(
+                                  message: '보던 목록에서 빼기',
+                                  child: Material(
+                                    color: Colors.black54,
+                                    shape: const CircleBorder(),
+                                    child: InkWell(
+                                      customBorder: const CircleBorder(),
+                                      onTap: () => removeFromContinueWithUndo(context, [it.item]),
+                                      child: const Padding(padding: EdgeInsets.all(5), child: Icon(Icons.close, size: 16, color: Colors.white)),
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ),
-                        ]),
+                        ),
                     },
                   ),
                 );

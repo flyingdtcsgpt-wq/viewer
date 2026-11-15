@@ -14,6 +14,8 @@ class CoverTile extends StatelessWidget {
   final bool selected;
   final bool hidden;
   final bool showVolume; // 묶음 안에서는 "3권" 처럼 번호를 크게
+  final Widget? corner; // 왼쪽 위 형식 표시 자리에 대신 놓을 것 (보던 목록의 × 등)
+  final String? note; // 표지 아래쪽 안내 ("다음 권" 등)
   const CoverTile({
     super.key,
     required this.item,
@@ -23,6 +25,8 @@ class CoverTile extends StatelessWidget {
     this.selected = false,
     this.hidden = false,
     this.showVolume = false,
+    this.corner,
+    this.note,
   });
 
   @override
@@ -41,10 +45,11 @@ class CoverTile extends StatelessWidget {
               child: CoverImage(item: item),
             ),
             Positioned(
-              left: 6,
-              top: 6,
-              child: _Badge(item.extension.replaceFirst('.', '').toUpperCase(), scheme.primaryContainer),
+              left: corner == null ? 6 : 4,
+              top: corner == null ? 6 : 4,
+              child: corner ?? _Badge(item.extension.replaceFirst('.', '').toUpperCase(), scheme.primaryContainer),
             ),
+            if (note != null && !item.missing) Positioned(left: 6, bottom: 8, child: _Badge(note!, scheme.primary, fg: scheme.onPrimary)),
             if (item.favorite)
               const Positioned(right: 6, top: 6, child: Icon(Icons.favorite, color: Colors.redAccent, size: 20)),
             if (item.progress > 0)
@@ -89,13 +94,14 @@ class CoverTile extends StatelessWidget {
 class _Badge extends StatelessWidget {
   final String text;
   final Color color;
-  const _Badge(this.text, this.color);
+  final Color? fg;
+  const _Badge(this.text, this.color, {this.fg});
 
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(color: color.withValues(alpha: 0.9), borderRadius: BorderRadius.circular(4)),
-        child: Text(text, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+        child: Text(text, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: fg)),
       );
 }
 

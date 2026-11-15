@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
+import '../../services/background_reading.dart';
 import '../../services/pdf_text.dart';
 import 'open_item.dart';
 import 'read_aloud.dart';
@@ -47,11 +48,18 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
     super.initState();
     _app;
     _page = int.tryParse(item.position ?? '') ?? 1;
+    if (context.read<Settings>().keepScreenOn) {
+      _awake = true;
+      ScreenAwake.hold();
+    }
   }
+
+  bool _awake = false; // 화면 켜 두기를 걸었는가
 
   @override
   void dispose() {
     if (_pages > 0) _app.saveProgress(item, '$_page', _progress).then((_) => _app.refresh());
+    if (_awake) ScreenAwake.release();
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _strip.dispose();
     super.dispose();
@@ -61,8 +69,13 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
 
   void _go(int page) {
     if (_pages == 0) return;
-    // 마지막 쪽에서 더 넘기면 다음 권 안내
+    // 마지막 쪽에서 더 넘기면 다음 권 안내, 한 번 더 넘기면 다음 권으로
     if (page > _pages) {
+      if (_end) {
+        final next = _app.nextVolume(item);
+        if (next != null) openNextVolume(context, next);
+        return;
+      }
       setState(() => _end = true);
       _app.saveProgress(item, '$_pages', 1.0);
       return;
@@ -95,6 +108,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
 
     return CallbackShortcuts(
       bindings: {
+        ...volumeKeyBindings(s.volumeKeyTurn, (d) => _go(_page + d)),
         const SingleActivator(LogicalKeyboardKey.arrowRight): () => _go(_page + 1),
         const SingleActivator(LogicalKeyboardKey.pageDown): () => _go(_page + 1),
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _go(_page - 1),
