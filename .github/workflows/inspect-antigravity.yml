@@ -1,0 +1,91 @@
+# 임시: Antigravity 를 받아 띄워서, 디버깅 포트(CDP)로 대화 입력 칸 · 대화 글이 어떻게 보이는지 훑어본다. 확인 뒤 지운다.
+name: inspect-antigravity
+on:
+  push:
+    paths: ['.github/workflows/inspect-antigravity.yml']
+jobs:
+  inspect:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: |
+          $ErrorActionPreference = 'Continue'
+          winget --version
+          winget search antigravity --accept-source-agreements --disable-interactivity 2>&1 | Select-Object -Last 12
+          winget install -e --id Google.Antigravity --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Select-Object -Last 8
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles" -Recurse -Filter Antigravity.exe -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1
+          "exe: $($exe.FullName)"
+          if (-not $exe) { exit 1 }
+          "AG_EXE=$($exe.FullName)" | Out-File -Append $env:GITHUB_ENV
+      - name: Static look
+        run: |
+          $root = Split-Path -Parent $env:AG_EXE
+          Get-ChildItem $root | ForEach-Object { $_.Name } | Join-String -Separator ' '
+          $pj = Get-ChildItem $root -Recurse -Filter product.json -Depth 4 | Select-Object -First 1
+          "product.json: $($pj.FullName)"
+          $p = Get-Content -Raw $pj.FullName | ConvertFrom-Json
+          $p | Select-Object nameShort, nameLong, applicationName, dataFolderName, urlProtocol, version, ideVersion, win32MutexName | Format-List
+          "trusted uri handlers: $($p.trustedExtensionProtocolHandlers -join ', ')"
+          $ext = Join-Path (Split-Path -Parent $pj.FullName) 'extensions'
+          (Get-ChildItem $ext -Directory | ForEach-Object { $_.Name }) -join ' '
+          foreach ($d in Get-ChildItem $ext -Directory | Where-Object { $_.Name -match 'antigravity|jetski|cascade|windsurf|codeium|agent|gemini' }) {
+            "=== ext $($d.Name)"
+            $pk = Join-Path $d.FullName 'package.json'
+            if (Test-Path $pk) {
+              $j = Get-Content -Raw $pk | ConvertFrom-Json
+              "commands:"; $j.contributes.commands | ForEach-Object { "  $($_.command) | $($_.title)" } | Select-Object -First 120
+              "keybindings:"; $j.contributes.keybindings | ForEach-Object { "  $($_.command) | $($_.key) | $($_.when)" } | Select-Object -First 80
+            }
+            Get-ChildItem $d.FullName -Recurse -File | Where-Object { $_.Length -gt 5MB } | ForEach-Object { "  big: $($_.FullName.Substring($d.FullName.Length)) $([math]::Round($_.Length/1MB))MB" }
+          }
+      - name: Launch with a debugging port and dump what the window shows
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $work = Join-Path $env:RUNNER_TEMP 'ag-work'; New-Item -ItemType Directory -Force $work | Out-Null; 'hello' | Out-File (Join-Path $work 'hello.txt')
+          $data = Join-Path $env:RUNNER_TEMP 'ag-data'
+          @'
+          const port = process.argv[2];
+          const sleep = ms => new Promise(r => setTimeout(r, ms));
+          async function targets() { try { return await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); } catch { return null; } }
+          function evalIn(wsUrl, expression) { return new Promise((res, rej) => { const ws = new WebSocket(wsUrl); const t = setTimeout(() => { try { ws.close(); } catch {} rej(new Error('timeout')); }, 15000); ws.onopen = () => ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true, awaitPromise: true } })); ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id === 1) { clearTimeout(t); ws.close(); res(m.result && m.result.result ? m.result.result.value : m); } }; ws.onerror = () => { clearTimeout(t); rej(new Error('ws error')); }; }); }
+          const OUTLINE = `(() => {
+            const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+            const cls = (e, n) => (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\\s+/).slice(0, n).join('.') : '');
+            const at = (e, a, k) => e.getAttribute(a) ? ' ' + k + '=' + JSON.stringify(e.getAttribute(a).slice(0, 60)) : '';
+            const desc = e => { const r = e.getBoundingClientRect(); return e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + cls(e, 4) + at(e, 'role', 'role') + at(e, 'aria-label', 'aria') + at(e, 'placeholder', 'ph') + at(e, 'data-placeholder', 'dph') + ' @' + Math.round(r.x) + ',' + Math.round(r.y) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height); };
+            const path = e => { const p = []; for (let x = e.parentElement; x && x !== document.body && p.length < 8; x = x.parentElement) p.push(x.tagName.toLowerCase() + (x.id ? '#' + x.id : '') + cls(x, 2)); return p.reverse().join(' > '); };
+            const inputs = [...document.querySelectorAll('textarea, input:not([type=hidden]), [contenteditable=""], [contenteditable="true"], [role="textbox"]')].filter(vis).map(e => desc(e) + '\\n        in: ' + path(e));
+            const parts = [...document.querySelectorAll('.part, iframe, webview')].map(e => desc(e) + (e.src ? ' src=' + String(e.src).slice(0, 90) : ''));
+            const buttons = [...new Set([...document.querySelectorAll('button, [role="button"], a.action-label')].filter(vis).map(e => (e.innerText || e.getAttribute('aria-label') || e.title || '').trim().replace(/\\s+/g, ' ').slice(0, 40)).filter(Boolean))].slice(0, 90);
+            return { title: document.title, url: location.href.slice(0, 140), inputs, parts, buttons, text: document.body.innerText.replace(/\\n{2,}/g, '\\n').slice(0, 2200) };
+          })()`;
+          (async () => {
+            let ts = null;
+            for (let i = 0; i < 90 && !(ts && ts.length); i++) { await sleep(1000); ts = await targets(); }
+            if (!ts) { console.log('no debugging endpoint'); process.exit(1); }
+            for (const wait of [15000, 30000]) {
+              await sleep(wait);
+              ts = await targets();
+              console.log(`\n######## targets after +${wait / 1000}s`);
+              for (const t of ts) console.log(` [${t.type}] ${JSON.stringify(t.title)} ${String(t.url).slice(0, 110)}`);
+              for (const t of ts.filter(t => t.webSocketDebuggerUrl && /page|iframe|webview/.test(t.type))) {
+                try { const o = await evalIn(t.webSocketDebuggerUrl, OUTLINE); console.log(`\n==== [${t.type}] ${t.title}`); console.log(JSON.stringify(o, null, 1).slice(0, 9000)); } catch (e) { console.log(`\n==== [${t.type}] ${t.title}: ${e.message}`); }
+              }
+            }
+            process.exit(0);
+          })();
+          '@ | Out-File -Encoding utf8 (Join-Path $env:RUNNER_TEMP 'cdp-dump.js')
+          $env:ELECTRON_RUN_AS_NODE = $null
+          Start-Process -FilePath $env:AG_EXE -ArgumentList @('--remote-debugging-port=9333', '--user-data-dir', $data, '--disable-workspace-trust', $work)
+          node (Join-Path $env:RUNNER_TEMP 'cdp-dump.js') 9333
+          "--- user data / home folders"
+          Get-ChildItem $data -Depth 1 -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($data.Length) } | Select-Object -First 40
+          Get-ChildItem (Join-Path $env:USERPROFILE '.gemini') -Recurse -Depth 3 -ErrorAction SilentlyContinue | ForEach-Object { "$($_.FullName.Substring($env:USERPROFILE.Length)) $($_.Length)" } | Select-Object -First 60
+          Get-ChildItem $env:USERPROFILE -Force -Directory | Where-Object { $_.Name -match 'antigravity|gemini|codeium' } | ForEach-Object { $_.FullName }
