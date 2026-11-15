@@ -151,6 +151,7 @@
       const d = await api('/api/sessions');
       sessions = d.sessions;
       renderList();
+      loadAntigravity();
     } catch (e) {
       if (e.message === '401') return;
       if (!sessions.length) $('sessions').replaceChildren(el('div', 'empty', '서버에 연결하지 못했습니다\n' + e.message));
@@ -188,6 +189,27 @@
     rb.style.marginBottom = '6px';
     box.append(rb, mb);
   }
+  // Antigravity IDE: PC 에서 켜져 있으면 버튼을 보이고, 누르면 그 에이전트 화면(PC 가 전달)을 연다
+  let agHubs = [];
+  async function loadAntigravity() {
+    try { agHubs = (await api('/api/antigravity')).hubs || []; } catch { agHubs = []; }
+    $('agBtn').hidden = !agHubs.length;
+  }
+  async function openAntigravity(port) {
+    $('agErr').textContent = '여는 중…';
+    try { const r = await api('/api/antigravity/open', { port }); location.href = r.url; } catch (e) { $('agErr').textContent = e.message; $('agSheet').hidden = false; }
+  }
+  $('agBtn').onclick = async () => {
+    await loadAntigravity();
+    $('agErr').textContent = '';
+    if (agHubs.length === 1) { openAntigravity(agHubs[0].port); return; }
+    $('agList').replaceChildren(...agHubs.map(h => { const b = el('button', '', h.label || 'Antigravity IDE'); b.type = 'button'; b.append(el('small', '', `포트 ${h.port}`)); b.onclick = () => openAntigravity(h.port); return b; }));
+    if (!agHubs.length) $('agErr').textContent = 'PC 에서 Antigravity IDE 가 켜져 있지 않습니다.';
+    $('agSheet').hidden = false;
+  };
+  $('agClose').onclick = () => { $('agSheet').hidden = true; };
+  $('agSheet').onclick = e => { if (e.target === $('agSheet')) $('agSheet').hidden = true; };
+
   // PC 창에 넣는 방식: 세션 전달 / 창에 직접 입력
   async function openMode() {
     $('modeErr').className = 'err'; $('modeErr').textContent = ''; $('modeSheet').hidden = false;

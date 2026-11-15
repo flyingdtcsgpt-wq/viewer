@@ -16,6 +16,7 @@ const { Usage } = require('./lib/usage');
 const peer = require('./lib/peer');
 const files = require('./lib/files');
 const codexRules = require('./lib/codexRules');
+const aghub = require('./lib/aghub');
 
 const HOME = process.env.AGENT_CHAT_HOME || path.join(os.homedir(), '.agent-chat');
 const CONFIG_FILE = path.join(HOME, 'config.json');
@@ -70,6 +71,7 @@ runner.seenCheck = (id, text, from) => {
   const want = squash(text);
   return !!m && m.items.slice(from).some(i => i.role === 'user' && squash(i.text).includes(want));
 };
+const agProxy = new aghub.HubProxy({ token: config.token, log: process.env.AGENT_CHAT_AG_LOG ? m => console.log('[antigravity] ' + m) : null });
 const usage = new Usage();
 runner.on('usage', (agent, info) => { if (agent === 'claude') usage.fromClaudeEvent(info); });
 
@@ -319,10 +321,22 @@ async function api(req, res, url) {
   // PC 의 IDE 창에 넣는 방식: 세션 전달(기본) / 창에 직접 입력(Windows)
   const inputMode = () => ({ type: !!config.typeIntoWindow, supported: runner.typer.supported() });
   if (p === '/api/input-mode' && req.method === 'GET') return send(req, res, 200, inputMode());
+  // Antigravity IDE: 지금 켜져 있는 에이전트 백엔드(허브)들
+  if (p === '/api/antigravity' && req.method === 'GET') return send(req, res, 200, { hubs: await aghub.hubs() });
   if (req.method !== 'POST') return send(req, res, 404, { error: '없는 주소' });
   const body = await readBody(req);
   if (p === '/api/codex-rules') return send(req, res, 200, codexRules.set(!!body.on));
   if (p === '/api/input-mode') { config.typeIntoWindow = !!body.type; saveConfig(); return send(req, res, 200, inputMode()); }
+  if (p === '/api/antigravity/open') {
+    // 그 허브의 화면을 전달하는 문(포트 하나 더)을 열고, 1분짜리 1회용 표가 든 주소를 준다
+    const list = await aghub.hubs();
+    const hub = list.find(h => h.port === Number(body.port)) || (body.port == null ? list[0] : null);
+    if (!hub) return send(req, res, 404, { error: 'PC 에서 Antigravity IDE 가 켜져 있지 않습니다' });
+    let port;
+    try { port = await agProxy.listen(config.agProxyPort || Number(config.port) + 1, config.host); } catch (e) { return send(req, res, 500, { error: 'Antigravity 화면을 전달할 포트를 열지 못했습니다: ' + (e.code || e.message) }); }
+    const hostName = String(req.headers.host || '127.0.0.1').replace(/:\d+$/, '');
+    return send(req, res, 200, { url: `http://${hostName}:${port}/__ac/login?k=${agProxy.ticket(hub.port)}`, port: hub.port });
+  }
   if (p === '/api/project-auth') return send(req, res, 200, auth.set(String(body.cwd || ''), body.mode));
   const agent = agentOf(body.agent);
   if (!agent) return send(req, res, 400, { error: '에이전트를 골라 주세요' });
@@ -461,6 +475,6 @@ server.listen(config.port, config.host, () => {
   console.log(`  QR 코드: 이 PC 의 브라우저에서 http://localhost:${config.port}/connect`);
 });
 
-const bye = () => { runner.stopAll(); process.exit(0); };
+const bye = () => { runner.stopAll(); agProxy.close(); process.exit(0); };
 process.on('SIGINT', bye);
 process.on('SIGTERM', bye);

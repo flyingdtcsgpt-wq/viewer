@@ -40,6 +40,7 @@
       <button data-f="codex" class="chip">Codex</button>
     </div>
   </header>
+  <button id="agBtn" class="agbar" hidden>Antigravity IDE 가 켜져 있습니다 · 에이전트 화면 열기 ↗</button>
   <div id="sessions" class="sessions"></div>
   <button id="newBtn" class="fab" aria-label="새 대화">＋</button>
 </section>
@@ -144,6 +145,15 @@
       PC 화면이 <b>잠겨 있지 않고</b>, 원격 데스크톱을 썼다면 <b>"원격 끊기 (화면 유지)"</b> 로 끊었을 때만 됩니다. 안 되면 자동으로 세션 전달로 보냅니다.</small></span></label>
     <p id="modeErr" class="err"></p>
     <div class="row"><button id="modeClose" type="button" class="primary">닫기</button></div>
+  </div>
+</div>
+<div id="agSheet" class="sheet" hidden>
+  <div class="sheet-box">
+    <h2>Antigravity</h2>
+    <p class="muted small">PC 에서 켜져 있는 Antigravity IDE 의 에이전트 화면을 그대로 엽니다. 여기서 보낸 글은 IDE 에 열린 대화에 바로 이어집니다. 뒤로 가기를 누르면 Agent Chat 으로 돌아옵니다.</p>
+    <div id="agList" class="aglist"></div>
+    <p id="agErr" class="err"></p>
+    <div class="row"><button id="agClose" type="button">닫기</button></div>
   </div>
 </div>
 <div id="viewer" class="viewer" hidden><img id="viewerImg" alt=""></div>

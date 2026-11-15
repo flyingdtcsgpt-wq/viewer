@@ -855,38 +855,79 @@ test('창에 직접 입력: 쉬고 있을 때만 치고, 일하는 중이면 기
   } finally { child.kill(); srv.close(); fs.rmSync(path.join(sdir, `${pid}.json`), { force: true }); }
 });
 
-test('디버깅 포트(CDP): 창 목록, 창 안에서 식 계산, 글 넣기 · Enter, 긴 응답 · 조각난 프레임', async () => {
-  const cdp = require('../lib/cdp');
-  const calls = [];
-  const big = '가나다'.repeat(40000); // 64비트 길이 프레임
-  const fake = await require('./fake-cdp').start([
-    { id: 'W1', title: 'main.py - proj - Antigravity', handle(method, params) {
-      calls.push([method, params]);
-      if (method === 'Runtime.evaluate') {
-        if (params.expression === 'BIG') return { result: { type: 'string', value: big } };
-        if (params.expression === 'BOOM') return { exceptionDetails: { text: 'Uncaught', exception: { description: 'ReferenceError: BOOM is not defined\n    at <anonymous>' } } };
-        return { result: { type: 'object', value: { echo: params.expression, byValue: params.returnByValue } } };
-      }
-      if (method === 'No.Such') throw new Error("'No.Such' wasn't found");
-      return {};
-    } },
-  ]);
+test('Antigravity: 켜져 있는 허브 찾기, 1회용 표 → 쿠키, Host 를 바꿔 전달, 표 없이는 거부', async () => {
+  const http = require('http');
+  const net = require('net');
+  const gem = path.join(tmp, 'gemini');
+  const ddir = path.join(gem, 'antigravity', 'daemon');
+  fs.mkdirSync(ddir, { recursive: true });
+  // 가짜 허브: 진짜처럼 Host 가 127.0.0.1 이 아니면 401
+  const hub = http.createServer((req, res) => {
+    const me = `127.0.0.1:${hub.address().port}`;
+    if (req.headers.host !== me) { res.writeHead(401); return res.end('bad host'); }
+    if (req.url === '/') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<script>window.__APP_CONFIG__ = {"csrfToken":"hub-csrf"};</script>Antigravity'); }
+    if (req.url === '/stream') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.write('first\n'); return setTimeout(() => res.end('second\n'), 700); }
+    if (req.url === '/moved') { res.writeHead(302, { Location: `http://${me}/there?x=1` }); return res.end(); }
+    let b = ''; req.on('data', d => { b += d; });
+    req.on('end', () => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ host: req.headers.host, origin: req.headers.origin || '', referer: req.headers.referer || '', cookie: req.headers.cookie || '', auth: req.headers.authorization || '', csrf: req.headers['x-codeium-csrf-token'] || '', body: b })); });
+  });
+  hub.on('upgrade', (req, sock) => { sock.write(req.headers.host === `127.0.0.1:${hub.address().port}` ? 'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\nhello-ws' : 'HTTP/1.1 401 Unauthorized\r\n\r\n'); sock.on('error', () => {}); });
+  await new Promise(r => hub.listen(0, '127.0.0.1', r));
+  const hp = hub.address().port;
+  const hubFile = path.join(ddir, `hub_${hp}.json`);
+  fs.writeFileSync(hubFile, JSON.stringify({ port: hp, workspaceUri: 'file:///c%3A/Users/me/My%20Proj' }));
+  fs.writeFileSync(path.join(ddir, 'hub_1.json'), '{}'); // 꺼진 허브의 남은 파일
+  process.env.AGENT_CHAT_GEMINI_HOME = gem;
+  const { child, call, port } = await startServer('claude', { agProxyPort: 0 });
+  delete process.env.AGENT_CHAT_GEMINI_HOME;
   try {
-    const ts = await cdp.targets(fake.port);
-    assert.deepStrictEqual(ts.map(t => [t.type, t.title]), [['page', 'main.py - proj - Antigravity']]);
-    await cdp.withPage(ts[0].webSocketDebuggerUrl, async page => {
-      assert.deepStrictEqual(await page.evaluate('1+1'), { echo: '1+1', byValue: true });
-      assert.strictEqual(await page.evaluate('BIG'), big);
-      await assert.rejects(page.evaluate('BOOM'), /ReferenceError: BOOM is not defined$/);
-      await assert.rejects(page.call('No.Such'), /wasn't found/);
-      await page.insertText('한글 & "따옴표"\n둘째 줄');
-      await page.pressEnter();
-    });
-    const input = calls.filter(c => c[0].startsWith('Input.'));
-    assert.deepStrictEqual(input[0], ['Input.insertText', { text: '한글 & "따옴표"\n둘째 줄' }]);
-    assert.deepStrictEqual(input.slice(1).map(c => [c[0], c[1].type, c[1].key, c[1].windowsVirtualKeyCode]), [['Input.dispatchKeyEvent', 'keyDown', 'Enter', 13], ['Input.dispatchKeyEvent', 'keyUp', 'Enter', 13]]);
-    await assert.rejects(cdp.targets(1), /ECONNREFUSED|EACCES|응답/);
-  } finally { await fake.close(); }
+    const list = (await call('/api/antigravity')).body.hubs;
+    assert.deepStrictEqual(list.map(h => [h.port, h.label, h.app]), [[hp, 'My Proj', 'antigravity']], '켜져 있는 것만');
+    assert.strictEqual((await call('/api/antigravity/open', { port: hp }, 'wrong')).status, 401);
+    assert.strictEqual((await call('/api/antigravity/open', { port: port })).status, 404, '허브가 아닌 포트는 안 됨');
+    const open = (await call('/api/antigravity/open', { port: hp })).body;
+    const u = new URL(open.url);
+    assert.strictEqual(u.hostname, '127.0.0.1');
+    assert.notStrictEqual(Number(u.port), port, '전달용 포트는 따로');
+    const base = `http://127.0.0.1:${u.port}`;
+    // 쿠키 없이는 아무것도 안 보인다
+    assert.strictEqual((await fetch(base + '/')).status, 401);
+    // 표 → 쿠키 (표는 한 번만)
+    const login = await fetch(open.url, { redirect: 'manual' });
+    assert.strictEqual(login.status, 302);
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    assert.match(login.headers.get('set-cookie'), /HttpOnly/);
+    assert.ok(!cookie.includes('test-token-1234567890'), '쿠키에 토큰이 들어가지 않는다');
+    assert.strictEqual((await fetch(open.url, { redirect: 'manual' })).status, 401);
+    // 허브 화면이 그대로 온다 (Host 가 127.0.0.1 로 바뀌어 전달됨)
+    const page = await fetch(base + '/', { headers: { Cookie: cookie } });
+    assert.strictEqual(page.status, 200);
+    assert.match(await page.text(), /hub-csrf/);
+    // 요청 머리말: Origin · Referer 는 허브 주소로, 우리 쿠키 · Authorization 은 빼고, 나머지는 그대로
+    const echo = await (await fetch(base + '/svc/Echo', { method: 'POST', headers: { Cookie: cookie + '; other=1', Origin: base, Referer: base + '/c/1?a=b', Authorization: 'Bearer test-token-1234567890', 'x-codeium-csrf-token': 'hub-csrf' }, body: '{"x":"한글"}' })).json();
+    assert.deepStrictEqual(echo, { host: `127.0.0.1:${hp}`, origin: `http://127.0.0.1:${hp}`, referer: `http://127.0.0.1:${hp}/c/1?a=b`, cookie: 'other=1', auth: '', csrf: 'hub-csrf', body: '{"x":"한글"}' });
+    // 허브가 자기 주소로 돌려보내는 이동은 상대 주소로
+    assert.strictEqual((await fetch(base + '/moved', { headers: { Cookie: cookie }, redirect: 'manual' })).headers.get('location'), '/there?x=1');
+    // 흘러나오는 응답은 모았다 주지 않고 바로바로
+    const st = await fetch(base + '/stream', { headers: { Cookie: cookie } });
+    const rd = st.body.getReader(); const t0 = Date.now();
+    const first = await rd.read();
+    assert.strictEqual(Buffer.from(first.value).toString(), 'first\n');
+    assert.ok(Date.now() - t0 < 500, '첫 조각이 끝나기 전에 온다');
+    await rd.read();
+    // WebSocket 도 전달
+    const ws = await new Promise(res => { const s = net.connect(Number(u.port), '127.0.0.1', () => s.write(`GET /ws HTTP/1.1\r\nHost: 127.0.0.1:${u.port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nCookie: ${cookie}\r\n\r\n`)); let b = ''; s.on('data', d => { b += d; if (b.includes('hello-ws')) { s.destroy(); res(b); } }); s.on('close', () => res(b)); });
+    assert.match(ws, /^HTTP\/1\.1 101/);
+    const ws2 = await new Promise(res => { const s = net.connect(Number(u.port), '127.0.0.1', () => s.write(`GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n`)); let b = ''; s.on('data', d => { b += d; }); s.on('close', () => res(b)); });
+    assert.match(ws2, /^HTTP\/1\.1 401/);
+    // 손댄 쿠키 · 사라진 허브는 거부
+    assert.strictEqual((await fetch(base + '/', { headers: { Cookie: cookie.replace(/.$/, c => (c === '0' ? '1' : '0')) } })).status, 401);
+    assert.strictEqual((await fetch(base + '/', { headers: { Cookie: cookie.replace(`=${hp}.`, `=${port}.`) } })).status, 401, '다른 포트로는 못 쓴다');
+    fs.rmSync(hubFile);
+    assert.strictEqual((await fetch(base + '/', { headers: { Cookie: cookie } })).status, 401);
+    assert.deepStrictEqual((await call('/api/antigravity')).body.hubs, []);
+    assert.strictEqual((await call('/api/antigravity/open', {})).status, 404);
+  } finally { child.kill(); hub.closeAllConnections && hub.closeAllConnections(); hub.close(); }
 });
 
 test('Windows: 제목으로 창을 찾아 앞으로 가져오고 한글 · 여러 줄을 붙여넣은 뒤 Enter', { skip: process.platform !== 'win32' }, async () => {

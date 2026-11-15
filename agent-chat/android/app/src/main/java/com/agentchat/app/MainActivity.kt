@@ -176,6 +176,8 @@ class MainActivity : Activity() {
                 val base = loaded?.base ?: return false
                 val url = req.url.toString()
                 if (url.startsWith(base)) return false
+                // 같은 PC 의 다른 포트(Antigravity 화면을 전달하는 문)는 앱 안에서 연다. 뒤로 가기로 돌아온다
+                if (req.url.scheme == "http" && req.url.host != null && req.url.host == Uri.parse(base).host) return false
                 // 답변 속 링크는 브라우저로
                 runCatching { startActivity(Intent(Intent.ACTION_VIEW, req.url)) }
                 return true

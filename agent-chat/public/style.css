@@ -207,3 +207,7 @@ body.connect { overflow: auto; }
 .sheet-box label.radio { flex-direction: row; align-items: flex-start; gap: 10px; color: var(--text); font-size: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .sheet-box label.radio input { width: auto; margin-top: 3px; }
 .sheet-box label.radio small { color: var(--muted); font-size: 12.5px; }
+.agbar { display: block; width: calc(100% - 20px); margin: 8px 10px 0; border: 1px solid #4285f4; color: #4285f4; background: var(--panel); border-radius: 12px; padding: 9px 12px; font-size: 14px; text-align: left; }
+.aglist { display: flex; flex-direction: column; gap: 8px; }
+.aglist button { text-align: left; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 12px; }
+.aglist small { color: var(--muted); display: block; }
