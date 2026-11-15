@@ -281,3 +281,18 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   화면 `webdav_import.dart` → `showImportDialog(files:)`. 설정 `davServers`(비밀번호 빼고)
 - AI 화자: `ai_service.dart dialogueSpeakers`, `ai_speakers.dart`(묶음 · 저장 · 이어서), 뷰어 `_aiSpk` 를 `_whoSays` · `_infoOf` 에서 규칙 다음에.
   기기 안 LLM 은 정확도 · 속도 · 용량 때문에 보류(DEV 판단)
+
+## 14. 검토 뒤 고친 것 · 더한 것 (11-15)
+- **"다 봄" 판정 버그**: 만화 `_progress` 가 화면 첫 쪽 기준이라 두 장 보기 · 짧은 만화가 100% 가 안 됐고, 권 끝에서 1.0 으로 저장해도 dispose 가 다시 낮췄다
+  → 지금 화면의 마지막 쪽 기준. 웹툰은 맨 아래 닿으면 마지막 쪽. 소설은 맨 위 문단 기준이라 끝까지 내려도 97% 쯤 → 마지막 문단 아래 끝이 화면 안이면 `_atEnd` = 100%
+  (짧은 글은 처음 그린 뒤 한 번 확인), 다 읽은 책을 다시 열어도 앞으로 돌아가지 않으면 100% 유지(`_wasFinished`). 영상은 남은 시간 ≤ 6%(최대 3분)면 100%,
+  다 본 영상은 처음부터 재생하고 1분 안에 닫으면 저장하지 않음
+- **보던 목록**: `AppState.barelyOpened`(영상 < 1분 · 만화 쪽 < 2 · PDF ≤ 2쪽 · 글 블록 < 10 & < 2%, 단 10% 넘게 봤으면 아님) 은 `isInProgress` 에서 제외(설정 `continueSkipBrief`).
+  `_nextUp`: 묶음마다 가장 최근에 다 본 권의 다음 권 { id: 앞 권 본 시각 } — 읽다 만 권이 있는 묶음 · 60일 지난 묶음 제외, 뺀 기록(`cwOff`)이 앞 권 본 시각 이후면 숨김(설정 `continueNextUp`)
+- 권 끝 카드에서 한 번 더 넘기면 다음 권(`_turn`/`_go`), 카드 위 밀기 처리. `CoverTile` 에 `corner`(× 자리) · `note`("다음 권")
+- 여러 개 읽음/안 읽음: `markFinishedMany` + `db.saveProgressMany` (마지막 본 날 · 열람 기록은 안 건드림)
+- 안드로이드: `ScreenAwake.hold/release`(`mediashelf/bg` keepScreen → FLAG_KEEP_SCREEN_ON, 뷰어 init/dispose), `volumeKeyBindings`(audioVolumeDown/Up 을 CallbackShortcuts 에 넣으면 눌림이 소비돼 음량이 안 바뀜; TTS 중에는 뺀다)
+- **백업 · 복원** `lib/services/backup.dart`: `create`(DB 는 `VACUUM INTO`, 안 되면 체크포인트 뒤 복사 → zip: manifest · settings · library.db · ai_speakers · covers),
+  `stage`(zip 확인 뒤 `<지원>/restore_pending/`), `applyPending`(main 에서 설정 · DB 열기 전: 지금 DB → library.before-restore.db, 표지 · 설정 덮어쓰기,
+  데이터 폴더가 달라졌으면 `restore_fix.json`), `fixAfterRestore`(DB 연 뒤 표지 경로 고침). 휴대용 모드는 settings.json 을 바로 씀. 복원 뒤 `exit(0)`
+- 읽어주기 막대 배경 불투명(휴대폰에서 본문이 비침), 상세 화면에 읽은 정도 · 읽음 표시, 홈 줄(`rootEntries`) 판마다 캐시

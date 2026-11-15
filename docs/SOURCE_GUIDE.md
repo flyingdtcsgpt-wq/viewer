@@ -54,6 +54,7 @@
 | `ai_service.dart` | Claude API (선택, 키 필요): 뜻풀이, 원제 찾기, 묶음 정보 |
 | `share_server.dart` | 같은 Wi-Fi 공유: 웹 페이지 · OPDS · **WebDAV(/dav/)** · 파일(Range) · 표지 · HTTPS. 기본 인증, 접속자별 `AccessView`, 로그인 캐시(비밀번호 해시가 느려서) |
 | `storage_permission.dart` | 안드로이드 모든 파일 접근 요청 (네이티브 채널 `mediashelf/storage`), `hasAllFilesAccess` |
+| `backup.dart` | 서재 백업(zip) · 복원 준비 · 시작할 때 적용 · 표지 경로 고침 |
 | `share_cert.dart` | HTTPS 자체 서명 인증서 만들기 · 지문 |
 | `webdav_client.dart` | WebDAV 목록 · 하위 전부 · 받기 · 응답 읽기 |
 | `ai_speakers.dart` | AI 화자 분석 묶음 · 저장 · 이어서 (`AiService.dialogueSpeakers`) |
@@ -74,7 +75,7 @@
 | `paddle_ocr.dart` | PaddleOCR PP-OCRv5 한국어: 모델 목록에서 골라 받기, DB 검출 → 상자 → 높이 48 인식 → CTC 디코딩 → 줄 합치기 |
 | `audiobook.dart` | 오디오북 저장: `AudiobookMaker.make`(장마다 조각 합성 → 24kHz 모노로 이어 붙임 → M4A, 이어 만들기, m3u8), `pcmFromWav`(어떤 WAV 든 변환), `AudioRender`(플랫폼별 글 → WAV · WAV → M4A), `_WinVoices`(PowerShell 하나로 System.Speech 파일 출력) |
 | `ambient.dart` | 배경음: 빗소리 · 파도 · 벽난로 · 잡음을 직접 만들어(`makeWav`) 반복 재생, 내 소리 파일, 커지기/줄이기 |
-| `background_reading.dart` | 안드로이드 화면 꺼도 읽기: `mediashelf/bg` start/stop → `ReadAloudService` |
+| `background_reading.dart` | 안드로이드 화면 꺼도 읽기: `mediashelf/bg` start/stop → `ReadAloudService`. `ScreenAwake`(읽는 동안 화면 켜 두기), `volumeKeyBindings`(볼륨 버튼 넘기기) |
 
 ## 5. 화면 (lib/ui)
 

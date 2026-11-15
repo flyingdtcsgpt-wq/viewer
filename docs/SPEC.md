@@ -92,6 +92,10 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
   4. 정규화 제목(소문자, 공백 · 기호 제거)이 같으면 같은 묶음. 이름이 "대표 제목 + 구분자 + 부제" 이면 파생 묶음(외전 · 극장판)을 대표 아래로
 - **묶음(시리즈)**: 몇 단계든 중첩(parent_id), 보유/전체 권수, 상태, 누락 권수, 다음에 읽을 권, 표지
 - **모아보기**: 홈 · 즐겨찾기 · 최근 읽음 · 읽는 중 · 다 읽음(≥98%) · 최근 추가 · 누락 권수
+- **읽는 중 · 보던 작품**: 0 < 진행 < 98% 이고 "살짝 열어만 본 것"(영상 < 1분, 만화 쪽 < 2, PDF ≤ 2쪽, 글 블록 < 10 & < 2% — 단 10% 이상이면 아님)이 아니며 사용자가 빼지 않은 것.
+  빼기는 사용자마다 { 항목: 뺀 시각 } 으로 기억하고 그 뒤에 다시 열면 복귀. 홈 "보던 작품" 에는 묶음마다 가장 최근에 다 본 권의 **다음 권**도 넣는다(60일 이내, 읽다 만 권이 있는 묶음 제외)
+- **다 봄 판정**: 만화/PDF 마지막 쪽(두 장 보기는 마지막 화면), 웹툰 맨 아래, 소설 마지막 문단이 화면에 보임, 영상 남은 시간 ≤ 6%(최대 3분)
+- **권 끝**: 마지막 쪽에서 더 넘기면 권 끝 카드(다음 권 표지 · "다음 권 보기" / "다음 권이 없습니다"), 한 번 더 넘기면 다음 권. 소설 · 웹툰은 끝에 이어 붙임
 - **검색 · 정렬**: 제목/저자/태그 검색(0.2초 늦춰 반영), 정렬(이름 · 추가일 · 최근 열람 · 권수 · 크기 · 평점), 하위 묶음 포함
 - **목록 보기**: 격자 / 표 / 카드, 항목 크기 슬라이더, 상세 패널(표지 · 읽기 · 태그 · 정보 표 · 줄거리 · 10점 별점)
 - **조작**: 클릭=선택, 더블클릭=열기, Ctrl/Shift=여러 개, 오른쪽 클릭 메뉴(열기 · 다른 앱으로 · 읽음 표시 · 진행 초기화 · 평점 · 즐겨찾기 ·
@@ -216,6 +220,11 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
 - 받기: `.part` 로 받았다가 이름 바꿈, 크기가 같은 파일이 이미 있으면 건너뜀, 멈춤. 위치 = 라이브러리 폴더/NAS/호스트 (없으면 문서 폴더, 안드로이드는 Download/ARARIFlex)
 - 받은 뒤 일반 가져오기 창(묶기 · 숨김 · 복사/이동)으로 넘김. 서버 목록 최대 10개 저장
 
+### 5.9.2 서재 백업 · 복원
+- 백업 zip: `manifest.json`(만든 때 · 판 · 개수 · 데이터 폴더) · `settings.json`(모든 설정) · `library.db`(`VACUUM INTO` 사본) · `ai_speakers/` · `covers/`(선택)
+- 복원: zip 확인(SQLite 머리 검사, 폴더 밖 이름 무시) → `restore_pending/` 에 준비 → 다음 실행 때 설정 · DB 를 열기 전에 교체(지금 DB 는 `library.before-restore.db`),
+  데이터 폴더가 달라졌으면 표지 경로를 새 폴더 기준으로 고침. 관리자만
+
 ### 5.10 휴대용 모드 (USB)
 - 실행 파일 옆에 `arariflex_data` 폴더가 있으면 지원/문서/캐시 폴더를 모두 그 안으로(`PathProviderPlatform.instance` 교체), 설정은 `settings.json`(300ms 모아 쓰기)
 - 설정 › 정보 › "휴대용으로 만들기" 가 지금 데이터를 복사. 설치판(Program Files)은 불가 → 포터블 zip 판 사용
@@ -240,6 +249,7 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
 `readerFont readerFontSize readerLineHeight readerParagraphGap readerMaxWidth readerTheme epubOriginal tapToTurn`
 `comicMode comicRtl comicCoverAlone viewerFit viewerSlider viewerImmersive viewerArrowNatural viewerEffect slideshowSeconds`
 `videoHwdec subtitleSize videoRate`
+`continueSkipBrief continueNextUp cwOff_<사용자id> keepScreenOn volumeKeyTurn lastBackup`
 `ttsVoice ttsDialogueVoice ttsThoughtVoice ttsRate ttsSplit ttsAutoCast ttsAlternate ttsBgm ttsBgmVolume spk_<책id>(인물 목소리 JSON)`
 `shareAsUser sharePort shareUser sharePassword shareHttps davServers`
 
@@ -278,6 +288,8 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
 | pdf text | 쪽 합치기 규칙 결과 문자열 정확히 같음, 그림으로 만든 스캔 PDF 4쪽을 글자 인식, 머리글 제거 |
 | file tools | CBZ PNG→JPEG 1600px · 크기 줄어듦, EPUB 표지 1200px · mimetype 맨 앞, PDF 4쪽 → 2+2 → 합쳐 4 |
 | tts / ocr | 자연 음성 1초 넘고 소리 있음, 영어 OCR "fox", PaddleOCR 한국어 "풍차" |
+| continue | 빼면 사라지고 다시 열면 돌아옴, 살짝 연 것 제외(설정 끄면 포함), 다 본 권의 다음 권 표시 · 빼기 · 다시 보면 복귀, 묶음 전체 읽음/안 읽음 |
+| backup | zip 에 library.db · settings.json · manifest.json, 복원 준비 시 작품 수 일치, 엉뚱한 zip 거절, 표지 경로 옮기기 규칙 |
 | webdav | 우리 서버 /dav/ 둘러보기 · 받은 파일 크기 같음 · Range 206/10바이트 · 가족 계정 그림 0 · HTTPS(인증서 확인 안 함은 됨, 엄격하면 거절) · 다른 서버 XML 읽기 정확히 같음 |
 
 ## 11. 처음부터 만들 때 순서
