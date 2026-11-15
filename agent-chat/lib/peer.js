@@ -49,7 +49,7 @@ function liveSessions() {
     if (!alive(j.pid)) continue;
     out.push({
       pid: j.pid, sessionId: String(j.sessionId).toLowerCase(), cwd: j.cwd || '', socket: j.messagingSocketPath,
-      status: j.status || '', statusAt: j.statusUpdatedAt || 0, name: j.name || '', entrypoint: j.entrypoint || '', kind: j.kind || '',
+      status: j.status || '', waitingFor: typeof j.waitingFor === 'string' ? j.waitingFor : '', statusAt: j.statusUpdatedAt || 0, name: j.name || '', entrypoint: j.entrypoint || '', kind: j.kind || '',
       version: j.version || '', startedAt: j.startedAt || 0,
     });
   }

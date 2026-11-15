@@ -783,6 +783,102 @@ test('Windows 도우미: npm 의 claude.cmd 는 안의 cli.js 로, 한국어 오
   assert.strictEqual(normCwd('\\\\?\\C:\\Users\\me\\proj'), 'C:\\Users\\me\\proj');
 });
 
+test('창에 직접 입력: 쉬고 있을 때만 치고, 일하는 중이면 기다리고, 안 되면 세션 전달로', async () => {
+  const typer = require('../lib/typer');
+  const job = typer.claudeJob({ pid: 4321, sessionId: CID, cwd: path.join(tmp, 'My Project') }, '안녕\n둘째 줄');
+  assert.deepStrictEqual([job.folder, job.uri, job.paste, job.submit, job.pid], ['My Project', `anthropic.claude-code/open?session=${CID}`, true, true, 4321]);
+
+  const net = require('net');
+  const crypto = require('crypto');
+  const peer = require('../lib/peer');
+  const sdir = path.join(tmp, 'claude', 'sessions');
+  fs.mkdirSync(sdir, { recursive: true });
+  const sock = process.platform === 'win32' ? `\\\\.\\pipe\\cc-msg-${crypto.randomBytes(16).toString('hex')}` : path.join(tmp, 'ty.sock');
+  const got = [];
+  const srv = net.createServer(c => { let b = ''; c.on('data', d => { b += d; let i; while ((i = b.indexOf('\n')) >= 0) { got.push(JSON.parse(b.slice(0, i))); b = b.slice(i + 1); } }); });
+  await new Promise(r => srv.listen(sock, r));
+  const pid = process.pid;
+  const reg = o => fs.writeFileSync(path.join(sdir, `${pid}.json`), JSON.stringify({ pid, sessionId: CID, cwd: work, messagingSocketPath: sock, name: 'work-ab', entrypoint: 'claude-vscode', kind: 'interactive', startedAt: Date.now(), ...o }));
+  reg({ status: 'idle' });
+  fs.writeFileSync(path.join(sdir, `${pid}.${peer.hashCandidates(sock)[0]}.key`), JSON.stringify({ peerToken: 'cd'.repeat(16) }));
+  process.env.AGENT_CHAT_TYPER = path.join(__dirname, 'fake-typer.js');
+  const { child, call } = await startServer('claude', { typeIntoWindow: true, typeConfirmMs: 1200, typePollMs: 200, typeNextMs: 200 });
+  delete process.env.AGENT_CHAT_TYPER;
+  const home = path.join(tmp, 'home-claude');
+  const transcript = fs.readdirSync(path.join(tmp, 'claude', 'projects')).map(d => path.join(tmp, 'claude', 'projects', d, CID + '.jsonl')).find(f => fs.existsSync(f));
+  const setMode = mode => fs.writeFileSync(path.join(home, 'fake_typer.json'), JSON.stringify({ mode, transcript }));
+  const log = () => { try { return fs.readFileSync(path.join(home, 'fake_typer.log'), 'utf8').trim().split('\n').map(l => JSON.parse(l)); } catch { return []; } };
+  const relayed = () => got.filter(x => x.type === 'user').map(x => peer.unwrap(x.message.content));
+  const send = prompt => call('/api/send', { agent: 'claude', id: CID, prompt, mode: 'plan' });
+  try {
+    assert.deepStrictEqual((await call('/api/input-mode')).body, { type: true, supported: true });
+    // 1) 쉬는 중: 창에 치고, 대화에 사용자 말로 들어간 것을 확인
+    setMode('ok');
+    let r = await send('창으로 1\n둘째 줄');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.typed, true, JSON.stringify(r.body));
+    assert.deepStrictEqual(log().map(l => l.text), ['창으로 1\n둘째 줄']);
+    assert.deepStrictEqual(relayed(), [], '세션 전달은 쓰지 않음');
+    const m = (await call(`/api/messages?agent=claude&id=${CID}`)).body;
+    assert.ok(m.items.some(i => i.role === 'user' && i.text.replace(/\r/g, '') === '창으로 1\n둘째 줄' && !i.via));
+    // 2) 일하는 중 · 확인을 기다리는 중: 치지 않고 기다렸다가, 쉬면 친다. 그 사이 보낸 글도 차례로
+    reg({ status: 'busy' });
+    r = await send('창으로 2');
+    assert.deepStrictEqual([r.body.waiting, r.body.typing], [true, true]);
+    assert.strictEqual((await send('창으로 3')).body.queued, 1);
+    reg({ status: 'waiting', waitingFor: 'permission prompt' });
+    await new Promise(res => setTimeout(res, 900));
+    assert.strictEqual(log().length, 1, '허락 물음이 떠 있을 때는 치지 않는다');
+    assert.strictEqual((await call(`/api/messages?agent=claude&id=${CID}`)).body.job.relayWaiting, true);
+    reg({ status: 'idle' });
+    await waitFor(async () => log().length === 3, 8000);
+    assert.deepStrictEqual(log().map(l => l.text), ['창으로 1\n둘째 줄', '창으로 2', '창으로 3']);
+    await waitFor(async () => !(await call(`/api/messages?agent=claude&id=${CID}`)).body.job.running);
+    // 3) 화면 잠김: 아무것도 못 쳤으니 세션 전달로
+    setMode('locked');
+    r = await send('잠김일 때');
+    assert.strictEqual(r.body.relayed, true);
+    assert.match(r.body.typeError, /화면 잠김/);
+    await waitFor(async () => relayed().includes('잠김일 때'));
+    // 4) 쳤다는데 대화에 안 나타남: 세션 전달로 다시
+    setMode('lost');
+    r = await send('사라진 글');
+    assert.strictEqual(r.body.relayed, true);
+    assert.match(r.body.typeError, /나타나지 않았습니다/);
+    await waitFor(async () => relayed().includes('사라진 글'));
+    // 5) 끄면 예전처럼 세션 전달
+    assert.strictEqual((await call('/api/input-mode', { type: false })).body.type, false);
+    r = await send('전달로');
+    assert.ok(r.body.relayed && !r.body.typeError);
+    assert.strictEqual(log().length, 5);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).typeIntoWindow, false);
+  } finally { child.kill(); srv.close(); fs.rmSync(path.join(sdir, `${pid}.json`), { force: true }); }
+});
+
+test('Windows: 제목으로 창을 찾아 앞으로 가져오고 한글 · 여러 줄을 붙여넣은 뒤 Enter', { skip: process.platform !== 'win32' }, async () => {
+  const typer = require('../lib/typer');
+  const folder = 'ac-type-' + Math.random().toString(36).slice(2, 8);
+  const out = path.join(tmp, folder + '.txt');
+  const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const win = spawn(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'fake-window.ps1'), '-Title', `main.py - ${folder} - Visual Studio Code`, '-Out', out], { stdio: 'ignore' });
+  try {
+    const base = { folder, pid: win.pid, ideNames: ['powershell'] };
+    // 창이 뜰 때까지: 찾기만 (아무것도 치지 않음)
+    const found = await waitFor(async () => { const r = await typer.run({ ...base, dryRun: true }); return r.ok ? r : null; }, 30000);
+    assert.match(found.window, new RegExp(folder));
+    // 다른 폴더 이름이면 치지 않는다
+    const miss = await typer.run({ ...base, folder: 'no-such-folder-xyz', text: 'x', paste: true, submit: true });
+    assert.deepStrictEqual([miss.ok, miss.typed, miss.submitted, miss.stage], [false, false, false, 'no-folder-window']);
+    assert.match(miss.error, /no-such-folder-xyz/);
+    const text = '폰에서 보낸 글 & "따옴표" 100%\n둘째 줄';
+    const r = await typer.run({ ...base, text, paste: true, submit: true });
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    assert.strictEqual(r.typed, true);
+    await waitFor(async () => fs.existsSync(out), 10000);
+    assert.strictEqual(fs.readFileSync(out, 'utf8').replace(/\r\n/g, '\n'), text);
+  } finally { win.kill(); }
+});
+
 test('Windows: 공백 있는 폴더의 .cmd 로 실행해도 따옴표 · & · 한글이 그대로', { skip: process.platform !== 'win32' }, async () => {
   const dir = path.join(tmp, 'my tools');
   fs.mkdirSync(dir, { recursive: true });

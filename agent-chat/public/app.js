@@ -184,8 +184,30 @@
     }));
     if (autoN) box.append(tog);
     const rb = el('button', 'autotoggle', 'Codex 운영 규칙 (정기 보고를 한 대화에서)'); rb.type = 'button'; rb.onclick = openRules;
-    box.append(rb);
+    const mb = el('button', 'autotoggle', 'PC 창에 넣는 방식 (세션 전달 / 직접 입력)'); mb.type = 'button'; mb.onclick = openMode;
+    rb.style.marginBottom = '6px';
+    box.append(rb, mb);
   }
+  // PC 창에 넣는 방식: 세션 전달 / 창에 직접 입력
+  async function openMode() {
+    $('modeErr').className = 'err'; $('modeErr').textContent = ''; $('modeSheet').hidden = false;
+    const radios = [...document.querySelectorAll('input[name=inMode]')];
+    try {
+      const d = await api('/api/input-mode');
+      for (const r of radios) { r.checked = r.value === (d.type ? 'type' : 'relay'); r.disabled = r.value === 'type' && !d.supported; }
+      if (!d.supported) $('modeErr').textContent = '창에 직접 입력은 Windows PC 에서만 됩니다.';
+    } catch (e) { $('modeErr').textContent = e.message; }
+    for (const r of radios) r.onchange = async () => {
+      try {
+        const d = await api('/api/input-mode', { type: r.value === 'type' });
+        $('modeErr').className = 'okmsg';
+        $('modeErr').textContent = d.type ? '창에 직접 입력으로 바꿨습니다. 처음 한 번은 PC 에서 VS Code 가 "이 확장이 주소를 열게 할까요?" 를 물을 수 있습니다.' : '세션 전달로 바꿨습니다.';
+      } catch (e) { $('modeErr').className = 'err'; $('modeErr').textContent = e.message; }
+    };
+  }
+  $('modeClose').onclick = () => { $('modeSheet').hidden = true; };
+  $('modeSheet').onclick = e => { if (e.target === $('modeSheet')) $('modeSheet').hidden = true; };
+
   // Codex 운영 규칙 (PC 의 ~/.codex/AGENTS.md 에 Agent Chat 이 관리하는 한 덩어리)
   let rulesOn = false;
   async function openRules() {
@@ -471,11 +493,16 @@
 
     if (c.offline) setStatus('연결이 끊겼습니다. 다시 연결하는 중…', true);
     else if (c.live && !(j && j.running)) {
+      const wait = c.live.status === 'waiting' || c.live.waitingFor;
       if (j && j.error) setStatus(j.error, true);
+      else if (wait) setStatus('PC 의 Claude 가 확인을 기다리는 중 (PC 에서 허락 · 답을 눌러야 이어집니다)', false);
       else if (c.live.status === 'busy') setStatus('VS Code 에서 작업 중 · 보내면 다음 차례로', false);
+      else if (j && j.note && Date.now() - j.endedAt < 60000) setStatus(j.note, false);
       else $('status').hidden = true;
     } else if (j && j.running && j.relayWaiting) {
-      setStatus('VS Code 의 Codex 가 하던 일을 끝내면 이어서 처리합니다', false, true);
+      setStatus(j.typing ? 'PC 의 Claude 가 하던 일을 끝내면 창에 입력합니다' : 'VS Code 의 Codex 가 하던 일을 끝내면 이어서 처리합니다', false, true);
+    } else if (j && j.running && j.typing) {
+      setStatus('PC 창에 입력하는 중…', false);
     } else if (j && j.running) {
       let t = j.tool ? '실행 중: ' + j.tool : j.live ? '답하는 중…' : '생각하는 중…';
       if (j.queued) t += ` (대기 ${j.queued}개)`;
@@ -628,7 +655,9 @@
       if (paths.length) text = (text || '첨부한 파일을 봐 주세요.') + ATT_HEAD + paths.map(x => '- ' + x).join('\n'); // 서버가 붙이는 것과 같게
       const p = el('div', 'msg user pending'); const pb = el('div', 'bubble'); userText(pb, text); p.append(pb);
       if (r.queued) p.firstChild.append(el('div', 'qtag', '대기 중'));
-      if (r.relayed) p.firstChild.append(el('div', 'qtag', r.waiting ? 'VS Code 작업 뒤 대기' : 'VS Code 로 전달됨'));
+      if (r.typed) p.firstChild.append(el('div', 'qtag', 'PC 창에 직접 입력함'));
+      else if (r.relayed) p.firstChild.append(el('div', 'qtag', r.waiting ? 'VS Code 작업 뒤 대기' : r.typeError ? '세션 전달로 보냄 (창 입력 안 됨)' : 'VS Code 로 전달됨'));
+      if (r.typeError) setStatus('창에 직접 입력하지 못해 세션 전달로 보냈습니다: ' + r.typeError);
       c.pending.push({ el: p, text });
       c.watched = true; watchInApp(c);
       $('msgs').append(p);

@@ -46,7 +46,7 @@ function loadConfig() {
 function saveConfig() {
   let c = {};
   try { c = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch { /* 새로 */ }
-  for (const k of ['anthropicApiKey', 'openaiApiKey', 'projectAuth']) c[k] = config[k];
+  for (const k of ['anthropicApiKey', 'openaiApiKey', 'projectAuth', 'typeIntoWindow']) if (config[k] !== undefined) c[k] = config[k];
   fs.mkdirSync(HOME, { recursive: true });
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(c, null, 2), { mode: 0o600 });
 }
@@ -62,6 +62,14 @@ const runner = new Runner(config);
 runner.setMaxListeners(100);
 // Codex 대화가 지금 어디선가 작업 중인지 (기록 파일이 최근 60초 안에 바뀜)
 runner.activeCheck = (agent, id) => { const e = store.find(agent, id); if (!e) return false; try { return Date.now() - fs.statSync(e.file).mtimeMs < (config.codexActiveMs ?? 60000); } catch { return false; } };
+// 창에 직접 입력한 글이 정말 그 대화에 들어갔는지 (기록에 사용자 말로 나타났는가)
+const squash = t => String(t || '').replace(/\s+/g, ' ').trim();
+runner.seenCount = id => { const m = store.messages('claude', id); return m ? m.items.length : 0; };
+runner.seenCheck = (id, text, from) => {
+  const m = store.messages('claude', id);
+  const want = squash(text);
+  return !!m && m.items.slice(from).some(i => i.role === 'user' && squash(i.text).includes(want));
+};
 const usage = new Usage();
 runner.on('usage', (agent, info) => { if (agent === 'claude') usage.fromClaudeEvent(info); });
 
@@ -167,8 +175,8 @@ function stream(req, res, q) {
     if (k !== jobKey) { jobKey = k; out('job', j || { running: false }); }
     // VS Code(터미널)에 열려 있는지와 그쪽 상태 (busy / idle)
     const lv = agent === 'claude' ? peer.findLive(id, runner.ownPids()) : null;
-    const lk = lv ? `${lv.pid}:${lv.status}:${lv.name}` : '';
-    if (lk !== liveKey) { liveKey = lk; out('live', lv ? { pid: lv.pid, status: lv.status, name: lv.name, entrypoint: lv.entrypoint } : null); }
+    const lk = lv ? `${lv.pid}:${lv.status}:${lv.waitingFor || ''}:${lv.name}` : '';
+    if (lk !== liveKey) { liveKey = lk; out('live', lv ? { pid: lv.pid, status: lv.status, waitingFor: lv.waitingFor || '', name: lv.name, entrypoint: lv.entrypoint } : null); }
   };
   tickFile(); tickJob();
   const onChange = key => { if (key === agent + ':' + id) { tickJob(); tickFile(); } };
@@ -308,9 +316,13 @@ async function api(req, res, url) {
     }
   }
   if (p === '/api/codex-rules' && req.method === 'GET') return send(req, res, 200, codexRules.status());
+  // PC 의 IDE 창에 넣는 방식: 세션 전달(기본) / 창에 직접 입력(Windows)
+  const inputMode = () => ({ type: !!config.typeIntoWindow, supported: runner.typer.supported() });
+  if (p === '/api/input-mode' && req.method === 'GET') return send(req, res, 200, inputMode());
   if (req.method !== 'POST') return send(req, res, 404, { error: '없는 주소' });
   const body = await readBody(req);
   if (p === '/api/codex-rules') return send(req, res, 200, codexRules.set(!!body.on));
+  if (p === '/api/input-mode') { config.typeIntoWindow = !!body.type; saveConfig(); return send(req, res, 200, inputMode()); }
   if (p === '/api/project-auth') return send(req, res, 200, auth.set(String(body.cwd || ''), body.mode));
   const agent = agentOf(body.agent);
   if (!agent) return send(req, res, 400, { error: '에이전트를 골라 주세요' });

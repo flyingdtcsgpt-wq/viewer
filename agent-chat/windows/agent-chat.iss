@@ -39,6 +39,7 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\run-hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "open-connect.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stop.vbs"; DestDir: "{app}"; Flags: ignoreversion
+Source: "keep-desktop.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\lib\*"; DestDir: "{app}\lib"; Flags: ignoreversion recursesubdirs
 Source: "..\public\*"; DestDir: "{app}\public"; Flags: ignoreversion recursesubdirs
 Source: "..\runtime\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesubdirs
@@ -46,6 +47,7 @@ Source: "..\runtime\*"; DestDir: "{app}\runtime"; Flags: ignoreversion recursesu
 [Icons]
 Name: "{group}\Agent Chat 휴대폰 연결 (QR)"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\open-connect.vbs"""; IconFilename: "{sys}\shell32.dll"; IconIndex: 13
 Name: "{group}\Agent Chat 끄기"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\stop.vbs"""; IconFilename: "{sys}\shell32.dll"; IconIndex: 27
+Name: "{group}\원격 끊기 (화면 유지)"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\keep-desktop.vbs"""; IconFilename: "{sys}\shell32.dll"; IconIndex: 44; Comment: "원격 데스크톱을 끊어도 Agent Chat 이 VS Code 창에 입력할 수 있게 화면을 유지합니다"
 Name: "{group}\Agent Chat 설정 파일"; Filename: "{sys}\notepad.exe"; Parameters: """{%USERPROFILE}\.agent-chat\config.json"""
 Name: "{group}\Agent Chat 기록 (server.log)"; Filename: "{sys}\notepad.exe"; Parameters: """{%USERPROFILE}\.agent-chat\server.log"""
 Name: "{group}\{cm:UninstallProgram,Agent Chat}"; Filename: "{uninstallexe}"

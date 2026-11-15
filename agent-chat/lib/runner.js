@@ -12,6 +12,7 @@ const { EventEmitter } = require('events');
 const { spawn } = require('child_process');
 const peer = require('./peer');
 const codexPeer = require('./codexPeer');
+const typer = require('./typer');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const isWin = process.platform === 'win32';
@@ -187,6 +188,7 @@ class Runner extends EventEmitter {
     this.config = config;
     this.jobs = new Map(); // "agent:id" → job (한 번의 주고받기)
     this.lives = new Map(); // "claude:id" → 계속 켜 두는 claude 프로세스
+    this.typer = process.env.AGENT_CHAT_TYPER ? require(process.env.AGENT_CHAT_TYPER) : typer; // 테스트에서 바꿔 끼울 수 있게
     // 폰에서 띄워 둔 claude 가 쉬는 동안 같은 대화를 VS Code 에서 열면, 우리 것을 닫는다
     // (Claude 는 한 대화에 두 프로세스가 붙어도 막지 않아서, 둘이 따로 이어 쓰면 대화가 갈라진다)
     this.handoffTimer = setInterval(() => this.handOffToVsCode(), this.config.handoffCheckMs || 5000);
@@ -212,6 +214,7 @@ class Runner extends EventEmitter {
       // 이 대화의 claude 프로세스가 켜져 있으면 그 번호 (메시지마다 새로 뜨지 않는다는 표시)
       pid: (this.lives.get(agent + ':' + id) || {}).pid || 0,
       relayed: !!j.relay, relayPid: j.relayPid || 0, relayWaiting: !j.done && !!j.relayWaiting,
+      typing: !!j.typing, note: j.note || '',
     };
   }
   /** Agent Chat 이 직접 띄워 둔 claude 프로세스들의 pid (VS Code 세션으로 착각하지 않게) */
@@ -245,7 +248,7 @@ class Runner extends EventEmitter {
     if (agent === 'claude' && !isNew && this.config.relayToLive !== false) {
       // VS Code(또는 터미널)에 이 대화가 열려 있으면 그 Claude 에게 넣는다. 새 Claude 를 띄우지 않는다.
       const live = peer.findLive(id, this.ownPids());
-      if (live) return this.relay(live, { id, cwd, prompt });
+      if (live) return this.config.typeIntoWindow && this.typer.supported() ? this.typeRelay(live, { id, cwd, prompt, mode, env, opts }) : this.relay(live, { id, cwd, prompt });
     }
     if (agent === 'codex' && !isNew && this.config.relayToLive !== false) {
       // VS Code 의 Codex 가 이 대화를 열어 두었으면 Codex 의 정식 "줄" 에 넣어 그쪽이 처리하게 한다
@@ -275,6 +278,89 @@ class Runner extends EventEmitter {
     this.changed(job);
     if (job.error) throw httpError(502, job.error);
     return { id, relayed: true, pid: live.pid };
+  }
+
+  // ---------- Claude: PC 의 IDE 창에 사람이 치듯 넣기 (설정 typeIntoWindow, Windows) ----------
+  // Claude Code 확장의 "열기" 주소로 그 대화의 탭을 앞으로 가져온 뒤 글을 붙여넣고 Enter 를 누른다.
+  // 그 창에서 직접 친 것과 같아서 받는 Claude 에게 "다른 세션의 메시지" 가 아니라 사용자의 말로 들어간다.
+  //  - PC 의 Claude 가 쉬고 있을 때(idle)만 친다. 일하는 중이면 허락 물음이 떠 있을 수 있고, 그때 Enter 는 그 물음에 답해 버린다
+  //    → 끝날 때까지 기다렸다가 친다 (VS Code 에서 일하는 중에 보낸 글이 줄 서는 것과 같다).
+  //  - Enter 를 누르기 전에 막히면(화면 잠김 · 원격 끊김 · 창 못 찾음) 보내지 않은 것이므로 세션 전달(relay)로 대신 보낸다.
+  //  - 친 뒤 대화 기록에 그 글이 안 나타나면(VS Code 가 다른 것을 묻고 있었다 등) 역시 세션 전달로 보낸다.
+  typeReady(l) { return !!l && l.entrypoint === 'claude-vscode' && l.status === 'idle' && !l.waitingFor; }
+  async typeRelay(live, a) {
+    const { id, cwd, prompt } = a;
+    // 터미널의 claude 나, 상태를 알 수 없는 옛 버전이면 창에 치지 않는다
+    if (live.entrypoint !== 'claude-vscode' || !live.status) return { ...(await this.relay(live, a)), typeError: live.status ? 'IDE 창이 아니라 터미널에서 도는 대화입니다' : 'PC 의 Claude 상태를 알 수 없습니다' };
+    const key = 'claude:' + id;
+    const L = this.lives.get(key);
+    if (L && !L.dead) this.endLive(L);
+    const job = {
+      agent: 'claude', id, cwd, relay: true, typing: true, startedAt: Date.now(), done: false, live: { text: '', tool: '' }, v: 0, queue: [], relayPid: live.pid,
+      relayWaiting: false, mode: a.mode, opts: a.opts, env: a.env,
+    };
+    this.jobs.set(key, job);
+    if (this.typeReady(live)) return this.typeNow(job, live, prompt);
+    job.relayWaiting = true;
+    this.changed(job);
+    const tick = async () => {
+      if (job.done) return;
+      if (job.stopped) { this.endTyping(job); return; }
+      const l = peer.findLive(id, this.ownPids());
+      try {
+        if (!l) { // 그새 VS Code 를 닫았다 → 평소 길로
+          const rest = job.queue.splice(0);
+          job.done = true; job.endedAt = Date.now(); if (this.jobs.get(key) === job) this.jobs.delete(key);
+          await this.start('claude', { id, cwd, prompt, mode: job.mode, env: job.env, opts: job.opts });
+          for (const n of rest) await this.start('claude', { id, cwd, prompt: n.prompt, mode: n.mode, env: job.env, opts: n.opts });
+          return;
+        }
+        if (this.typeReady(l)) { job.relayWaiting = false; await this.typeNow(job, l, prompt); return; }
+      } catch (e) { job.error = e.message; job.done = true; job.endedAt = Date.now(); this.changed(job); return; }
+      job.waitTimer = setTimeout(tick, this.config.typePollMs || 1500);
+    };
+    job.waitTimer = setTimeout(tick, this.config.typePollMs || 1500);
+    return { id, relayed: true, waiting: true, typing: true, pid: live.pid };
+  }
+  endTyping(job, extra) {
+    Object.assign(job, extra || {});
+    job.done = true; job.endedAt = Date.now(); job.relayWaiting = false;
+    this.changed(job);
+    // 그 사이 보낸 글들을 차례로 (앞의 글로 PC 가 일하기 시작하면 다음 글은 다시 기다린다)
+    const rest = job.queue.splice(0);
+    if (!rest.length || job.stopped) return;
+    setTimeout(async () => {
+      for (const n of rest) { try { await this.start('claude', { id: job.id, cwd: job.cwd, prompt: n.prompt, mode: n.mode, env: job.env, opts: n.opts }); } catch { /* 다음 것 */ } }
+    }, this.config.typeNextMs || 2500);
+  }
+  async typeNow(job, live, prompt) {
+    const { id, cwd } = job;
+    const key = 'claude:' + id;
+    this.changed(job);
+    const before = this.seenCount ? this.seenCount(id) : 0;
+    let r;
+    try { r = await this.typer.typeIntoClaude(live, prompt, { settleMs: this.config.typeSettleMs, ideNames: this.config.typeIdeNames }); } catch (e) { r = { ok: false, error: e.message, submitted: false }; }
+    const viaRelay = async why => {
+      const rest = job.queue.splice(0);
+      if (this.jobs.get(key) === job) this.jobs.delete(key);
+      job.done = true; job.endedAt = Date.now();
+      const out = { ...(await this.relay(live, { id, cwd, prompt })), typeError: why };
+      const j2 = this.jobs.get(key);
+      if (j2) { j2.note = '창에 직접 입력하지 못해 세션 전달로 보냈습니다: ' + why; this.changed(j2); }
+      for (const n of rest) { try { await this.start('claude', { id, cwd, prompt: n.prompt, mode: n.mode, env: job.env, opts: n.opts }); } catch { /* 다음 것 */ } }
+      return out;
+    };
+    if (!r.ok && !r.submitted) return viaRelay(r.error || '창에 입력하지 못했습니다');
+    if (!r.ok) { this.endTyping(job, { error: `PC 창에 입력하다 멈췄습니다: ${r.error || '알 수 없음'}. 보내졌는지 대화를 확인하세요` }); throw httpError(502, job.error); }
+    // 정말 그 대화에 들어갔는지: 쉬고 있던 Claude 라면 보낸 글이 곧바로 기록에 남는다
+    if (this.seenCheck) {
+      const until = Date.now() + (this.config.typeConfirmMs ?? 10000);
+      let seen = false;
+      while (!(seen = this.seenCheck(id, prompt, before)) && Date.now() < until) await sleep(400);
+      if (!seen) return viaRelay('PC 창에 입력했지만 대화에 나타나지 않았습니다 (VS Code 가 다른 것을 묻고 있었을 수 있습니다. PC 에서 "이 확장이 주소를 열게 허용" 을 한 번 눌러 "다시 묻지 않음" 을 켜 주세요)');
+    }
+    this.endTyping(job);
+    return { id, typed: true, pid: live.pid, window: r.window || '', ide: r.ide || '' };
   }
 
   // ---------- Codex: 새 대화는 app-server 로 (VS Code 와 같은 길) ----------

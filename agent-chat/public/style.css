@@ -204,3 +204,6 @@ body.connect { overflow: auto; }
 .autotoggle { display: block; margin: 6px auto 70px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 99px; padding: 5px 14px; font-size: 13px; }
 .sheet-box .muted.small { color: var(--muted); font-size: 12.5px; margin: 0; word-break: break-all; }
 .okmsg { color: var(--codex); font-size: 13px; margin: 4px 0; }
+.sheet-box label.radio { flex-direction: row; align-items: flex-start; gap: 10px; color: var(--text); font-size: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.sheet-box label.radio input { width: auto; margin-top: 3px; }
+.sheet-box label.radio small { color: var(--muted); font-size: 12.5px; }

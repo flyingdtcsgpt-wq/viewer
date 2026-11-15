@@ -119,6 +119,21 @@ PC 는 켜져 있어야 하고 절전으로 들어가면 안 된다 (Windows 설
   - VS Code 가 그 대화를 연 채면(`$CODEX_HOME/thread-writer-locks/<id>.lock`) 따로 실행하지 않고 그쪽 일이 아무리 길어도 줄에서 기다린다.
     따로 실행이 `already has an active writer` 로 막혀도 오류로 끝내지 않고 줄에 넣어 기다린다.
 
+## 창에 직접 입력 (선택, Windows)
+세션 전달은 받는 Claude 에게 "다른 세션이 보낸 메시지" 로 보인다. 그게 싫으면 휴대폰 목록 맨 아래 **PC 창에 넣는 방식** 에서 **창에 직접 입력** 을 켠다.
+- 하는 일: PC 가 그 대화의 탭을 앞으로 가져와(Claude Code 확장의 `…://anthropic.claude-code/open?session=<id>` 주소) 글을 붙여넣고(Ctrl+V) Enter 를 누른다.
+  그 창에서 직접 친 것과 같아서 사용자의 말로 들어간다. VS Code 뿐 아니라 Antigravity · Cursor 같은 VS Code 계열도 같다
+  (그 대화의 프로세스에서 위로 올라가 IDE 를 찾고, 그 IDE 의 `product.json` 에서 주소 scheme 을 읽는다).
+- **PC 의 Claude 가 쉬고 있을 때만** 친다. 일하는 중이면 허락 물음이 떠 있을 수 있고 그때 Enter 는 그 물음에 답해 버리므로, 끝날 때까지 기다렸다가 친다.
+- 안 되면 세션 전달로 보낸다 (글이 사라지지 않는다):
+  화면 잠김 · 원격 데스크톱이 끊긴 상태 · 창을 못 찾음 · PC 에서 누가 키보드를 누르는 중 · 친 뒤 대화 기록에 그 글이 안 나타남.
+- **화면이 살아 있어야 한다.** Windows 는 화면이 잠겼거나 원격 데스크톱을 그냥 끊으면(X) 키 입력을 받지 않는다.
+  원격 데스크톱을 쓴 뒤에는 시작 메뉴의 **원격 끊기 (화면 유지)** 로 끊는다 (`tscon <세션> /dest:console`, 관리자 권한 필요. 화면이 PC 본체 쪽에 잠기지 않은 채 남는다).
+  자동 잠금(화면 보호기 · 절전 뒤 로그인 요구)도 꺼 두어야 한다.
+- 처음 한 번은 VS Code 가 "이 확장이 주소를 열게 허용할까요?" 를 물을 수 있다. PC 에서 "다시 묻지 않음" 을 켜고 허용한다.
+- Codex 는 이 설정과 상관없이 Codex 의 대기열로 들어가 직접 친 글과 똑같이 처리된다.
+- 설정: `config.json` 의 `"typeIntoWindow": true`. 탭을 앞으로 가져온 뒤 기다리는 시간 `"typeSettleMs"`(기본 1800).
+
 ## 휴대폰에서 만든 새 대화도 VS Code 목록에 보인다
 - **Claude**: `claude -p` 로 만든 대화는 기록에 `entrypoint: "sdk-cli"` 가 남고, Claude Code(VS Code 확장 포함)의 대화 목록은 `sdk-*` 대화를 숨긴다.
   서버가 띄우는 claude 에는 `CLAUDE_CODE_ENTRYPOINT=agent-chat` 을 붙여 목록에 보이게 한다 (동작은 같다).

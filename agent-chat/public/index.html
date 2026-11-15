@@ -135,6 +135,17 @@
     <div class="row"><button id="rulesClose" type="button">닫기</button><button id="rulesToggle" type="button" class="primary">켜기</button></div>
   </div>
 </div>
+<div id="modeSheet" class="sheet" hidden>
+  <div class="sheet-box">
+    <h2>PC 창에 넣는 방식</h2>
+    <p class="muted small">VS Code(또는 Antigravity · Cursor)에 열려 있는 <b>Claude</b> 대화에 휴대폰 글을 어떻게 넣을지 고릅니다. Codex 는 어느 쪽이든 Codex 의 대기열로 들어가 직접 친 글과 똑같이 처리됩니다.</p>
+    <label class="radio"><input type="radio" name="inMode" value="relay"> <span><b>세션 전달</b> (기본)<br><small>화면이 잠겨 있어도 됩니다. 받는 Claude 에게는 "다른 세션이 보낸 메시지" 로 보입니다.</small></span></label>
+    <label class="radio"><input type="radio" name="inMode" value="type"> <span><b>창에 직접 입력</b><br><small>PC 가 그 대화의 탭을 앞으로 가져와 입력 칸에 글을 넣고 Enter 를 누릅니다. 직접 친 것과 같습니다.
+      PC 화면이 <b>잠겨 있지 않고</b>, 원격 데스크톱을 썼다면 <b>"원격 끊기 (화면 유지)"</b> 로 끊었을 때만 됩니다. 안 되면 자동으로 세션 전달로 보냅니다.</small></span></label>
+    <p id="modeErr" class="err"></p>
+    <div class="row"><button id="modeClose" type="button" class="primary">닫기</button></div>
+  </div>
+</div>
 <div id="viewer" class="viewer" hidden><img id="viewerImg" alt=""></div>
 </body>
 </html>
