@@ -19,33 +19,13 @@ jobs:
           get anthropic claude-code claude.vsix
           get openai chatgpt codex.vsix
           for d in x-claude-code x-chatgpt; do echo "== $d"; jq -r '.name+" "+.version' $d/extension/package.json; (cd $d/extension && find . -maxdepth 2 -size +200k -printf '%s %p\n' | sort -rn | head -12); done
-      - name: Claude package.json
+      - name: Claude open command
         run: |
           cd x-claude-code/extension
-          jq -c '.contributes.commands[] | [.command,.title]' package.json
-          jq -c '.contributes.keybindings' package.json | cut -c1-3000
-          jq -c '.activationEvents, .extensionKind, .main' package.json
-      - name: Claude source
-        run: |
-          cd x-claude-code/extension
-          M=$(jq -r .main package.json); M=${M#./}; [ -f "$M" ] || M="$M.js"; ls -la "$M"
-          echo "--- registerCommand"; grep -o 'registerCommand("[^"]*"' "$M" | sort -u
-          echo "--- executeCommand"; grep -o 'executeCommand("[^"]*"' "$M" | sort -u | head -80
-          echo "--- uri handler"; grep -o '.\{600\}registerUriHandler.\{2500\}' "$M" | head -c 9000; echo
-          echo "--- handleUri"; grep -o '.\{200\}handleUri.\{3500\}' "$M" | head -c 12000; echo
-          echo "--- prompt param"; grep -o '.\{700\}\.get("prompt").\{2500\}' "$M" | head -c 12000; echo
-          echo "--- exports"; grep -o '.\{300\}async function activate.\{800\}' "$M" | head -c 4000; echo
-          echo "--- webview js"; ls -la webview 2>/dev/null | head; find . -name "*.js" -size +100k -printf '%s %p\n' | sort -rn | head
-      - name: Codex package.json
-        run: |
-          cd x-chatgpt/extension
-          jq -c '.contributes.commands[] | [.command,.title]' package.json
-          jq -c '.contributes.keybindings' package.json | cut -c1-3000
-          jq -c '.activationEvents, .main' package.json
-      - name: Codex source
-        run: |
-          cd x-chatgpt/extension
-          M=$(jq -r .main package.json); M=${M#./}; [ -f "$M" ] || M="$M.js"; ls -la "$M"
-          echo "--- registerCommand"; grep -o 'registerCommand("[^"]*"' "$M" | sort -u
-          echo "--- uri handler"; grep -o '.\{600\}registerUriHandler.\{2500\}' "$M" | head -c 9000; echo
-          echo "--- handleUri"; grep -o '.\{200\}handleUri.\{3000\}' "$M" | head -c 10000; echo
+          E=extension.js; W=webview/index.js
+          echo "--- primaryEditor.open (ext)"; grep -o '.\{300\}claude-vscode\.primaryEditor\.open".\{2600\}' $E | head -c 16000; echo
+          echo "--- editor.open (ext)"; grep -o '.\{100\}"claude-vscode\.editor\.open".\{1800\}' $E | head -c 8000; echo
+          for k in initialPrompt prefill pendingPrompt setInputValue set_input insertText focusInput focus_input create_new_conversation initial_prompt; do
+            echo "--- $k (ext)"; grep -o ".\{260\}$k.\{420\}" $E | head -c 3600; echo
+            echo "--- $k (webview)"; grep -o ".\{260\}$k.\{420\}" $W | head -c 3600; echo
+          done
