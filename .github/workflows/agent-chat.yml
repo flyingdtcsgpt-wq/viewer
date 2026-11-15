@@ -33,6 +33,29 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm test
 
+  # 진짜 VS Code 창을 상대로: 창 찾기 · 맨 앞으로 가져오기 · 열기 요청 넘기기 (글은 치지 않는다)
+  ide-window:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: agent-chat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Find and focus a real VS Code window
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $zip = Join-Path $env:RUNNER_TEMP 'vscode.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'vscode'
+          Invoke-WebRequest -Uri 'https://update.code.visualstudio.com/latest/win32-x64-archive/stable' -OutFile $zip
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          tar -xf $zip -C $dir
+          node test\ide-window.win.js (Join-Path $dir 'Code.exe')
+
   windows-installer:
     needs: test
     runs-on: windows-latest
