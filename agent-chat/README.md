@@ -134,6 +134,18 @@ PC 는 켜져 있어야 하고 절전으로 들어가면 안 된다 (Windows 설
 - Codex 는 이 설정과 상관없이 Codex 의 대기열로 들어가 직접 친 글과 똑같이 처리된다.
 - 설정: `config.json` 의 `"typeIntoWindow": true`. 탭을 앞으로 가져온 뒤 기다리는 시간 `"typeSettleMs"`(기본 1800).
 
+## Antigravity IDE
+Antigravity IDE 의 에이전트는 Claude · Codex 와 다르게 붙는다. 대화 기록을 읽어 다시 그리는 대신 **Antigravity 의 에이전트 화면을 그대로** 휴대폰에 연다.
+- Antigravity IDE 는 백엔드(`~/.gemini/bin/agy --hub --hub-port=<포트> …`)를 띄우고, 그 허브가 `http://127.0.0.1:<포트>/` 에서 에이전트 화면을 웹으로 내보낸다
+  (IDE 오른쪽 에이전트 창이 바로 그 화면이다). 허브는 이 PC 에서 온 요청(Host 가 127.0.0.1)만 받는다.
+- PC 에 허브가 켜져 있으면(`~/.gemini/antigravity/daemon/hub_<포트>.json`) 휴대폰 대화 목록 위에 **Antigravity IDE 가 켜져 있습니다 · 에이전트 화면 열기** 가 뜬다.
+  누르면 서버가 1분짜리 1회용 표를 주고, 포트 하나(기본: Agent Chat 포트 + 1, `"agProxyPort"`)에서 허브 화면을 전달한다. 뒤로 가기를 누르면 Agent Chat 으로 돌아온다.
+- 거기서 보낸 글은 IDE 가 쓰는 바로 그 백엔드로 들어간다. 그래서 IDE 에 열린 대화에 그대로 이어지고, PC 화면이 잠겨 있어도 된다.
+- 안전장치: 표(1분 · 한 번) → 쿠키(Agent Chat 토큰에서 만든 값, 12시간)가 있어야 하고, 허브 표지 파일에 있는 포트로만 전달한다.
+  이 화면으로는 Antigravity 에이전트를 전부 조종할 수 있으니 Agent Chat 토큰을 아는 기기에만 열린다는 점은 다른 기능과 같다.
+- 확인한 것: 진짜 Antigravity IDE 2.7 을 띄워, 이 전달 문을 거쳐 로그인 화면이 그려지고 화면이 허브에 하는 요청이 모두 받아들여지는 것까지. 구글 로그인 뒤의 대화는 로그인이 필요해 자동으로 확인하지 못했다.
+- Antigravity 에는 자체 원격 조종(`agy remote-control start`)도 있다.
+
 ## 휴대폰에서 만든 새 대화도 VS Code 목록에 보인다
 - **Claude**: `claude -p` 로 만든 대화는 기록에 `entrypoint: "sdk-cli"` 가 남고, Claude Code(VS Code 확장 포함)의 대화 목록은 `sdk-*` 대화를 숨긴다.
   서버가 띄우는 claude 에는 `CLAUDE_CODE_ENTRYPOINT=agent-chat` 을 붙여 목록에 보이게 한다 (동작은 같다).
