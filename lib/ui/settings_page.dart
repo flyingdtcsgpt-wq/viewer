@@ -1003,6 +1003,13 @@ class _VoiceState extends State<_Voice> {
     final text = Theme.of(context).textTheme;
     final installed = _installed;
     return _Page('읽어주기 음성', desc: 'TXT · EPUB 를 소리 내어 읽을 때 쓰는 목소리입니다.', [
+      _Card(SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('책을 다 읽으면 다음 권 이어서 읽기'),
+        subtitle: const Text('소리 내어 읽다가 책이 끝나면 같은 묶음의 다음 권(TXT · EPUB)을 바로 이어 읽습니다. 취침 타이머는 그대로 이어집니다'),
+        value: context.watch<Settings>().ttsContinueNext,
+        onChanged: (v) => context.read<Settings>().ttsContinueNext = v,
+      )),
       _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           const Icon(Icons.auto_awesome, color: Colors.amber),

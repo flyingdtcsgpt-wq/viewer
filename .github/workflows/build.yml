@@ -24,6 +24,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.50.x # 판을 고정 (새 판이 나올 때마다 빌드가 깨지지 않게, 올릴 때는 여기만 바꿔 확인)
           cache: true
 
       - name: Generate platform folders
@@ -124,6 +125,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.50.x # 판을 고정 (새 판이 나올 때마다 빌드가 깨지지 않게, 올릴 때는 여기만 바꿔 확인)
           cache: true
 
       - name: Generate platform folders
@@ -208,11 +210,12 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21' # Flutter 3.50 의 안드로이드 도구가 Java 21 을 요구
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.50.x # 판을 고정 (새 판이 나올 때마다 빌드가 깨지지 않게, 올릴 때는 여기만 바꿔 확인)
           cache: true
 
       - name: Generate platform folders
@@ -277,11 +280,12 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21' # Flutter 3.50 의 안드로이드 도구가 Java 21 을 요구
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.50.x # 판을 고정 (새 판이 나올 때마다 빌드가 깨지지 않게, 올릴 때는 여기만 바꿔 확인)
           cache: true
 
       - name: Generate platform folders
@@ -357,6 +361,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.50.x # 판을 고정 (새 판이 나올 때마다 빌드가 깨지지 않게, 올릴 때는 여기만 바꿔 확인)
           cache: true
 
       - name: Generate platform folders
@@ -427,6 +432,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.50.x # 판을 고정 (새 판이 나올 때마다 빌드가 깨지지 않게, 올릴 때는 여기만 바꿔 확인)
           cache: true
 
       - name: Generate platform folders

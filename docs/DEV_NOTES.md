@@ -296,3 +296,5 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   `stage`(zip 확인 뒤 `<지원>/restore_pending/`), `applyPending`(main 에서 설정 · DB 열기 전: 지금 DB → library.before-restore.db, 표지 · 설정 덮어쓰기,
   데이터 폴더가 달라졌으면 `restore_fix.json`), `fixAfterRestore`(DB 연 뒤 표지 경로 고침). 휴대용 모드는 settings.json 을 바로 씀. 복원 뒤 `exit(0)`
 - 읽어주기 막대 배경 불투명(휴대폰에서 본문이 비침), 상세 화면에 읽은 정도 · 읽음 표시, 홈 줄(`rootEntries`) 판마다 캐시
+- 읽어주기 이어 읽기: `_ttsPlay` 가 끝까지 가면 `ttsContinueNext` 이고 다음 권이 TXT/EPUB 일 때 `TextReaderPage(next, readAloud, autoPlay, sleepAt)` 로 바꿔 넣음.
+  넘어갈 때는 `_handover` 로 알림 · 배경음을 끄지 않는다(다음 화면의 start 와 앞 화면 dispose 의 stop 순서가 엇갈려 꺼지지 않게)

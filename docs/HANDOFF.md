@@ -120,3 +120,10 @@ flutter test integration_test/screenshots_test.dart -d windows   # 화면 캡처
 - PDF 나누기 · 합치기, EPUB 편집기, WebDAV, 휴대폰 연동(QR)
 - AI 로 화자 찾기(규칙으로 못 찾은 대사), 원본 로고 PNG 교체
 - 맥 · 아이폰 정식 서명/배포(유료 Apple 개발자 계정 필요)
+
+## 빌드 도구 판 (2026-11-15)
+- CI 의 Flutter 는 **3.50.x 로 고정**(`.github/workflows/build.yml` 의 `flutter-version`). 고정 전에는 stable 이 3.50 으로 올라가며 안드로이드 빌드가 깨졌다
+  (새 안드로이드 lint 가 Java 21 필요 → `setup-java` 21, 그리고 `tool/patch_android.py` 가 릴리스 lint 를 끔: 플러그인 lint 오류로 앱 빌드가 막히지 않게).
+- Flutter 3.50 부터 `package:flutter/material.dart` 가 "앞으로 `package:material_ui/material_ui.dart` 로" 라는 안내(info)를 낸다. 지금은 동작에 문제없고,
+  Flutter 를 더 올릴 때 import 를 한꺼번에 바꾸면 된다.
+- 의존 패키지는 `pubspec.lock` 을 저장소에 넣지 않아 빌드 때마다 최신 호환 판을 받는다. 재현이 필요하면 CI 로그의 `flutter pub get` 출력에서 판을 확인.

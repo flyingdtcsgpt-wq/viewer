@@ -466,6 +466,25 @@ if "proguard-rules.pro" not in g:
     gradle.write_text(g, encoding="utf-8")
 print("proguard rules added")
 
+# ---- 릴리스 빌드 때 도는 lint 검사 끄기 ----
+# 플러그인(url_launcher_android 등)의 lint 가 도구 판 차이로 죽으면 앱 빌드 전체가 실패한다. 배포 빌드에는 필요 없는 검사라 끈다.
+g = gradle.read_text(encoding="utf-8")
+if "checkReleaseBuilds" not in g:
+    g = g.replace("android {", "android {\n    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }", 1)
+    gradle.write_text(g, encoding="utf-8")
+root_gradle = Path("android/build.gradle.kts")
+if root_gradle.exists():
+    rg = root_gradle.read_text(encoding="utf-8")
+    if "lintVital" not in rg:
+        rg += '''
+// 플러그인 모듈의 릴리스 lint 도 건너뛴다
+subprojects {
+    tasks.matching { it.name.startsWith("lintVital") }.configureEach { enabled = false }
+}
+'''
+        root_gradle.write_text(rg, encoding="utf-8")
+print("release lint disabled")
+
 # ---- 소리 내어 읽기 서비스 (알림 + 잠깐 깨어 있기) ----
 svc = act.parent / "ReadAloudService.kt"
 svc.write_text(f"""package {pkg}

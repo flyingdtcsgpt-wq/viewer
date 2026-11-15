@@ -188,6 +188,10 @@ class Settings extends ChangeNotifier {
   void setSpeakerVoices(int bookId, Map<String, String> m) =>
       _set(() => m.isEmpty ? _p.remove('spk_$bookId') : _p.setString('spk_$bookId', jsonEncode(m)));
 
+  /// 소리 내어 읽다가 책이 끝나면 다음 권을 이어서 읽는다
+  bool get ttsContinueNext => _p.getBool('ttsContinueNext') ?? true;
+  set ttsContinueNext(bool v) => _set(() => _p.setBool('ttsContinueNext', v));
+
   /// 마지막 백업 (때 · 파일)
   String get lastBackup => _p.getString('lastBackup') ?? '';
   set lastBackup(String v) => _set(() => _p.setString('lastBackup', v));

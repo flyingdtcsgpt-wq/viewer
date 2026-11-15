@@ -33,7 +33,13 @@ class TextReaderPage extends StatefulWidget {
   final MediaItem item;
   /// 읽어주기 막대를 연 채로 시작
   final bool readAloud;
-  const TextReaderPage({super.key, required this.item, this.readAloud = false});
+
+  /// 열자마자 읽기 시작 (앞 권을 다 읽고 이어서 넘어온 경우)
+  final bool autoPlay;
+
+  /// 앞 권에서 걸어 둔 취침 타이머 (이어 읽을 때 그대로)
+  final DateTime? sleepAt;
+  const TextReaderPage({super.key, required this.item, this.readAloud = false, this.autoPlay = false, this.sleepAt});
 
   @override
   State<TextReaderPage> createState() => _TextReaderPageState();
@@ -93,6 +99,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
   MediaItem get item => widget.item;
   int get _count => _doc?.blocks.length ?? 0;
   bool _awake = false; // 화면 켜 두기를 걸었는가
+  bool _handover = false; // 다 읽고 다음 권으로 이어 읽으러 넘어가는 중
   bool _atEnd = false; // 마지막 문단이 화면에 다 보임 → 다 읽음
   bool _wasFinished = false; // 다 읽은 책을 다시 연 것 (앞으로 돌아가지 않는 한 다 읽음 유지)
   int _openedAt = 0;
@@ -108,6 +115,12 @@ class _TextReaderPageState extends State<TextReaderPage> {
   void initState() {
     super.initState();
     _app; // dispose 에서 context 를 쓰지 않도록 미리 잡아둔다
+    if (widget.sleepAt != null && widget.sleepAt!.isAfter(DateTime.now())) {
+      _sleepAt = widget.sleepAt;
+      _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) setState(() {});
+      });
+    }
     if (context.read<Settings>().keepScreenOn) {
       _awake = true;
       ScreenAwake.hold();
@@ -135,6 +148,10 @@ class _TextReaderPageState extends State<TextReaderPage> {
         if (mounted) _updateCurrent();
       });
       _prepareCast();
+      if (widget.autoPlay) {
+        // 다 읽은 책이면 처음부터, 아니면 읽던 곳부터
+        _ttsPlay(from: _wasFinished ? 0 : _current);
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e);
     }
@@ -150,8 +167,11 @@ class _TextReaderPageState extends State<TextReaderPage> {
     if (_awake) ScreenAwake.release();
     _speaking = false;
     _sleepTick?.cancel();
-    BackgroundReading.stop();
-    Ambient.stop();
+    // 다음 권으로 이어 읽는 중이면 알림 · 배경음은 끄지 않는다 (다음 화면이 이어받음)
+    if (!_handover) {
+      BackgroundReading.stop();
+      Ambient.stop();
+    }
     _tts.dispose();
     _ctrl.dispose();
     _focus.dispose();
@@ -491,6 +511,18 @@ class _TextReaderPageState extends State<TextReaderPage> {
       setState(() => _ttsBlock = i + 1);
     }
     if (mounted && run == _ttsRun) {
+      // 책을 끝까지 읽었으면 다음 권을 이어서 (취침 타이머는 그대로 가져감)
+      final next = s.ttsContinueNext ? _app.nextVolume(item) : null;
+      if (next != null && !next.missing && (next.extension == '.txt' || next.extension == '.epub')) {
+        _handover = true;
+        _atEnd = true;
+        _app.beginView(next);
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => TextReaderPage(item: next, readAloud: true, autoPlay: true, sleepAt: _sleepAt)),
+        );
+        return;
+      }
       setState(() => _speaking = false);
       BackgroundReading.stop();
       Ambient.stop();
