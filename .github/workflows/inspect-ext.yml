@@ -19,13 +19,15 @@ jobs:
           get anthropic claude-code claude.vsix
           get openai chatgpt codex.vsix
           for d in x-claude-code x-chatgpt; do echo "== $d"; jq -r '.name+" "+.version' $d/extension/package.json; (cd $d/extension && find . -maxdepth 2 -size +200k -printf '%s %p\n' | sort -rn | head -12); done
-      - name: Claude open command
+      - name: Claude createPanel
         run: |
           cd x-claude-code/extension
           E=extension.js; W=webview/index.js
-          echo "--- primaryEditor.open (ext)"; grep -o '.\{300\}claude-vscode\.primaryEditor\.open".\{2600\}' $E | head -c 16000; echo
-          echo "--- editor.open (ext)"; grep -o '.\{100\}"claude-vscode\.editor\.open".\{1800\}' $E | head -c 8000; echo
-          for k in initialPrompt prefill pendingPrompt setInputValue set_input insertText focusInput focus_input create_new_conversation initial_prompt; do
-            echo "--- $k (ext)"; grep -o ".\{260\}$k.\{420\}" $E | head -c 3600; echo
-            echo "--- $k (webview)"; grep -o ".\{260\}$k.\{420\}" $W | head -c 3600; echo
-          done
+          echo "--- createPanel def"; grep -o '.\{60\}async createPanel(.\{5200\}' $E | head -c 16000; echo
+          echo "--- requestInputFocus calls"; grep -o '.\{500\}requestInputFocus(.\{300\}' $E | head -c 9000; echo
+          echo "--- hasPanelForSession"; grep -o '.\{80\}hasPanelForSession(.\{500\}' $E | head -c 3000; echo
+          echo "--- notifyActivateSession calls"; grep -o '.\{600\}notifyActivateSession(.\{400\}' $E | head -c 8000; echo
+          echo "--- webview consumeInputFocusRequest"; grep -o '.\{300\}consumeInputFocusRequest().\{500\}' $W | head -c 4000; echo
+          echo "--- webview ambientFocusAllowed"; grep -o '.\{400\}ambientFocusAllowed().\{400\}' $W | head -c 5000; echo
+          echo "--- webview activateSessionEvents"; grep -o '.\{200\}activateSessionEvents\.\(on\|subscribe\|add\)[a-zA-Z]*(.\{900\}' $W | head -c 5000; echo
+          echo "--- confirm uri"; grep -o '.\{100\}confirmedUriHandlerExtensionIds.\{200\}' $E | head -c 1000; echo
