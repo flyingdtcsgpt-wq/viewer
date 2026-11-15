@@ -855,6 +855,40 @@ test('창에 직접 입력: 쉬고 있을 때만 치고, 일하는 중이면 기
   } finally { child.kill(); srv.close(); fs.rmSync(path.join(sdir, `${pid}.json`), { force: true }); }
 });
 
+test('디버깅 포트(CDP): 창 목록, 창 안에서 식 계산, 글 넣기 · Enter, 긴 응답 · 조각난 프레임', async () => {
+  const cdp = require('../lib/cdp');
+  const calls = [];
+  const big = '가나다'.repeat(40000); // 64비트 길이 프레임
+  const fake = await require('./fake-cdp').start([
+    { id: 'W1', title: 'main.py - proj - Antigravity', handle(method, params) {
+      calls.push([method, params]);
+      if (method === 'Runtime.evaluate') {
+        if (params.expression === 'BIG') return { result: { type: 'string', value: big } };
+        if (params.expression === 'BOOM') return { exceptionDetails: { text: 'Uncaught', exception: { description: 'ReferenceError: BOOM is not defined\n    at <anonymous>' } } };
+        return { result: { type: 'object', value: { echo: params.expression, byValue: params.returnByValue } } };
+      }
+      if (method === 'No.Such') throw new Error("'No.Such' wasn't found");
+      return {};
+    } },
+  ]);
+  try {
+    const ts = await cdp.targets(fake.port);
+    assert.deepStrictEqual(ts.map(t => [t.type, t.title]), [['page', 'main.py - proj - Antigravity']]);
+    await cdp.withPage(ts[0].webSocketDebuggerUrl, async page => {
+      assert.deepStrictEqual(await page.evaluate('1+1'), { echo: '1+1', byValue: true });
+      assert.strictEqual(await page.evaluate('BIG'), big);
+      await assert.rejects(page.evaluate('BOOM'), /ReferenceError: BOOM is not defined$/);
+      await assert.rejects(page.call('No.Such'), /wasn't found/);
+      await page.insertText('한글 & "따옴표"\n둘째 줄');
+      await page.pressEnter();
+    });
+    const input = calls.filter(c => c[0].startsWith('Input.'));
+    assert.deepStrictEqual(input[0], ['Input.insertText', { text: '한글 & "따옴표"\n둘째 줄' }]);
+    assert.deepStrictEqual(input.slice(1).map(c => [c[0], c[1].type, c[1].key, c[1].windowsVirtualKeyCode]), [['Input.dispatchKeyEvent', 'keyDown', 'Enter', 13], ['Input.dispatchKeyEvent', 'keyUp', 'Enter', 13]]);
+    await assert.rejects(cdp.targets(1), /ECONNREFUSED|EACCES|응답/);
+  } finally { await fake.close(); }
+});
+
 test('Windows: 제목으로 창을 찾아 앞으로 가져오고 한글 · 여러 줄을 붙여넣은 뒤 Enter', { skip: process.platform !== 'win32' }, async () => {
   const typer = require('../lib/typer');
   const folder = 'ac-type-' + Math.random().toString(36).slice(2, 8);
