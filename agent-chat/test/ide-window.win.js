@@ -17,7 +17,13 @@ const ps = cmd => execFileSync('powershell.exe', ['-NoProfile', '-Command', cmd]
 
 (async () => {
   assert.ok(codeExe && fs.existsSync(codeExe), 'Code.exe 경로가 필요합니다');
-  const product = JSON.parse(fs.readFileSync(path.join(path.dirname(codeExe), 'resources', 'app', 'product.json'), 'utf8'));
+  // 예전: <폴더>\resources\app\product.json · 요즘 VS Code: <폴더>\<커밋>\resources\app\product.json
+  const root = path.dirname(codeExe);
+  console.log('설치 폴더:', fs.readdirSync(root).join(' '));
+  const pj = [root, ...fs.readdirSync(root).map(n => path.join(root, n))].map(d => path.join(d, 'resources', 'app', 'product.json')).find(f => fs.existsSync(f));
+  assert.ok(pj, 'product.json 을 찾지 못함');
+  console.log('product.json:', path.relative(root, pj));
+  const product = JSON.parse(fs.readFileSync(pj, 'utf8'));
   console.log('IDE:', product.nameShort, product.version, '· urlProtocol:', product.urlProtocol);
   console.log('주소를 묻지 않고 여는 확장:', JSON.stringify(product.trustedExtensionProtocolHandlers || []));
 

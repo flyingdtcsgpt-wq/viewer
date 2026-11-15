@@ -2,8 +2,8 @@
 # ASCII only on purpose: Windows PowerShell 5.1 reads a .ps1 without BOM in the system code page.
 # User-facing messages live in typer.js, keyed by the "stage" this script reports.
 #
-#   1) find the window : walk up from the conversation's process to the IDE (an exe with resources\app\product.json
-#                        next to it), then pick that IDE's window whose title contains the project folder name
+#   1) find the window : walk up from the conversation's process to the IDE (an exe that ships a VS Code
+#                        product.json), then pick that IDE's window whose title contains the project folder name
 #   2) bring it forward: verify it really became the foreground window. If the screen is locked or the Remote
 #                        Desktop session is disconnected this is where we stop (nothing typed)
 #   3) focus the chat  : (Claude) <IDE>.exe --open-url -- <scheme>://anthropic.claude-code/open?session=...
@@ -111,11 +111,28 @@ public static class AcWin {
 $procs = @{}
 foreach ($p in Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, Name, ExecutablePath) { $procs[[int]$p.ProcessId] = $p }
 
+# product.json of a VS Code family exe, or $null. Old layout: <dir>\resources\app\product.json.
+# Newer VS Code keeps resources in a versioned sub-folder: <dir>\<commit>\resources\app\product.json.
+$productCache = @{}
 function ProductOf($exe) {
   if (-not $exe) { return $null }
-  $f = Join-Path (Split-Path -Parent $exe) 'resources\app\product.json'
-  if (-not (Test-Path -LiteralPath $f)) { return $null }
-  try { return (Get-Content -Raw -Encoding UTF8 -LiteralPath $f | ConvertFrom-Json) } catch { return $null }
+  if ($productCache.ContainsKey($exe)) { return $productCache[$exe] }
+  $r = $null
+  try {
+    $dir = Split-Path -Parent $exe
+    $f = Join-Path $dir 'resources\app\product.json'
+    if (-not (Test-Path -LiteralPath $f)) {
+      $f = $null
+      $subs = @(Get-ChildItem -LiteralPath $dir -Directory -ErrorAction Stop)
+      if ($subs.Count -le 60) {
+        $found = @($subs | ForEach-Object { Join-Path $_.FullName 'resources\app\product.json' } | Where-Object { Test-Path -LiteralPath $_ } | Sort-Object { (Get-Item -LiteralPath $_).LastWriteTimeUtc } -Descending)
+        if ($found.Count) { $f = $found[0] }
+      }
+    }
+    if ($f) { $r = (Get-Content -Raw -Encoding UTF8 -LiteralPath $f | ConvertFrom-Json) }
+  } catch { $r = $null }
+  $productCache[$exe] = $r
+  return $r
 }
 
 $ideExe = $null; $idePids = @(); $product = $null
