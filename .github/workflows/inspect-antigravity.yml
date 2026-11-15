@@ -1,4 +1,4 @@
-# 임시: Antigravity 를 받아 띄워서, 디버깅 포트(CDP)로 대화 입력 칸 · 대화 글이 어떻게 보이는지 훑어본다. 확인 뒤 지운다.
+# 임시: Antigravity IDE 의 에이전트가 어떻게 돌아가는지(로컬 허브 · agy CLI · 대화 저장) 훑어본다. 확인 뒤 지운다.
 name: inspect-antigravity
 on:
   push:
@@ -14,89 +14,81 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install
+      - name: Install and launch
         run: |
           $ErrorActionPreference = 'Continue'
-          foreach ($id in 'Google.AntigravityIDE', 'Google.AntigravityCLI') {
-            "== winget install $id"
-            winget install -e --id $id --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Select-Object -Last 3
-          }
-          "== Programs"; (Get-ChildItem "$env:LOCALAPPDATA\Programs" -Directory | ForEach-Object { $_.Name }) -join ' '
-          $cands = Get-ChildItem "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles", "$env:LOCALAPPDATA\Microsoft\WinGet\Packages", "$env:LOCALAPPDATA\Microsoft\WinGet\Links" -Recurse -Filter *.exe -Depth 3 -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'antigravity|^agy|jetski' }
-          $cands | ForEach-Object { "exe: $($_.FullName) $([math]::Round($_.Length/1MB))MB" }
-          $ide = $null
-          foreach ($c in $cands) {
-            $d = Split-Path -Parent $c.FullName
-            $pj = @(Join-Path $d 'resources\app\product.json') + @(Get-ChildItem $d -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'resources\app\product.json' }) | Where-Object { Test-Path $_ } | Select-Object -First 1
-            if ($pj -and $c.Name -notmatch 'unins') { $ide = $c.FullName; "IDE exe: $ide"; "AG_EXE=$ide" | Out-File -Append $env:GITHUB_ENV; "AG_PRODUCT=$pj" | Out-File -Append $env:GITHUB_ENV; break }
-          }
-          if (-not $ide) { "no VS Code family exe found" }
-          "== CLI"
-          foreach ($n in 'antigravity', 'agy', 'antigravity-cli') { $g = Get-Command $n -ErrorAction SilentlyContinue; if ($g) { "$n -> $($g.Source)"; & $g.Source --version 2>&1 | Select-Object -First 3; & $g.Source --help 2>&1 | Select-Object -First 70 } }
-      - name: Static look
-        if: env.AG_EXE != ''
-        run: |
-          $ErrorActionPreference = 'Continue'
-          $root = Split-Path -Parent $env:AG_EXE
-          (Get-ChildItem $root | ForEach-Object { $_.Name }) -join ' '
-          "product.json: $env:AG_PRODUCT"
-          $p = Get-Content -Raw $env:AG_PRODUCT | ConvertFrom-Json
-          $p | Select-Object nameShort, nameLong, applicationName, dataFolderName, urlProtocol, version, ideVersion, win32MutexName | Format-List
-          "trusted uri handlers: $($p.trustedExtensionProtocolHandlers -join ', ')"
-          $ext = Join-Path (Split-Path -Parent $env:AG_PRODUCT) 'extensions'
-          (Get-ChildItem $ext -Directory | ForEach-Object { $_.Name }) -join ' '
-          foreach ($d in Get-ChildItem $ext -Directory | Where-Object { $_.Name -match 'antigravity|jetski|cascade|windsurf|codeium|agent|gemini' }) {
-            "=== ext $($d.Name)"
-            $pk = Join-Path $d.FullName 'package.json'
-            if (Test-Path $pk) {
-              $j = Get-Content -Raw $pk | ConvertFrom-Json
-              "commands:"; $j.contributes.commands | ForEach-Object { "  $($_.command) | $($_.title)" } | Select-Object -First 140
-              "keybindings:"; $j.contributes.keybindings | ForEach-Object { "  $($_.command) | $($_.key) | $($_.when)" } | Select-Object -First 90
-            }
-            Get-ChildItem $d.FullName -Recurse -File | Where-Object { $_.Length -gt 5MB } | ForEach-Object { "  big: $($_.FullName.Substring($d.FullName.Length)) $([math]::Round($_.Length/1MB))MB" }
-          }
-      - name: Launch with a debugging port and dump what the window shows
-        if: env.AG_EXE != ''
-        run: |
-          $ErrorActionPreference = 'Continue'
+          foreach ($id in 'Google.AntigravityIDE', 'Google.AntigravityCLI') { winget install -e --id $id --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1 | Select-Object -Last 1 }
+          $exe = "$env:LOCALAPPDATA\Programs\Antigravity IDE\Antigravity IDE.exe"
           $work = Join-Path $env:RUNNER_TEMP 'ag-work'; New-Item -ItemType Directory -Force $work | Out-Null; 'hello' | Out-File (Join-Path $work 'hello.txt')
-          $data = Join-Path $env:RUNNER_TEMP 'ag-data'
-          @'
-          const port = process.argv[2];
-          const sleep = ms => new Promise(r => setTimeout(r, ms));
-          async function targets() { try { return await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); } catch { return null; } }
-          function evalIn(wsUrl, expression) { return new Promise((res, rej) => { const ws = new WebSocket(wsUrl); const t = setTimeout(() => { try { ws.close(); } catch {} rej(new Error('timeout')); }, 15000); ws.onopen = () => ws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true, awaitPromise: true } })); ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id === 1) { clearTimeout(t); ws.close(); res(m.result && m.result.result ? m.result.result.value : m); } }; ws.onerror = () => { clearTimeout(t); rej(new Error('ws error')); }; }); }
-          const OUTLINE = `(() => {
-            const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
-            const cls = (e, n) => (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\\s+/).slice(0, n).join('.') : '');
-            const at = (e, a, k) => e.getAttribute(a) ? ' ' + k + '=' + JSON.stringify(e.getAttribute(a).slice(0, 60)) : '';
-            const desc = e => { const r = e.getBoundingClientRect(); return e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + cls(e, 4) + at(e, 'role', 'role') + at(e, 'aria-label', 'aria') + at(e, 'placeholder', 'ph') + at(e, 'data-placeholder', 'dph') + ' @' + Math.round(r.x) + ',' + Math.round(r.y) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height); };
-            const path = e => { const p = []; for (let x = e.parentElement; x && x !== document.body && p.length < 8; x = x.parentElement) p.push(x.tagName.toLowerCase() + (x.id ? '#' + x.id : '') + cls(x, 2)); return p.reverse().join(' > '); };
-            const inputs = [...document.querySelectorAll('textarea, input:not([type=hidden]), [contenteditable=""], [contenteditable="true"], [role="textbox"]')].filter(vis).map(e => desc(e) + '\\n        in: ' + path(e));
-            const parts = [...document.querySelectorAll('.part, iframe, webview')].map(e => desc(e) + (e.src ? ' src=' + String(e.src).slice(0, 90) : ''));
-            const buttons = [...new Set([...document.querySelectorAll('button, [role="button"], a.action-label')].filter(vis).map(e => (e.innerText || e.getAttribute('aria-label') || e.title || '').trim().replace(/\\s+/g, ' ').slice(0, 40)).filter(Boolean))].slice(0, 90);
-            return { title: document.title, url: location.href.slice(0, 140), inputs, parts, buttons, text: document.body.innerText.replace(/\\n{2,}/g, '\\n').slice(0, 2200) };
-          })()`;
-          (async () => {
-            let ts = null;
-            for (let i = 0; i < 90 && !(ts && ts.length); i++) { await sleep(1000); ts = await targets(); }
-            if (!ts) { console.log('no debugging endpoint'); process.exit(1); }
-            for (const wait of [15000, 30000]) {
-              await sleep(wait);
-              ts = await targets();
-              console.log(`\n######## targets after +${wait / 1000}s`);
-              for (const t of ts) console.log(` [${t.type}] ${JSON.stringify(t.title)} ${String(t.url).slice(0, 110)}`);
-              for (const t of ts.filter(t => t.webSocketDebuggerUrl && /page|iframe|webview/.test(t.type))) {
-                try { const o = await evalIn(t.webSocketDebuggerUrl, OUTLINE); console.log(`\n==== [${t.type}] ${t.title}`); console.log(JSON.stringify(o, null, 1).slice(0, 9000)); } catch (e) { console.log(`\n==== [${t.type}] ${t.title}: ${e.message}`); }
-              }
-            }
-            process.exit(0);
-          })();
-          '@ | Out-File -Encoding utf8 (Join-Path $env:RUNNER_TEMP 'cdp-dump.js')
           $env:ELECTRON_RUN_AS_NODE = $null
-          Start-Process -FilePath $env:AG_EXE -ArgumentList @('--remote-debugging-port=9333', '--user-data-dir', $data, '--disable-workspace-trust', $work)
-          node (Join-Path $env:RUNNER_TEMP 'cdp-dump.js') 9333
-          "--- user data / home folders"
-          Get-ChildItem $data -Depth 1 -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($data.Length) } | Select-Object -First 40
-          Get-ChildItem (Join-Path $env:USERPROFILE '.gemini') -Recurse -Depth 3 -ErrorAction SilentlyContinue | ForEach-Object { "$($_.FullName.Substring($env:USERPROFILE.Length)) $($_.Length)" } | Select-Object -First 60
-          Get-ChildItem $env:USERPROFILE -Force -Directory | Where-Object { $_.Name -match 'antigravity|gemini|codeium' } | ForEach-Object { $_.FullName }
+          Start-Process -FilePath $exe -ArgumentList @('--remote-debugging-port=9333', '--user-data-dir', (Join-Path $env:RUNNER_TEMP 'ag-data'), '--disable-workspace-trust', $work)
+          $d = Join-Path $env:USERPROFILE '.gemini\antigravity\daemon'
+          for ($i = 0; $i -lt 90; $i++) { if (Test-Path "$d\hub_*.json") { break }; Start-Sleep 1 }
+          Start-Sleep 8
+          Get-ChildItem $d -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }
+      - name: Processes and small files
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $red = { param($s) [regex]::Replace([string]$s, '([A-Za-z0-9+/_=-]{6})[A-Za-z0-9+/_=-]{18,}', '$1...') }
+          "== agy processes"
+          Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^agy' } | ForEach-Object { "pid $($_.ProcessId) parent $($_.ParentProcessId): " + (& $red $_.CommandLine) }
+          "== parent of agy"
+          Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^agy' } | ForEach-Object { $pp = Get-CimInstance Win32_Process -Filter "ProcessId=$($_.ParentProcessId)"; "$($pp.Name): " + (& $red $pp.CommandLine).Substring(0, [Math]::Min(300, (& $red $pp.CommandLine).Length)) }
+          $g = Join-Path $env:USERPROFILE '.gemini'
+          foreach ($f in (Get-ChildItem "$g\antigravity\daemon\*.json") + @(Get-Item "$g\antigravity\antigravity_state.pbtxt", "$g\config\config.json", "$g\bin\agy.version.json" -ErrorAction SilentlyContinue)) { "== $($f.FullName.Substring($g.Length))"; & $red (Get-Content -Raw $f.FullName) }
+          "== conversation_summaries.db schema"
+          python -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); [print(r[0]) for r in c.execute('select sql from sqlite_master where sql is not null')]" "$g\antigravity\conversation_summaries.db"
+          "== conversations / brain"; Get-ChildItem "$g\antigravity\conversations", "$g\antigravity\brain", "$g\config\projects" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { "$($_.FullName.Substring($g.Length)) $($_.Length)" } | Select-Object -First 30
+      - name: Hub web app
+        run: |
+          @'
+          const fs = require('fs'), os = require('os'), path = require('path'), http = require('http');
+          const dir = path.join(os.homedir(), '.gemini', 'antigravity', 'daemon');
+          const port = (fs.readdirSync(dir).map(f => f.match(/^hub_(\d+)\.json$/)).find(Boolean) || [])[1];
+          const req = (p, headers = {}, method = 'GET', body) => new Promise(res => { const r = http.request({ host: '127.0.0.1', port, path: p, method, headers }, x => { let b = ''; x.setEncoding('utf8'); x.on('data', d => b += d); x.on('end', () => res({ status: x.statusCode, headers: x.headers, body: b })); }); r.on('error', e => res({ status: 0, headers: {}, body: String(e) })); if (body) r.write(body); r.end(); });
+          const uniq = a => [...new Set(a)];
+          (async () => {
+            console.log('hub port', port);
+            const page = await req('/?extensionView=true&useWebSocket=true');
+            console.log('GET / ->', page.status, JSON.stringify(page.headers).slice(0, 700));
+            console.log(page.body.slice(0, 1500));
+            for (const [name, h] of [['other Host', { Host: '100.64.0.9:8791' }], ['other Origin', { Origin: 'http://100.64.0.9:8791' }], ['no headers', {}]]) console.log('GET / with', name, '->', (await req('/', h)).status);
+            const srcs = uniq([...page.body.matchAll(/(?:src|href)="([^"]+\.(?:js|mjs))"/g)].map(m => m[1]));
+            console.log('scripts', srcs);
+            let all = '';
+            for (const s of srcs) { const r = await req(s.startsWith('/') ? s : '/' + s); console.log(' ', s, r.status, r.body.length); all += '\n' + r.body; }
+            // 더 불러오는 조각들
+            const chunks = uniq([...all.matchAll(/["'`]((?:\.\/|\/)?assets\/[A-Za-z0-9_.-]+\.js)["'`]/g)].map(m => m[1])).slice(0, 80);
+            console.log('chunks', chunks.length);
+            for (const s of chunks) { const r = await req('/' + s.replace(/^\.?\//, '')); if (r.status === 200) all += '\n' + r.body; }
+            console.log('total js', all.length);
+            const rpc = uniq([...all.matchAll(/[a-z][A-Za-z0-9_.]*\.[A-Z][A-Za-z]*Service\/?[A-Za-z]*/g)].map(m => m[0])); console.log('services', rpc.slice(0, 60));
+            const paths = uniq([...all.matchAll(/["'`](\/(?:api|v\d|rpc|ws|hub|connect)[A-Za-z0-9_\/.:-]*)["'`]/g)].map(m => m[1])); console.log('paths', paths.slice(0, 150));
+            const methods = uniq([...all.matchAll(/name:"([A-Z][A-Za-z]{3,60})",(?:I|input):/g)].map(m => m[1])); console.log('rpc methods', methods.length, methods.slice(0, 400).join(' '));
+            for (const k of ['csrf', 'x-[a-z-]*token', 'new WebSocket\\(', 'Authorization', 'useWebSocket', 'SendUser', 'sendMessage', 'extensionView']) { const m = [...all.matchAll(new RegExp('.{90}' + k + '.{140}', 'gi'))].slice(0, 4).map(x => x[0].replace(/\s+/g, ' ')); console.log('--', k, m.length); for (const x of m) console.log('   ', x); }
+          })();
+          '@ | Out-File -Encoding utf8 (Join-Path $env:RUNNER_TEMP 'hub-probe.js')
+          node (Join-Path $env:RUNNER_TEMP 'hub-probe.js')
+      - name: agy CLI
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $agy = (Get-Command agy -ErrorAction SilentlyContinue).Source; if (-not $agy) { $agy = "$env:USERPROFILE\.gemini\bin\agy.exe" }
+          "agy: $agy"
+          foreach ($a in @('help', 'remote-control'), @('remote-control', 'status'), @('help', 'acp'), @('models'), @('agents')) { "== agy $($a -join ' ')"; & $agy @a 2>&1 | Select-Object -First 25 }
+          "== agy -p (not signed in)"
+          $j = Start-Job { param($agy, $w) Set-Location $w; 'say hi' | & $agy -p --output-format stream-json 2>&1 | Select-Object -First 25 } -ArgumentList $agy, (Join-Path $env:RUNNER_TEMP 'ag-work')
+          Wait-Job $j -Timeout 40 | Out-Null; Receive-Job $j; Stop-Job $j -ErrorAction SilentlyContinue
+          "== agy acp"
+          @'
+          const { spawn } = require('child_process');
+          const c = spawn(process.argv[2], ['acp'], { cwd: process.argv[3], stdio: ['pipe', 'pipe', 'pipe'] });
+          let buf = '';
+          c.stdout.on('data', d => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { console.log('<-', buf.slice(0, i).slice(0, 1800)); buf = buf.slice(i + 1); } });
+          c.stderr.on('data', d => console.log('stderr:', String(d).slice(0, 300)));
+          const send = o => { console.log('->', JSON.stringify(o).slice(0, 200)); c.stdin.write(JSON.stringify(o) + '\n'); };
+          send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'agent-chat', version: '0' } } });
+          setTimeout(() => send({ jsonrpc: '2.0', id: 2, method: 'session/list', params: {} }), 4000);
+          setTimeout(() => send({ jsonrpc: '2.0', id: 3, method: 'session/new', params: { cwd: process.argv[3], mcpServers: [] } }), 7000);
+          setTimeout(() => { c.kill(); process.exit(0); }, 16000);
+          '@ | Out-File -Encoding utf8 (Join-Path $env:RUNNER_TEMP 'acp-probe.js')
+          node (Join-Path $env:RUNNER_TEMP 'acp-probe.js') $agy (Join-Path $env:RUNNER_TEMP 'ag-work')
