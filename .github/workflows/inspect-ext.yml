@@ -1,0 +1,51 @@
+# 임시: VS Code 확장(Claude Code · Codex)이 밖에서 글을 받는 길(URI · 명령)을 확인하려고 소스를 훑어본다. 확인 뒤 지운다.
+name: inspect-ext
+on:
+  push:
+    paths: ['.github/workflows/inspect-ext.yml']
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download
+        run: |
+          set +e
+          get() { # publisher name out
+            curl -sSL --compressed -o "$3" "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/$1/vsextensions/$2/latest/vspackage?targetPlatform=win32-x64"
+            unzip -tq "$3" >/dev/null 2>&1 || curl -sSL --compressed -o "$3" "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/$1/vsextensions/$2/latest/vspackage"
+            unzip -tq "$3" >/dev/null 2>&1 || { u=$(curl -sS "https://open-vsx.org/api/$1/$2" | jq -r '.files.download'); echo "openvsx: $u"; curl -sSL -o "$3" "$u"; }
+            ls -la "$3"; mkdir -p "x-$2"; unzip -q -o "$3" -d "x-$2"; }
+          get anthropic claude-code claude.vsix
+          get openai chatgpt codex.vsix
+          for d in x-claude-code x-chatgpt; do echo "== $d"; jq -r '.name+" "+.version' $d/extension/package.json; (cd $d/extension && find . -maxdepth 2 -size +200k -printf '%s %p\n' | sort -rn | head -12); done
+      - name: Claude package.json
+        run: |
+          cd x-claude-code/extension
+          jq -c '.contributes.commands[] | [.command,.title]' package.json
+          jq -c '.contributes.keybindings' package.json | cut -c1-3000
+          jq -c '.activationEvents, .extensionKind, .main' package.json
+      - name: Claude source
+        run: |
+          cd x-claude-code/extension
+          M=$(jq -r .main package.json); M=${M#./}; [ -f "$M" ] || M="$M.js"; ls -la "$M"
+          echo "--- registerCommand"; grep -o 'registerCommand("[^"]*"' "$M" | sort -u
+          echo "--- executeCommand"; grep -o 'executeCommand("[^"]*"' "$M" | sort -u | head -80
+          echo "--- uri handler"; grep -o '.\{600\}registerUriHandler.\{2500\}' "$M" | head -c 9000; echo
+          echo "--- handleUri"; grep -o '.\{200\}handleUri.\{3500\}' "$M" | head -c 12000; echo
+          echo "--- prompt param"; grep -o '.\{700\}\.get("prompt").\{2500\}' "$M" | head -c 12000; echo
+          echo "--- exports"; grep -o '.\{300\}async function activate.\{800\}' "$M" | head -c 4000; echo
+          echo "--- webview js"; ls -la webview 2>/dev/null | head; find . -name "*.js" -size +100k -printf '%s %p\n' | sort -rn | head
+      - name: Codex package.json
+        run: |
+          cd x-chatgpt/extension
+          jq -c '.contributes.commands[] | [.command,.title]' package.json
+          jq -c '.contributes.keybindings' package.json | cut -c1-3000
+          jq -c '.activationEvents, .main' package.json
+      - name: Codex source
+        run: |
+          cd x-chatgpt/extension
+          M=$(jq -r .main package.json); M=${M#./}; [ -f "$M" ] || M="$M.js"; ls -la "$M"
+          echo "--- registerCommand"; grep -o 'registerCommand("[^"]*"' "$M" | sort -u
+          echo "--- uri handler"; grep -o '.\{600\}registerUriHandler.\{2500\}' "$M" | head -c 9000; echo
+          echo "--- handleUri"; grep -o '.\{200\}handleUri.\{3000\}' "$M" | head -c 10000; echo
