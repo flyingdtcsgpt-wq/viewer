@@ -115,7 +115,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
   void initState() {
     super.initState();
     _app; // dispose 에서 context 를 쓰지 않도록 미리 잡아둔다
-    if (widget.sleepAt != null && widget.sleepAt!.isAfter(DateTime.now())) {
+    if (widget.sleepAt != null) {
+      // 이미 지난 시각이어도 그대로 둔다: 읽기 시작하자마자 취침 타이머가 멈춰 준다 (타이머 없이 계속 읽지 않게)
       _sleepAt = widget.sleepAt;
       _sleepTick = Timer.periodic(const Duration(seconds: 30), (_) {
         if (mounted) setState(() {});

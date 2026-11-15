@@ -8,10 +8,13 @@ class BackgroundReading {
   BackgroundReading._();
   static const _ch = MethodChannel('mediashelf/bg');
   static bool _on = false;
+  static String _title = '';
 
   static Future<void> start(String title) async {
-    if (!Platform.isAndroid || _on) return;
+    // 이미 켜져 있어도 제목이 바뀌었으면 알림을 고친다 (다음 권으로 이어 읽을 때)
+    if (!Platform.isAndroid || (_on && title == _title)) return;
     _on = true;
+    _title = title;
     try {
       await _ch.invokeMethod('start', {'title': title});
     } catch (_) {}

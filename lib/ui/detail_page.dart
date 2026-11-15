@@ -186,36 +186,36 @@ class _DetailPageState extends State<DetailPage> {
         child: ClipRRect(borderRadius: BorderRadius.circular(12), child: CoverImage(item: item, fit: BoxFit.contain)),
       ),
       const SizedBox(height: 12),
-      Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [
-        FilledButton.icon(
+      // 보기 단추는 크게 한 줄, 나머지는 아래에 작게 모아서
+      SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
           onPressed: () async {
             await openItem(context, item);
             if (mounted) setState(() {});
           },
           icon: Icon(item.kind == MediaKind.video ? Icons.play_arrow : Icons.chrome_reader_mode),
           label: Text(item.kind == MediaKind.video
-              ? (item.progress > 0 ? '이어보기' : '재생')
-              : (item.progress > 0 ? '이어읽기 ${(item.progress * 100).round()}%' : '보기')),
+              ? (item.progress > 0 && item.progress < 0.98 ? '이어보기' : '재생')
+              : (item.progress > 0 && item.progress < 0.98 ? '이어읽기 ${(item.progress * 100).round()}%' : '보기')),
         ),
-        if (context.watch<AppState>().isInProgress(item) || context.watch<AppState>().isNextUp(item))
+      ),
+      const SizedBox(height: 8),
+      Wrap(spacing: 6, runSpacing: 6, alignment: WrapAlignment.center, children: [
+        for (final (icon, label, onTap) in <(IconData, String, VoidCallback)>[
+          if (context.watch<AppState>().isInProgress(item) || context.watch<AppState>().isNextUp(item))
+            (Icons.playlist_remove, '보던 목록에서 빼기', () => removeFromContinueWithUndo(context, [item])),
+          (Icons.open_in_new, '다른 앱으로', () => openWithSystem(item.path)),
+          (Icons.image, '커버 변경', _pickCover),
+          if (item.coverPath != null) (Icons.crop, '표지 편집', _editCover),
+          if (Platform.isWindows) (Icons.folder_open, '폴더 열기', () => Process.run('explorer.exe', ['/select,${item.path}'])),
+        ])
           OutlinedButton.icon(
-            onPressed: () => removeFromContinueWithUndo(context, [item]),
-            icon: const Icon(Icons.playlist_remove),
-            label: const Text('보던 목록에서 빼기'),
-          ),
-        OutlinedButton.icon(
-          onPressed: () => openWithSystem(item.path),
-          icon: const Icon(Icons.open_in_new),
-          label: const Text('다른 앱으로'),
-        ),
-        OutlinedButton.icon(onPressed: _pickCover, icon: const Icon(Icons.image), label: const Text('커버 변경')),
-        if (item.coverPath != null)
-          OutlinedButton.icon(onPressed: _editCover, icon: const Icon(Icons.crop), label: const Text('표지 편집')),
-        if (Platform.isWindows)
-          OutlinedButton.icon(
-            onPressed: () => Process.run('explorer.exe', ['/select,${item.path}']),
-            icon: const Icon(Icons.folder_open),
-            label: const Text('폴더 열기'),
+            style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 10)),
+            onPressed: onTap,
+            icon: Icon(icon, size: 18),
+            label: Text(label),
           ),
       ]),
       const SizedBox(height: 12),
@@ -240,7 +240,7 @@ class _DetailPageState extends State<DetailPage> {
           Text(
             [
               item.progress >= 0.98 ? '다 봄' : (item.progress > 0 ? '${(item.progress * 100).round()}% 봄' : '아직 안 봄'),
-              if (item.lastOpened != null) '마지막 ${item.lastOpened!.year}.${item.lastOpened!.month}.${item.lastOpened!.day}',
+              if (item.lastOpened != null && item.progress > 0) '마지막 ${item.lastOpened!.year}.${item.lastOpened!.month}.${item.lastOpened!.day}',
             ].join(' · '),
             style: Theme.of(context).textTheme.bodySmall,
           ),
