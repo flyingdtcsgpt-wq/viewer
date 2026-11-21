@@ -371,10 +371,30 @@ void main() {
       press('눈 보호');
       await shot('09b_텍스트뷰어_다크_눈보호', 600);
       debugPrint('CHECK reader line=$lh->${settings.readerLineHeight.toStringAsFixed(1)} dark=$wasDark->${settings.readerIsDark} eyeCare=${settings.eyeCare}');
+      // 아래 이동 막대: 가운데로 옮기면 위치(%)가 따라온다
+      final bar = tester.widgetList<Slider>(find.byType(Slider)).lastOrNull;
+      bar?.onChangeEnd?.call(0.5);
+      await wait(500);
+      final pcts = tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).where((d) => d != null && RegExp(r'^\d+%$').hasMatch(d)).toList();
+      debugPrint('CHECK reader seekBar=${bar != null} percents=$pcts');
+      await shot('09e_텍스트뷰어_이동막대', 300);
       settings.eyeCare = false;
       if (settings.readerIsDark != wasDark) settings.toggleReaderDark();
       settings.readerLineHeight = lh;
       await popAll();
+    });
+
+    await step('history once per day', () async {
+      // 같은 작품을 같은 날 여러 번 열어도 열람 기록은 한 줄
+      final it = comic ?? state.allItems.first;
+      await tester.runAsync(() async {
+        for (var k = 0; k < 3; k++) {
+          await state.beginView(it);
+          await state.saveProgress(it, '$k', 0.1 * (k + 1));
+        }
+        final rows = await state.historyList();
+        debugPrint('CHECK history sameDayRows=${rows.where((r) => r.$2.id == it.id).length} total=${rows.length} top=${rows.firstOrNull?.$2.id == it.id}');
+      });
     });
 
     await step('image viewer modes', () async {

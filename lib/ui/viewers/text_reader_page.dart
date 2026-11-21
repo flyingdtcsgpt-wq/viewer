@@ -1012,6 +1012,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
               if (_ttsPanel) Positioned(top: 8, left: 8, right: 8, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 720), child: _ttsBar(s)))),
             ]),
           ),
+          // 아래 이동 막대: 끌어서 책의 아무 곳으로 (목차가 없는 글도 쉽게 옮겨 다닐 수 있게)
+          if (_chrome && s.viewerSlider && _count > 1) _seekBar(),
           if (_chrome && s.viewerSlider && (_doc?.toc.isNotEmpty ?? false)) _chapterStrip(),
         ]),
       ),
@@ -1201,7 +1203,9 @@ class _TextReaderPageState extends State<TextReaderPage> {
                   ('위아래로 밀기', '스크롤해서 읽기'),
                   ('가운데 누르기', '위 메뉴 보이기 · 숨기기'),
                   ('글자 선택 단추', '글자를 끌어 고른 뒤 형광펜 · 복사 · 검색'),
+                  ('책갈피 단추', '지금 읽는 곳을 표시 · 다시 누르면 지움. 목록은 ☰(목차) › 하이라이트'),
                   ('다크 · 눈 보호 단추', '어두운 화면 / 푸른빛 줄이기'),
+                  ('아래 이동 막대', '끌어서 책의 아무 곳으로 (왼쪽 숫자가 지금 위치 %)'),
                   ('⚙ 뷰어 설정', '테마 · 글꼴 · 글자 크기 · 줄 간격 · 문단 간격 · 눈 보호 세기'),
                   ('끝에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
                   ('볼륨 버튼', '화면 넘기기 (설정 › 뷰어에서 켜기)'),
@@ -1413,6 +1417,65 @@ class _TextReaderPageState extends State<TextReaderPage> {
   }
 
   // ---------- 아래 장(章) 줄 ----------
+  double? _seek; // 이동 막대를 끄는 동안의 값 (0 ~ 1)
+  DateTime _seekAt = DateTime(0);
+
+  /// 아래 이동 막대: 왼쪽에 지금 위치(%), 끄는 동안에는 그 자리의 장 제목. 끌면 본문이 따라 움직인다
+  Widget _seekBar() {
+    final n = _count;
+    final v = (_seek ?? _current / (n - 1)).clamp(0.0, 1.0);
+    final at = (v * (n - 1)).round();
+    // 그 자리가 속한 장 (목차가 있을 때)
+    String chapter = '';
+    for (final t in _doc?.toc ?? const <TocEntry>[]) {
+      if (t.block > at) break;
+      chapter = t.title;
+    }
+    return Container(
+      height: 44,
+      color: const Color(0xFF141414),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: Row(children: [
+        SizedBox(
+          width: 44,
+          child: Text('${(v * 100).round()}%', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 4,
+              activeTrackColor: toolActive,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: Colors.white,
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+            ),
+            child: Slider(
+              value: v,
+              onChanged: (x) {
+                setState(() => _seek = x);
+                // 끄는 동안에도 본문이 따라오게 (너무 자주 다시 그리지 않게 0.1초에 한 번)
+                final now = DateTime.now();
+                if (now.difference(_seekAt) > const Duration(milliseconds: 100)) {
+                  _seekAt = now;
+                  _jumpTo((x * (n - 1)).round());
+                }
+              },
+              onChangeEnd: (x) {
+                _jumpTo((x * (n - 1)).round());
+                setState(() => _seek = null);
+              },
+            ),
+          ),
+        ),
+        if (chapter.isNotEmpty)
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 180),
+            child: Text(chapter, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          ),
+      ]),
+    );
+  }
+
   Widget _chapterStrip() {
     final toc = _doc!.toc;
     final cur = _tocIndex;
@@ -1684,7 +1747,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
             options: const [(true, null, '켜기'), (false, null, '끄기')],
           ),
           SegmentRow<bool>(
-            title: '아래 장 탐색 바',
+            title: '아래 이동 막대 · 장 탐색 바',
             value: s.viewerSlider,
             onChanged: (v) => s.viewerSlider = v,
             options: const [(true, Icons.view_carousel, '표시'), (false, Icons.visibility_off, '숨기기')],

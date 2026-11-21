@@ -77,7 +77,8 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
     super.dispose();
   }
 
-  void _touch() => _app.saveProgress(_item, '0', 0); // '최근 본' 기록용
+  // '최근 본' 표시용. 넘겨 보며 지나간 그림마다 열람 기록 줄을 만들지는 않는다 (처음 연 그림만 기록에 남는다)
+  void _touch() => _app.saveProgress(_item, '0', 0, log: false);
 
   /// 보기 방식을 바꾸면 보던 그림에서 그대로 이어 간다
   void _onSettings() {

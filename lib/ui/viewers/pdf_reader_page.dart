@@ -77,6 +77,34 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
     _ctrl.goToPage(pageNumber: page.clamp(1, _pages));
   }
 
+  /// 책갈피 목록 (눌러서 그 쪽으로, × 로 지우기)
+  void _showBookmarks(Settings s) {
+    final marks = s.bookmarks(item.id!)..sort();
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => ListView(shrinkWrap: true, children: [
+        const ListTile(title: Text('책갈피')),
+        if (marks.isEmpty) const ListTile(title: Text('책갈피가 없습니다. 위쪽 책갈피 단추를 누르면 지금 쪽이 표시됩니다.')),
+        for (final m in marks)
+          ListTile(
+            leading: const Icon(Icons.bookmark),
+            title: Text('$m쪽'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _go(m);
+            },
+            trailing: IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () {
+                s.toggleBookmark(item.id!, m);
+                Navigator.pop(ctx);
+              },
+            ),
+          ),
+      ]),
+    );
+  }
+
   void _toggleFullscreen() {
     setState(() {
       _fullscreen = !_fullscreen;
@@ -178,14 +206,17 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                             onTap: () => s.viewerSlider = !s.viewerSlider,
                           ),
                         ]),
-                        ToolGroup([
-                          ToolBtn(
-                            icon: marked ? Icons.bookmark : Icons.bookmark_border,
-                            tooltip: '책갈피 (B)',
-                            active: marked,
-                            onTap: () => s.toggleBookmark(item.id!, _page),
-                          ),
-                        ]),
+                        GestureDetector(
+                          onLongPress: () => _showBookmarks(s),
+                          child: ToolGroup([
+                            ToolBtn(
+                              icon: marked ? Icons.bookmark : Icons.bookmark_border,
+                              tooltip: '책갈피 (B) · 길게 누르면 목록',
+                              active: marked,
+                              onTap: () => s.toggleBookmark(item.id!, _page),
+                            ),
+                          ]),
+                        ),
                         if (!kStore)
                         ToolGroup([
                           ToolBtn(
@@ -216,9 +247,10 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                               ('Home / End', '처음 / 끝'),
                               ('Ctrl+휠', '확대 / 축소'),
                               ('F', '전체화면'),
-                              ('B', '책갈피'),
+                              ('B', '책갈피: 지금 쪽 표시 (단추를 길게 누르면 목록)'),
                               ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
                             ], touch: const [
+                              ('책갈피 단추', '지금 쪽을 표시 · 다시 누르면 지움 · 길게 누르면 목록'),
                               ('위아래로 밀기', '쪽 넘기기'),
                               ('두 손가락 벌리기 · 두 번 누르기', '확대 · 축소'),
                               ('아래 썸네일 줄', '원하는 쪽으로 바로 가기'),
@@ -310,6 +342,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                     itemCount: _pages,
                     itemBuilder: (_, i) {
                       final on = i + 1 == _page;
+                      final mark = s.bookmarks(item.id!).contains(i + 1);
                       return GestureDetector(
                         onTap: () => _go(i + 1),
                         child: Container(
@@ -322,7 +355,13 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                             border: Border.all(color: on ? toolActive : Colors.white12, width: on ? 2 : 1),
                           ),
                           child: Column(children: [
-                            Expanded(child: PdfPageView(document: _doc, pageNumber: i + 1)),
+                            Expanded(
+                              child: Stack(children: [
+                                Positioned.fill(child: PdfPageView(document: _doc, pageNumber: i + 1)),
+                                // 책갈피를 해 둔 쪽
+                                if (mark) const Positioned(right: 0, top: 0, child: Icon(Icons.bookmark, color: Colors.redAccent, size: 18)),
+                              ]),
+                            ),
                             const SizedBox(height: 2),
                             Text('${i + 1}', style: const TextStyle(color: Colors.white70, fontSize: 11)),
                           ]),

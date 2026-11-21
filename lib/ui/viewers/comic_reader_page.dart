@@ -487,7 +487,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   ('두 번 누르기', '그 자리 확대 ↔ 원래 크기'),
                   ('확대 중 한 손가락', '끌어서 움직이기 (한 번 누르기는 무시)'),
                   ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
-                  ('책갈피 길게 누르기', '책갈피 목록'),
+                  ('책갈피 단추', '지금 쪽을 표시 · 다시 누르면 지움 · 길게 누르면 목록'),
                   ('눈 보호 단추', '푸른빛 줄이기 (세기는 ⚙ 뷰어 설정)'),
                   ('볼륨 버튼', '쪽 넘기기 (설정 › 뷰어에서 켜기)'),
                 ]),
@@ -1050,7 +1050,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       context: context,
       builder: (ctx) => ListView(shrinkWrap: true, children: [
         const ListTile(title: Text('책갈피')),
-        if (marks.isEmpty) const ListTile(title: Text('책갈피가 없습니다. B 키나 책갈피 버튼으로 추가하세요.')),
+        if (marks.isEmpty) const ListTile(title: Text('책갈피가 없습니다. 위쪽 책갈피 단추(PC 는 B 키)를 누르면 지금 쪽이 표시됩니다.')),
         for (final m in marks)
           ListTile(
             leading: const Icon(Icons.bookmark),

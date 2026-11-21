@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../edition.dart';
 import '../models/media_item.dart';
 import '../services/auth.dart';
 import 'cover_tile.dart';
@@ -57,7 +58,7 @@ class _HistoryPageState extends State<HistoryPage> {
     final rows = _rows;
     return Scaffold(
       appBar: AppBar(
-        title: Text('${state.user?.name ?? ''} 님의 열람 기록'),
+        title: Text(kStore ? '열람 기록' : '${state.user?.name ?? ''} 님의 열람 기록'),
         actions: [
           IconButton(
             tooltip: '기록 지우기',
@@ -90,10 +91,21 @@ class _HistoryPageState extends State<HistoryPage> {
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 860),
                     child: ListView.separated(
-                      itemCount: rows.length,
+                      itemCount: rows.length + 1,
                       separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (_, i) {
-                        final (h, e) = rows[i];
+                      itemBuilder: (_, k) {
+                        // 맨 위: 이 목록이 무엇인지
+                        if (k == 0) {
+                          return Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                            child: Text(
+                              '작품을 열어 본 날과 그때 본 곳입니다. 같은 작품을 같은 날 여러 번 열어도 한 줄로 남고, 가장 최근에 연 것이 위에 옵니다. '
+                              '책갈피 · 읽던 위치와는 따로이며, 기록을 지워도 읽던 위치는 남습니다.',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          );
+                        }
+                        final (h, e) = rows[k - 1];
                         return ListTile(
                           leading: SizedBox(width: 44, height: 60, child: ClipRRect(borderRadius: BorderRadius.circular(4), child: CoverImage(item: e))),
                           title: Text(

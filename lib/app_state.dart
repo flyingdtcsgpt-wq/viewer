@@ -1827,7 +1827,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// 뷰어가 읽던 위치를 저장 (자주 불리므로 화면 갱신은 하지 않음)
-  Future<void> saveProgress(MediaItem item, String position, double progress) async {
+  /// [log]: false 면 열람 기록에 새 줄을 만들지 않는다 (그림을 넘겨 볼 때 지나간 그림마다 기록이 쌓이지 않게)
+  Future<void> saveProgress(MediaItem item, String position, double progress, {bool log = true}) async {
     item
       ..position = position
       ..progress = progress.clamp(0.0, 1.0)
@@ -1835,7 +1836,8 @@ class AppState extends ChangeNotifier {
     final u = user;
     if (u == null || item.id == null) return;
     await db.saveProgress(u.id!, item);
-    // 열람 기록: 뷰어를 열 때 한 줄 만들고, 볼 때마다 그 줄을 갱신
+    // 열람 기록: 뷰어를 열 때 한 줄 만들고(같은 날 다시 열면 그 줄을 이어 씀), 볼 때마다 그 줄을 갱신
+    if (!log && !_openHistory.containsKey(item.id)) return;
     final hid = _openHistory[item.id!] ??= await db.startHistory(u.id!, item.id!);
     await db.updateHistory(hid, item.progress, position);
   }
@@ -1851,9 +1853,12 @@ class AppState extends ChangeNotifier {
     final u = user;
     if (u == null) return [];
     final byId = {for (final e in _items) e.id: e};
+    // 같은 작품을 같은 날 여러 번 연 것은 한 줄로 (가장 최근 것만. 예전 판이 쌓아 둔 줄도 이렇게 보인다)
+    final seen = <String>{};
     return [
       for (final h in await db.history(u.id!))
-        if (byId[h.itemId] case final e? when canSeeItem(e)) (h, e),
+        if (byId[h.itemId] case final e? when canSeeItem(e))
+          if (seen.add('${h.itemId}-${h.openedAt.year}-${h.openedAt.month}-${h.openedAt.day}')) (h, e),
     ];
   }
 

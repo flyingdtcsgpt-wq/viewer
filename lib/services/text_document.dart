@@ -77,6 +77,7 @@ String _utf16(Uint8List b, {required bool little}) {
 //     - 제1장 · 제 12 화 · 제3권/부/편/막/회/절 (한자 숫자도)
 //     - 1화 · 12장 · 2부 · 3권 · 5편 · 1막 · 3회 ("제" 없이 숫자로 시작)
 //     - 1. 제목 · 1.
+//     - [0001] 제목 · (12) 제목 · <3> 제목 (괄호 안 번호 + 제목). 번호만 있는 줄은 [0001] 처럼 0 으로 채운 것만
 //     - #1 · # 12 제목
 //     - Chapter 3 · Part 2 · Ep.1 · Episode 4 · Act 1 · Vol.2 · Book 1 (로마 숫자 iv 도)
 //     - Prologue · Epilogue · Interlude · Afterword · Foreword · Preface · Introduction
@@ -95,6 +96,7 @@ final _chapterStart = RegExp(
   '제\\s*$_num\\s*(?:장|화|권|부|편|막|회|절)$_end'
   '|[0-9]+\\s*(?:장|화|권|부|편|막|회)$_end'
   r'|[0-9]+\.(?:\s+\S|$)'
+  r'|[0-9]+\s*[\]\)】〕>》」』]\s*\S' // [0001] 제목 · (12) 제목 (앞 괄호는 꾸밈 기호로 이미 떼었다)
   '|#\\s*[0-9]+$_end'
   '|(?:chapter|chap\\.?|ch\\.|part|episode|ep\\.?|act|volume|vol\\.?|book)\\s*(?:[0-9]+|[ivxlc]+)$_end'
   '|(?:prologue|epilogue|interlude|afterword|foreword|preface|introduction)$_wordEnd'
@@ -104,11 +106,13 @@ final _chapterStart = RegExp(
   caseSensitive: false,
 );
 final _proseEnd = RegExp(r'\s.*(?:[다요죠]\.|[a-z]{2}\.)$|[,，]$', caseSensitive: false);
+final _paddedNumber = RegExp(r'^[\[\(【〔<《]\s*0[0-9]{1,5}\s*[\]\)】〕>》]$'); // [0001] 처럼 0 으로 채운 번호만 있는 줄
 
 /// 이 줄이 장 제목(목차에 올릴 줄)인가. 규칙은 위 설명 참고
 bool isChapterTitle(String line) {
   final t = line.trim();
   if (t.isEmpty || t.length > 40) return false;
+  if (_paddedNumber.hasMatch(t)) return true;
   final core = t.replaceFirst(_decoStart, '').replaceFirst(_decoEnd, '');
   if (core.isEmpty) return false;
   return _chapterStart.hasMatch(core) && !_proseEnd.hasMatch(core);

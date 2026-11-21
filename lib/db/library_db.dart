@@ -291,11 +291,23 @@ class LibraryDb {
     });
   }
 
-  Future<int> startHistory(int userId, int itemId) => _db.insert('history', {
-        'user_id': userId,
-        'item_id': itemId,
-        'opened_at': DateTime.now().millisecondsSinceEpoch,
-      });
+  /// 열람 기록 줄 시작. 같은 작품을 같은 날 다시 열면 줄을 새로 만들지 않고 그날의 줄을 맨 위로 올린다
+  /// (뷰어를 닫았다 다시 열 때마다 같은 작품이 줄줄이 쌓이지 않게. 전에 쌓인 같은 날 줄도 이때 하나로 합친다)
+  Future<int> startHistory(int userId, int itemId) async {
+    final now = DateTime.now();
+    final dayStart = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+    final rows = await _db.query('history',
+        columns: ['id'], where: 'user_id = ? AND item_id = ? AND opened_at >= ?', whereArgs: [userId, itemId, dayStart], orderBy: 'opened_at DESC');
+    if (rows.isEmpty) {
+      return _db.insert('history', {'user_id': userId, 'item_id': itemId, 'opened_at': now.millisecondsSinceEpoch});
+    }
+    final keep = rows.first['id'] as int;
+    await _db.update('history', {'opened_at': now.millisecondsSinceEpoch}, where: 'id = ?', whereArgs: [keep]);
+    if (rows.length > 1) {
+      await _db.delete('history', where: 'id IN (${[for (final r in rows.skip(1)) r['id']].join(',')})');
+    }
+    return keep;
+  }
 
   Future<void> updateHistory(int id, double progress, String? position) => _db.update(
         'history',
