@@ -1202,6 +1202,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
                   ('끝에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
                 ], touch: const [
                   ('좌우 가장자리 누르기 · 옆으로 밀기', '한 화면씩 넘기기'),
+                  ('⚙ › 누를 때 다음 쪽', '오른손잡이(오른쪽 = 다음) · 왼손잡이(왼쪽 = 다음) 고르기'),
                   ('위아래로 밀기', '스크롤해서 읽기'),
                   ('가운데 누르기', '위 메뉴 보이기 · 숨기기'),
                   ('글자 선택 단추', '글자를 끌어 고른 뒤 형광펜 · 복사 · 검색'),
@@ -1290,11 +1291,11 @@ class _TextReaderPageState extends State<TextReaderPage> {
         behavior: HitTestBehavior.opaque,
         onTapUp: (d) {
           final x = d.localPosition.dx / c.maxWidth;
-          final next = s.comicRtl ? -1 : 1;
+          // 어느 쪽을 누르면 다음인지는 설정(읽는 방향대로 / 오른손잡이 / 왼손잡이)을 따른다
           if (s.tapToTurn && x < 0.25) {
-            _page(-next);
+            _page(s.tapLeftIsNext ? 1 : -1);
           } else if (s.tapToTurn && x > 0.75) {
-            _page(next);
+            _page(s.tapLeftIsNext ? -1 : 1);
           } else {
             setState(() => _chrome = !_chrome);
           }
@@ -1769,6 +1770,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
             onChanged: (v) => s.tapToTurn = v,
             options: const [(true, null, '켜기'), (false, null, '끄기')],
           ),
+          const HandRow(),
           SegmentRow<bool>(
             title: '아래 이동 막대 · 장 탐색 바',
             value: s.viewerSlider,

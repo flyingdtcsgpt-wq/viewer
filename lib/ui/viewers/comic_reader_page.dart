@@ -16,6 +16,7 @@ import '../../services/background_reading.dart';
 import '../../services/ext_archive.dart';
 import '../../services/zip_pages.dart';
 import '../../services/settings.dart';
+import '../series_widgets.dart' show askText;
 import 'open_item.dart';
 import 'viewer_chrome.dart';
 
@@ -255,6 +256,11 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     final sp = _spreads;
     if (sp.isEmpty) return;
     final t = i.clamp(0, sp.length - 1);
+    // 스크롤 보기는 쪽 번호만 바꿔서는 화면이 움직이지 않는다 → 그 쪽에서 다시 시작
+    if (_s.comicMode == 2) {
+      _jumpPage(sp[t].first);
+      return;
+    }
     if (t == _spread) return;
     _zoom.value = Matrix4.identity();
     _holdUntil = DateTime.now().add(const Duration(milliseconds: 400));
@@ -307,6 +313,14 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       return;
     }
     _goSpread(_spreads.indexWhere((g) => g.contains(page)));
+  }
+
+  /// 쪽 번호를 넣어 바로 이동
+  Future<void> _askPage() async {
+    final v = await askText(context, '쪽 번호로 이동', hint: '1 ~ $_n');
+    final n = int.tryParse((v ?? '').trim());
+    if (n == null || !mounted) return;
+    _jumpPage((n - 1).clamp(0, math.max(0, _n - 1)));
   }
 
   void _scrollStripTo(int i) {
@@ -438,12 +452,24 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               ToolBtn(icon: Icons.chevron_left, tooltip: '왼쪽 쪽', onTap: () => _visual(true)),
               ToolBtn(icon: Icons.chevron_right, tooltip: '오른쪽 쪽', onTap: () => _visual(false)),
             ]),
+            // 스크롤 보기: 맞춤은 "화면 폭에 꽉 채우기" 하나만 뜻이 있다 (확대 · 높이/전체/원본 맞춤은 한 장씩 볼 때만)
+            if (s.comicMode == 2)
+              ToolGroup([
+                ToolBtn(
+                  icon: Icons.swap_horiz,
+                  tooltip: '화면 폭에 꽉 채우기 (끄면 가운데에 알맞은 폭으로)',
+                  active: s.viewerFit == 0,
+                  onTap: () => s.viewerFit = s.viewerFit == 0 ? 2 : 0,
+                ),
+              ]),
+            if (s.comicMode != 2)
             ToolGroup([
               ToolBtn(icon: Icons.swap_horiz, tooltip: '가로 맞춤', active: s.viewerFit == 0, onTap: () => s.viewerFit = 0),
               ToolBtn(icon: Icons.swap_vert, tooltip: '높이 맞춤', active: s.viewerFit == 1, onTap: () => s.viewerFit = 1),
               ToolBtn(icon: Icons.fit_screen, tooltip: '전체 맞춤', active: s.viewerFit == 2, onTap: () => s.viewerFit = 2),
               ToolBtn(icon: Icons.crop_free, tooltip: '원본 크기', active: s.viewerFit == 3, onTap: () => s.viewerFit = 3),
             ]),
+            if (s.comicMode != 2)
             ToolGroup([
               PopupMenuButton<double>(
                 tooltip: '확대',
@@ -465,15 +491,18 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               ToolBtn(icon: Icons.view_day, tooltip: '스크롤 (웹툰)', active: s.comicMode == 2, onTap: () => s.comicMode = 2),
             ]),
             ToolGroup([
-              ToolBtn(
-                icon: s.comicRtl ? Icons.keyboard_double_arrow_left : Icons.keyboard_double_arrow_right,
-                tooltip: s.comicRtl ? '읽기방향: 오른쪽에서 왼쪽' : '읽기방향: 왼쪽에서 오른쪽',
-                active: s.comicRtl,
-                onTap: () => s.comicRtl = !s.comicRtl,
-              ),
+              // 읽기방향은 한 장씩 넘겨 볼 때만 뜻이 있다
+              if (s.comicMode != 2)
+                ToolBtn(
+                  icon: s.comicRtl ? Icons.keyboard_double_arrow_left : Icons.keyboard_double_arrow_right,
+                  tooltip: s.comicRtl ? '읽기방향: 오른쪽에서 왼쪽' : '읽기방향: 왼쪽에서 오른쪽',
+                  active: s.comicRtl,
+                  onTap: () => s.comicRtl = !s.comicRtl,
+                ),
               ToolBtn(icon: Icons.view_carousel, tooltip: '슬라이드 탐색 바', active: s.viewerSlider, onTap: () => s.viewerSlider = !s.viewerSlider),
             ]),
-            ToolGroup([ToolBtn(label: _label(sp[_spread]), tooltip: '현재 쪽')]),
+            // 지금 쪽: 누르면 쪽 번호를 넣어 바로 이동
+            ToolGroup([ToolBtn(label: _label(sp[_spread]), tooltip: '지금 쪽 — 누르면 쪽 번호로 이동', onTap: _askPage)]),
             GestureDetector(
               onLongPress: () => _showBookmarks(s),
               child: ToolGroup([
@@ -506,6 +535,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
                 ], touch: const [
                   ('가장자리 누르기 · 옆으로 밀기', '쪽 넘기기'),
+                  ('⚙ › 누를 때 다음 쪽', '오른손잡이(오른쪽 = 다음) · 왼손잡이(왼쪽 = 다음) 고르기'),
+                  ('쪽 번호 단추', '눌러서 쪽 번호로 바로 이동'),
                   ('가운데 누르기', '위아래 메뉴 보이기 · 숨기기'),
                   ('두 손가락 벌리기', '확대 · 축소'),
                   ('두 번 누르기', '그 자리 확대 ↔ 원래 크기'),
@@ -790,7 +821,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     if (s.viewerFit == 3) {
       final x = p.dx / c.maxWidth;
       if (s.tapToTurn && (x < 0.3 || x > 0.7)) {
-        _visual(x < 0.3);
+        _tapSide(x < 0.3, s);
       } else {
         setState(() => _chrome = !_chrome);
       }
@@ -805,7 +836,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     final x = p.dx / c.maxWidth;
     if (!_zoomed && s.tapToTurn && (x < 0.3 || x > 0.7)) {
       _tapPos = null;
-      _visual(x < 0.3); // 가장자리는 기다리지 않고 바로 넘긴다
+      _tapSide(x < 0.3, s); // 가장자리는 기다리지 않고 바로 넘긴다
       return;
     }
     _tapPos = p;
@@ -816,6 +847,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       setState(() => _chrome = !_chrome);
     });
   }
+
+  /// 화면 가장자리를 눌렀을 때: 어느 쪽이 "다음" 인지는 설정(읽는 방향대로 / 오른손잡이 / 왼손잡이)을 따른다
+  void _tapSide(bool left, Settings s) => _turn(left == s.tapLeftIsNext ? 1 : -1);
 
   void _zoomAt(Offset p, double z) {
     final m = Matrix4.identity()
@@ -1106,6 +1140,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             onChanged: (v) => s.tapToTurn = v,
             options: const [(true, null, '켜기'), (false, null, '끄기')],
           ),
+          const HandRow(),
           SegmentRow<int>(
             title: '넘김효과',
             value: s.viewerEffect,

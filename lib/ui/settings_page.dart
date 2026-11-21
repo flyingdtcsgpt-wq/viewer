@@ -514,6 +514,7 @@ class _Viewer extends StatelessWidget {
         if (!kStore)
           _seg<int>('그림 보기 방식', s.imageViewMode, const [(0, '좌우 넘기기'), (1, '위아래 한 장씩'), (2, '위아래 이어 보기')], (v) => s.imageViewMode = v),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('화면 좌우 눌러 넘기기'), value: s.tapToTurn, onChanged: (v) => s.tapToTurn = v),
+        _seg<int>('누를 때 다음 쪽 (한 손으로 볼 때)', s.tapHand, const [(0, '읽는 방향대로'), (1, '오른손잡이: 오른쪽 = 다음'), (2, '왼손잡이: 왼쪽 = 다음')], (v) => s.tapHand = v),
         if (Platform.isAndroid) ...[
           SwitchListTile(
             contentPadding: EdgeInsets.zero,

@@ -305,6 +305,14 @@ class Settings extends ChangeNotifier {
   /// 화면 왼쪽/오른쪽을 눌러 쪽 넘기기
   bool get tapToTurn => _p.getBool('tapToTurn') ?? true;
   set tapToTurn(bool v) => _set(() => _p.setBool('tapToTurn', v));
+
+  /// 화면을 눌러 넘길 때 어느 쪽이 "다음" 인가 (한 손으로 볼 때):
+  /// 0 읽는 방향대로, 1 오른손잡이(오른쪽을 누르면 다음), 2 왼손잡이(왼쪽을 누르면 다음)
+  int get tapHand => _p.getInt('tapHand') ?? 0;
+  set tapHand(int v) => _set(() => _p.setInt('tapHand', v));
+
+  /// 화면 왼쪽을 누르면 다음 쪽인가
+  bool get tapLeftIsNext => tapHand == 2 || (tapHand == 0 && comicRtl);
   bool get comicCoverAlone => _p.getBool('comicCoverAlone') ?? true;
   set comicCoverAlone(bool v) => _set(() => _p.setBool('comicCoverAlone', v));
 

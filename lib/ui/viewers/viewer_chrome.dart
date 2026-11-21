@@ -333,3 +333,18 @@ class BookmarkListBtn extends StatelessWidget {
         onTap: onTap,
       );
 }
+
+/// ⚙ 뷰어 설정 패널의 "누를 때 다음 쪽" (한 손으로 볼 때 편한 쪽)
+class HandRow extends StatelessWidget {
+  const HandRow({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<Settings>();
+    return SegmentRow<int>(
+      title: '누를 때 다음 쪽 (한 손으로 볼 때)',
+      value: s.tapHand,
+      onChanged: (v) => s.tapHand = v,
+      options: const [(0, null, '읽는 방향대로'), (1, null, '오른손잡이\n오른쪽 = 다음'), (2, null, '왼손잡이\n왼쪽 = 다음')],
+    );
+  }
+}

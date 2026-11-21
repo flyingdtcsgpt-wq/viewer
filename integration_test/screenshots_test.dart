@@ -336,6 +336,20 @@ void main() {
       await tester.sendEventToBinding(mouse.scroll(const Offset(0, -120)));
       await wait(500);
       debugPrint('CHECK comic wheel start=$p0 down=$p1 up=${comic!.position} zoom100=${find.text('100%').evaluate().isNotEmpty} fit=${settings.viewerFit}');
+      // 손잡이: 왼손잡이면 화면 왼쪽을 누를 때 다음 쪽, 오른손잡이면 이전 쪽
+      await tester.sendKeyEvent(LogicalKeyboardKey.home);
+      await wait(300);
+      settings.tapHand = 2;
+      var touch = await tester.startGesture(const Offset(60, 480));
+      await touch.up();
+      await wait(500);
+      final leftHand = comic!.position;
+      settings.tapHand = 1;
+      touch = await tester.startGesture(const Offset(60, 480));
+      await touch.up();
+      await wait(500);
+      debugPrint('CHECK comic hand leftTap: leftHanded 0->$leftHand rightHanded ->${comic!.position}');
+      settings.tapHand = 0;
       // 책갈피: 둘째 쪽에 표시 → 처음으로 → 목록에서 골라 바로 가기
       await tester.sendKeyEvent(LogicalKeyboardKey.home);
       await wait(300);
