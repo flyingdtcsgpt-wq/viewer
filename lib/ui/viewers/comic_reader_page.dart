@@ -86,6 +86,22 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   /// 터치 기기의 가로/높이 맞춤: 안쪽 스크롤 없이 확대 화면이 이동까지 맡는다
   bool _freePan(Settings s) => _touch && (s.viewerFit == 0 || s.viewerFit == 1);
 
+  // 스크롤(웹툰) 보기: 처음에 맨 위에 둘 쪽(_vAnchor)을 기준으로 위 · 아래에 이어 붙인다.
+  // 쪽 높이를 아직 몰라도 그 쪽에서 정확히 시작하고(이어 보기), 위쪽 그림이 늦게 불려 와도 보던 자리가 밀리지 않는다.
+  int _vAnchor = 0;
+  Key _vCenter = UniqueKey();
+  final _aspect = <int, double>{}; // 쪽마다 알아낸 세로/가로 비율 (메모리에서 내렸다 다시 불러와도 자리가 흔들리지 않게)
+  bool _vTrackPending = false;
+
+  /// 스크롤 보기를 [page] 에서 다시 시작한다 (탐색 줄 · 책갈피로 이동, 보기 방식 바꿈)
+  void _vRestart(int page) {
+    _vAnchor = page.clamp(0, math.max(0, _n - 1));
+    _vCenter = UniqueKey();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+    });
+  }
+
   void _onZoom() {
     final now = DateTime.now();
     // 쪽을 넘긴 직후, 손을 뗀 채로 화면이 움직이면(앞 쪽에서 밀던 관성) 되돌린다. 손가락으로 끄는 것은 막지 않는다
@@ -101,9 +117,12 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   /// 맞춤 · 보기 방식을 바꾸면 확대 · 이동을 처음으로 (앞 방식에서 내려 둔 위치가 남아 빈 화면이 되지 않게)
   void _onSettings() {
     if (_s.viewerFit == _fitSeen && _s.comicMode == _modeSeen) return;
+    final toScroll = _s.comicMode == 2 && _modeSeen != 2;
     _fitSeen = _s.viewerFit;
     _modeSeen = _s.comicMode;
     _zoom.value = Matrix4.identity();
+    // 스크롤 보기로 바꾸면 보던 쪽에서 시작
+    if (toScroll && mounted) setState(() => _vRestart(_page));
   }
 
   @override
@@ -139,6 +158,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         _zip = await ZipPages.open(item.path);
       }
       _page = (int.tryParse(item.position ?? '') ?? 0).clamp(0, _n == 0 ? 0 : _n - 1);
+      _vAnchor = _page; // 스크롤 보기: 읽던 쪽에서 시작
     } catch (e) {
       _error = e;
     }
@@ -263,7 +283,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         askNextVolume(context, item, rightIsNext: !(_s.viewerArrowNatural && _s.comicRtl));
         return;
       }
-      _scroll.animateTo((pos.pixels + d * pos.viewportDimension * 0.85).clamp(0.0, pos.maxScrollExtent),
+      // (시작 쪽보다 위는 음수 위치다 → 0 이 아니라 맨 위 한계까지)
+      _scroll.animateTo((pos.pixels + d * pos.viewportDimension * 0.85).clamp(pos.minScrollExtent, pos.maxScrollExtent),
           duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
       return;
     }
@@ -275,13 +296,14 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   void _jumpPage(int page) {
     if (_s.comicMode == 2) {
-      setState(() => _page = page);
-      final ctx = _pageKeys[page]?.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(ctx);
-      } else if (_scroll.hasClients) {
-        _scroll.jumpTo(_scroll.position.maxScrollExtent * (page / math.max(1, _n - 1)));
-      }
+      // 스크롤 보기: 그 쪽을 맨 위에 두고 다시 시작한다 (높이를 몰라도 정확히 그 쪽)
+      setState(() {
+        _page = page.clamp(0, math.max(0, _n - 1));
+        _vRestart(_page);
+      });
+      _prefetch();
+      _app.saveProgress(item, '$_page', _progress);
+      _scrollStripTo(_spread);
       return;
     }
     _goSpread(_spreads.indexWhere((g) => g.contains(page)));
@@ -365,7 +387,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   Expanded(
                     child: Column(children: [
                       Expanded(child: _stage(s, rtl)),
-                      if (_chrome && s.viewerSlider && s.comicMode != 2) _thumbStrip(s, rtl),
+                      if (_chrome && s.viewerSlider) _thumbStrip(s, rtl),
                     ]),
                   ),
                   if (_panel) _settingsPanel(s),
@@ -530,7 +552,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         ),
         Positioned.fill(child: content),
         // 썸네일 줄 접기/펼치기 탭
-        if (_chrome && s.comicMode != 2)
+        if (_chrome)
           Positioned(
             bottom: 0,
             left: 0,
@@ -847,48 +869,100 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       ..translateByDouble(fit(t.x / sc, _content.width, _view.width), fit(t.y / sc, _content.height, _view.height), 0, 1);
   }
 
-  bool _initialDone = false;
+  /// 스크롤 보기: 화면 위쪽 1/3 지점에 걸친 쪽을 "지금 쪽" 으로 삼아 저장한다.
+  /// 스크롤 알림은 화면을 다시 배치하기 전에 오므로(그때 재면 옛 위치가 나온다) 이번 화면이 그려진 뒤에 잰다.
+  void _trackVertical() {
+    if (_vTrackPending) return;
+    _vTrackPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _vTrackPending = false;
+      if (!mounted || _s.comicMode != 2 || !_scroll.hasClients || _n == 0) return;
+      final pos = _scroll.position;
+      int? found;
+      // 맨 아래까지 내렸으면 마지막 쪽까지 본 것 (마지막 그림이 짧아도 100%)
+      if (pos.pixels >= pos.maxScrollExtent - 8 && _pageKeys[_n - 1]?.currentContext != null) {
+        found = _n - 1;
+      } else {
+        final view = pos.context.storageContext.findRenderObject();
+        if (view is! RenderBox || !view.attached) return;
+        final line = view.localToGlobal(Offset.zero).dy + view.size.height / 3;
+        bool at(int i) {
+          final box = _pageKeys[i]?.currentContext?.findRenderObject();
+          if (box is! RenderBox || !box.attached || !box.hasSize) return false;
+          final y = box.localToGlobal(Offset.zero).dy;
+          return y <= line && y + box.size.height > line;
+        }
+
+        for (var d = 0; d <= 6 && found == null; d++) {
+          if (at(_page + d)) {
+            found = _page + d;
+          } else if (d > 0 && at(_page - d)) {
+            found = _page - d;
+          }
+        }
+        if (found == null) {
+          for (final k in _pageKeys.keys) {
+            if (at(k)) {
+              found = k;
+              break;
+            }
+          }
+        }
+      }
+      if (found == null || found == _page) return;
+      final to = found;
+      setState(() {
+        _dir = to > _page ? 1 : -1;
+        _page = to;
+      });
+      _prefetch();
+      _app.saveProgress(item, '$_page', _progress);
+      _scrollStripTo(_spread);
+    });
+  }
+
   Widget _vertical(BoxConstraints c, Settings s) {
     final maxW = s.viewerFit == 0 ? c.maxWidth : math.min(c.maxWidth, 900.0);
-    if (!_initialDone && _page > 0) {
-      _initialDone = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        for (var tries = 0; tries < 200; tries++) {
-          final ctx = _pageKeys[_page]?.currentContext;
-          if (ctx != null) {
-            if (ctx.mounted) Scrollable.ensureVisible(ctx);
-            return;
-          }
-          if (!_scroll.hasClients) return;
-          final pos = _scroll.position;
-          if (pos.pixels >= pos.maxScrollExtent) return;
-          _scroll.jumpTo((pos.pixels + pos.viewportDimension * 2).clamp(0.0, pos.maxScrollExtent));
-          await Future<void>.delayed(const Duration(milliseconds: 16));
-        }
-      });
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+
+    // 아직 못 읽었거나 그리는 중인 쪽의 자리. 한 번 본 쪽은 알아 둔 비율 그대로 → 불러오는 동안 자리가 흔들리지 않는다
+    Widget hold(int i) => SizedBox(
+          width: maxW,
+          height: maxW * (_aspect[i] ?? 1.42),
+          child: _aspect.containsKey(i) ? null : const Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
+        );
+
+    Widget page(int i) {
+      final bytes = _cache[i];
+      if (bytes == null) _bytes(i); // 불러오기를 부탁해 둔다 (오면 다시 그린다)
+      return KeyedSubtree(
+        key: _pageKeys.putIfAbsent(i, () => GlobalKey()),
+        child: bytes == null
+            ? hold(i)
+            : Image.memory(
+                bytes,
+                fit: BoxFit.fitWidth,
+                width: maxW,
+                // 화면에 보이는 크기로만 풀어 메모리를 아낀다 (스크롤 보기는 확대가 없다)
+                cacheWidth: (maxW * dpr).round(),
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.medium,
+                frameBuilder: (_, child, frame, sync) => frame == null && !sync
+                    ? hold(i)
+                    : _Measure(
+                        onSize: (z) {
+                          if (z.width > 0 && z.height > 0) _aspect[i] = z.height / z.width;
+                        },
+                        child: child,
+                      ),
+                errorBuilder: (_, _, _) => SizedBox(width: maxW, height: 200, child: const Icon(Icons.broken_image, color: Colors.white38)),
+              ),
+      );
     }
-    return NotificationListener<ScrollEndNotification>(
-      onNotification: (_) {
-        // 맨 아래까지 내렸으면 마지막 쪽까지 본 것 (마지막 그림이 짧아도 100%)
-        if (_scroll.hasClients && _n > 0 && _scroll.position.pixels >= _scroll.position.maxScrollExtent - 8) {
-          if (_page != _n - 1) {
-            setState(() => _page = _n - 1);
-            _app.saveProgress(item, '$_page', 1.0);
-          }
-          return false;
-        }
-        for (final e in _pageKeys.entries) {
-          final box = e.value.currentContext?.findRenderObject() as RenderBox?;
-          if (box == null || !box.attached) continue;
-          final y = box.localToGlobal(Offset.zero).dy;
-          if (y <= 140 && y + box.size.height > 140) {
-            if (e.key != _page) {
-              setState(() => _page = e.key);
-              _app.saveProgress(item, '$_page', _progress);
-            }
-            break;
-          }
-        }
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        if (n is ScrollUpdateNotification || n is ScrollEndNotification) _trackVertical();
         return false;
       },
       child: GestureDetector(
@@ -896,16 +970,18 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         child: Center(
           child: SizedBox(
             width: maxW,
-            child: ListView.builder(
+            child: CustomScrollView(
               controller: _scroll,
-              itemCount: _n + 1,
-              itemBuilder: (_, i) => i == _n
-                  // 웹툰은 마지막 그림 아래로 이어서 다음 화 안내
-                  ? Padding(padding: const EdgeInsets.fromLTRB(12, 32, 12, 120), child: Center(child: VolumeEndCard(item: item)))
-                  : KeyedSubtree(
-                      key: _pageKeys.putIfAbsent(i, () => GlobalKey()),
-                      child: _img(i, fit: BoxFit.fitWidth, width: maxW),
-                    ),
+              center: _vCenter,
+              slivers: [
+                // 시작 쪽보다 앞의 쪽들 (위로 올리면 나온다)
+                SliverList(delegate: SliverChildBuilderDelegate((_, k) => page(_vAnchor - 1 - k), childCount: _vAnchor.clamp(0, _n))),
+                SliverList(key: _vCenter, delegate: SliverChildBuilderDelegate((_, k) => page(_vAnchor + k), childCount: math.max(0, _n - _vAnchor))),
+                // 웹툰은 마지막 그림 아래로 이어서 다음 화 안내
+                SliverToBoxAdapter(
+                  child: Padding(padding: const EdgeInsets.fromLTRB(12, 32, 12, 120), child: Center(child: VolumeEndCard(item: item))),
+                ),
+              ],
             ),
           ),
         ),
@@ -935,7 +1011,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           final order = rtl ? g.reversed.toList() : g;
           final on = i == cur;
           return GestureDetector(
-            onTap: () => _goSpread(i),
+            onTap: () => s.comicMode == 2 ? _jumpPage(g.first) : _goSpread(i),
             child: Container(
               width: 140,
               margin: const EdgeInsets.symmetric(horizontal: 5),

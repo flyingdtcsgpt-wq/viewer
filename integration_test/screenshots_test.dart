@@ -377,6 +377,36 @@ void main() {
       await popAll();
     });
 
+    await step('comic scroll mode', () async {
+      if (comic == null) return;
+      // 스크롤(웹툰) 보기: 읽던 쪽에서 이어 열리고, 아래 탐색 줄로 옮겨 다니며, 내리면 쪽이 저장된다
+      final keepMode = settings.comicMode;
+      settings.comicMode = 2;
+      await tester.runAsync(() => state.saveProgress(comic!, '2', 0.6));
+      await push(ComicReaderPage(item: comic!));
+      await shot('08e_만화뷰어_스크롤_이어보기', 1800);
+      String head() => tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data ?? '')
+          .firstWhere((d) => RegExp(r'^\d+ / \d+').hasMatch(d), orElse: () => '?');
+      final resume = '${comic!.position} (${head()})'; // 열자마자 저장된 쪽 그대로여야 한다 (맨 처음으로 돌아가면 0)
+      // 아래 탐색 줄에서 첫 쪽으로
+      final cover = find.ancestor(of: find.text('Cover'), matching: find.byType(GestureDetector));
+      final hasStrip = cover.evaluate().isNotEmpty;
+      if (hasStrip) tester.widget<GestureDetector>(cover.first).onTap?.call();
+      await wait(900);
+      final toFirst = '${comic!.position} (${head()})';
+      // 아래로 내리기
+      for (var k = 0; k < 3; k++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+        await wait(450);
+      }
+      await wait(500);
+      debugPrint('CHECK comic scroll resume=$resume strip=$hasStrip toFirst=$toFirst down=${comic!.position} (${head()})');
+      settings.comicMode = keepMode;
+      await popAll();
+    });
+
     await step('text viewer', () async {
       if (book == null) return;
       await push(TextReaderPage(item: book!));
