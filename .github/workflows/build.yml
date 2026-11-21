@@ -38,37 +38,32 @@ jobs:
       # 글자 인식(ONNX) 런타임: 플러그인 빌드가 GitHub 에서 받다 한 번 실패하면 빌드 전체가 멈춰서, 미리 받아 둔다 (재시도)
       - name: Prefetch ONNX Runtime
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
+          # GitHub(microsoft/onnxruntime) 릴리스 파일이 내려가 있어, 같은 공식 빌드를 NuGet(Microsoft.ML.OnnxRuntime)에서 받는다
           $cfg = Get-Content .dart_tool/package_config.json -Raw | ConvertFrom-Json
           $pk = $cfg.packages | Where-Object { $_.name -eq 'flutter_onnxruntime' }
           $root = ([Uri]$pk.rootUri).LocalPath
           $v = (Select-String -Path "$root/windows/CMakeLists.txt" -Pattern 'set\(ONNXRUNTIME_VERSION "([0-9.]+)"\)').Matches[0].Groups[1].Value
+          $all = (Invoke-RestMethod https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/index.json).versions | Where-Object { $_ -notmatch '-' }
+          $mm = ($v -split '\.')[0..1] -join '.'
+          $got = if ($all -contains $v) { $v } else { ($all | Where-Object { $_ -like "$mm.*" } | Sort-Object { [version]$_ } | Select-Object -Last 1) }
+          if (-not $got) { $got = $all | Sort-Object { [version]$_ } | Select-Object -Last 1 }
+          Write-Host "플러그인 판 $v → 받을 판 $got"
           $dir = "build/windows/x64/plugins/flutter_onnxruntime/onnxruntime"
-          New-Item -ItemType Directory -Force $dir | Out-Null
-          function Get-Ort($ver) {
-            $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ver/onnxruntime-win-x64-$ver.zip"
-            for ($i = 1; $i -le 3; $i++) {
-              try { Invoke-WebRequest -Uri $url -OutFile "$dir/ort.zip" -UseBasicParsing; Write-Host "받음: $url"; return $true }
-              catch { Write-Host "try $i $url : $($_.Exception.Message)"; if ($_.Exception.Message -match '404') { return $false }; Start-Sleep -Seconds (15 * $i) }
-            }
-            return $false
+          $out = "$dir/onnxruntime-win-x64-$v"
+          New-Item -ItemType Directory -Force "$out/include", "$out/lib" | Out-Null
+          $pkg = "$env:RUNNER_TEMP/ort.zip"
+          for ($i = 1; $i -le 4; $i++) {
+            try { Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$got/microsoft.ml.onnxruntime.$got.nupkg" -OutFile $pkg -UseBasicParsing; break }
+            catch { Write-Host "try $i : $($_.Exception.Message)"; Start-Sleep -Seconds (15 * $i) }
           }
-          $got = $v
-          if (-not (Get-Ort $v)) {
-            # 플러그인이 정한 판의 파일이 내려갔으면: Windows x64 파일이 있는 가장 새 판
-            $rels = gh api "repos/microsoft/onnxruntime/releases?per_page=30" | ConvertFrom-Json
-            $cands = foreach ($r in $rels) { if (-not $r.prerelease) { $t = $r.tag_name.TrimStart('v'); if ($r.assets.name -contains "onnxruntime-win-x64-$t.zip") { $t } } }
-            Write-Host "Windows x64 파일이 있는 판: $($cands -join ', ')"
-            $got = $cands | Select-Object -First 1
-            if (-not $got -or -not (Get-Ort $got)) { throw "ONNX Runtime 을 받지 못했습니다" }
-          }
-          Expand-Archive -Force "$dir/ort.zip" $dir
-          Remove-Item "$dir/ort.zip"
-          # 플러그인은 자기 판 이름의 폴더를 찾는다
-          if ($got -ne $v) { Rename-Item "$dir/onnxruntime-win-x64-$got" "onnxruntime-win-x64-$v"; Write-Host "::warning::ONNX Runtime $v 파일이 없어 $got 을 씁니다" }
-          Get-ChildItem $dir
+          Expand-Archive -Force $pkg "$env:RUNNER_TEMP/ort"
+          Copy-Item "$env:RUNNER_TEMP/ort/build/native/include/*" "$out/include/"
+          Copy-Item "$env:RUNNER_TEMP/ort/runtimes/win-x64/native/onnxruntime.*" "$out/lib/"
+          Copy-Item "$env:RUNNER_TEMP/ort/runtimes/win-x64/native/onnxruntime_providers_shared.*" "$out/lib/"
+          Remove-Item $pkg
+          if (-not (Test-Path "$out/include/onnxruntime_cxx_api.h") -or -not (Test-Path "$out/lib/onnxruntime.dll")) { throw "ONNX Runtime 파일을 준비하지 못했습니다" }
+          Get-ChildItem -Recurse $out | Select-Object FullName, Length
 
       - name: App icon
         run: dart run flutter_launcher_icons -f tool/icons_windows.yaml
@@ -174,37 +169,32 @@ jobs:
       # 글자 인식(ONNX) 런타임: 플러그인 빌드가 GitHub 에서 받다 한 번 실패하면 빌드 전체가 멈춰서, 미리 받아 둔다 (재시도)
       - name: Prefetch ONNX Runtime
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
+          # GitHub(microsoft/onnxruntime) 릴리스 파일이 내려가 있어, 같은 공식 빌드를 NuGet(Microsoft.ML.OnnxRuntime)에서 받는다
           $cfg = Get-Content .dart_tool/package_config.json -Raw | ConvertFrom-Json
           $pk = $cfg.packages | Where-Object { $_.name -eq 'flutter_onnxruntime' }
           $root = ([Uri]$pk.rootUri).LocalPath
           $v = (Select-String -Path "$root/windows/CMakeLists.txt" -Pattern 'set\(ONNXRUNTIME_VERSION "([0-9.]+)"\)').Matches[0].Groups[1].Value
+          $all = (Invoke-RestMethod https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/index.json).versions | Where-Object { $_ -notmatch '-' }
+          $mm = ($v -split '\.')[0..1] -join '.'
+          $got = if ($all -contains $v) { $v } else { ($all | Where-Object { $_ -like "$mm.*" } | Sort-Object { [version]$_ } | Select-Object -Last 1) }
+          if (-not $got) { $got = $all | Sort-Object { [version]$_ } | Select-Object -Last 1 }
+          Write-Host "플러그인 판 $v → 받을 판 $got"
           $dir = "build/windows/x64/plugins/flutter_onnxruntime/onnxruntime"
-          New-Item -ItemType Directory -Force $dir | Out-Null
-          function Get-Ort($ver) {
-            $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ver/onnxruntime-win-x64-$ver.zip"
-            for ($i = 1; $i -le 3; $i++) {
-              try { Invoke-WebRequest -Uri $url -OutFile "$dir/ort.zip" -UseBasicParsing; Write-Host "받음: $url"; return $true }
-              catch { Write-Host "try $i $url : $($_.Exception.Message)"; if ($_.Exception.Message -match '404') { return $false }; Start-Sleep -Seconds (15 * $i) }
-            }
-            return $false
+          $out = "$dir/onnxruntime-win-x64-$v"
+          New-Item -ItemType Directory -Force "$out/include", "$out/lib" | Out-Null
+          $pkg = "$env:RUNNER_TEMP/ort.zip"
+          for ($i = 1; $i -le 4; $i++) {
+            try { Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$got/microsoft.ml.onnxruntime.$got.nupkg" -OutFile $pkg -UseBasicParsing; break }
+            catch { Write-Host "try $i : $($_.Exception.Message)"; Start-Sleep -Seconds (15 * $i) }
           }
-          $got = $v
-          if (-not (Get-Ort $v)) {
-            # 플러그인이 정한 판의 파일이 내려갔으면: Windows x64 파일이 있는 가장 새 판
-            $rels = gh api "repos/microsoft/onnxruntime/releases?per_page=30" | ConvertFrom-Json
-            $cands = foreach ($r in $rels) { if (-not $r.prerelease) { $t = $r.tag_name.TrimStart('v'); if ($r.assets.name -contains "onnxruntime-win-x64-$t.zip") { $t } } }
-            Write-Host "Windows x64 파일이 있는 판: $($cands -join ', ')"
-            $got = $cands | Select-Object -First 1
-            if (-not $got -or -not (Get-Ort $got)) { throw "ONNX Runtime 을 받지 못했습니다" }
-          }
-          Expand-Archive -Force "$dir/ort.zip" $dir
-          Remove-Item "$dir/ort.zip"
-          # 플러그인은 자기 판 이름의 폴더를 찾는다
-          if ($got -ne $v) { Rename-Item "$dir/onnxruntime-win-x64-$got" "onnxruntime-win-x64-$v"; Write-Host "::warning::ONNX Runtime $v 파일이 없어 $got 을 씁니다" }
-          Get-ChildItem $dir
+          Expand-Archive -Force $pkg "$env:RUNNER_TEMP/ort"
+          Copy-Item "$env:RUNNER_TEMP/ort/build/native/include/*" "$out/include/"
+          Copy-Item "$env:RUNNER_TEMP/ort/runtimes/win-x64/native/onnxruntime.*" "$out/lib/"
+          Copy-Item "$env:RUNNER_TEMP/ort/runtimes/win-x64/native/onnxruntime_providers_shared.*" "$out/lib/"
+          Remove-Item $pkg
+          if (-not (Test-Path "$out/include/onnxruntime_cxx_api.h") -or -not (Test-Path "$out/lib/onnxruntime.dll")) { throw "ONNX Runtime 파일을 준비하지 못했습니다" }
+          Get-ChildItem -Recurse $out | Select-Object FullName, Length
 
       - name: Analyze screenshot test
         run: flutter analyze --no-fatal-infos --no-fatal-warnings integration_test test_driver
