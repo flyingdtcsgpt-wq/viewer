@@ -45,17 +45,20 @@ Future<void> openStoreImport(BuildContext context) async {
   if (v == null || !context.mounted) return;
   if (v == 2) return showStoreFolderHelp(context);
   List<SafEntry> files;
-  var fromFolder = false;
+  String? tree;
   if (v == 0) {
     files = await Saf.pickFiles();
   } else {
-    final tree = await Saf.pickFolder();
+    tree = await Saf.pickFolder();
     if (tree == null || !context.mounted) return;
-    fromFolder = true;
     files = await _withSpinner(context, '폴더 안 파일을 찾는 중…', Saf.listTree(tree));
   }
-  if (!context.mounted) return;
-  await importSafEntries(context, files, fromFolder: fromFolder);
+  try {
+    if (context.mounted) await importSafEntries(context, files, fromFolder: tree != null);
+  } finally {
+    // 다 가져왔으면 그 폴더를 읽을 권한을 돌려준다 (계속 쥐고 있을 이유가 없다)
+    if (tree != null) Saf.releaseFolder(tree).catchError((_) {});
+  }
 }
 
 Future<T> _withSpinner<T>(BuildContext context, String msg, Future<T> job) async {
@@ -78,6 +81,11 @@ Future<void> importSafEntries(BuildContext context, List<SafEntry> picked, {bool
   final files = [for (final e in picked) if (kindForPath(e.name) != null) e];
   final skipped = picked.length - files.length;
   if (files.isEmpty) {
+    if (picked.isEmpty && shared) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('가져올 파일이 없습니다. 글자나 링크가 아니라 파일을 공유해 주세요')),
+      );
+    }
     if (picked.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('가져올 수 있는 파일이 없습니다 (만화 CBZ · ZIP, 책 EPUB · PDF · TXT, 영상 파일)')),
@@ -126,9 +134,7 @@ Future<void> importSafEntries(BuildContext context, List<SafEntry> picked, {bool
 
   final progress = ValueNotifier<(int, String)>((0, ''));
   var stop = false;
-  final made = <String>[];
-  var failed = 0, notDeleted = 0;
-  BuildContext? dctx;
+  var copied = 0, already = 0, failed = 0, notDeleted = 0;
   final job = () async {
     for (var i = 0; i < files.length && !stop; i++) {
       final e = files[i];
@@ -138,60 +144,106 @@ Future<void> importSafEntries(BuildContext context, List<SafEntry> picked, {bool
       final rel = fromFolder ? e.rel.split('/').where((x) => x.isNotEmpty && x != '..').map(_safeName).join(p.separator) : '';
       final dir = p.join(state.storeFolderFor(kind), rel);
       var dest = p.join(dir, _safeName(e.name));
-      // 같은 이름: 크기도 같으면 이미 있는 것, 다르면 번호를 붙인다
+      // 같은 이름: 크기까지 같으면 이미 있는 것으로 보고 건너뛴다. 이때는 "옮기기"여도 원본을 지우지 않는다
+      // (이름과 크기만 같은 다른 파일일 수도 있어서. 크기를 알 수 없으면 같은 파일로 보지 않고 번호를 붙여 따로 넣는다)
       final f = await _existing(dest);
-      if (f != null && (e.size < 0 || f == e.size)) {
-        made.add(dest);
-        if (move && !await Saf.delete(e.uri)) notDeleted++;
+      if (f != null && e.size >= 0 && f == e.size) {
+        already++;
         continue;
       }
       if (f != null) dest = await _free(dest);
       if (await Saf.copy(e.uri, dest)) {
-        made.add(dest);
-        if (move && !await Saf.delete(e.uri)) notDeleted++;
+        copied++;
+        if (move) {
+          // 다 넘어온 것을 확인한 뒤에만 원본을 지운다
+          final got = await _existing(dest);
+          final whole = got != null && got > 0 && (e.size < 0 || got == e.size);
+          if (!whole || !await Saf.delete(e.uri)) notDeleted++;
+        }
       } else {
         failed++;
       }
     }
     progress.value = (files.length, '');
   }();
+  // 창은 일이 끝나면 스스로 닫힌다 (일이 창보다 먼저 끝나거나 다른 화면이 위에 떠도 남지 않게)
   showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (ctx) {
-      dctx = ctx;
-      return PopScope(
-        canPop: false,
-        child: AlertDialog(
-          title: const Text('가져오는 중'),
-          content: ValueListenableBuilder<(int, String)>(
-            valueListenable: progress,
-            builder: (_, v, _) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              LinearProgressIndicator(value: files.isEmpty ? null : v.$1 / files.length),
-              const SizedBox(height: 8),
-              Text('${v.$1} / ${files.length}'),
-              if (v.$2.isNotEmpty) Text(v.$2, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-            ]),
-          ),
-          actions: [TextButton(onPressed: () => stop = true, child: const Text('멈춤'))],
-        ),
-      );
-    },
+    builder: (_) => _ProgressDialog(job: job, progress: progress, total: files.length, onStop: () => stop = true),
   );
   await job;
-  final c = dctx;
-  if (c != null && c.mounted) Navigator.of(c).pop();
-  progress.dispose();
-  if (made.isNotEmpty) await state.importFiles(made);
+  // 서재에 올리기: 폴더를 다시 훑는다 (마침 돌고 있던 자동 훑기가 있으면 끝난 뒤에)
+  if (copied > 0) await state.rescanWhenFree();
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
     content: Text([
-      '${made.length}개를 가져왔습니다',
+      if (copied > 0 || already == 0) '$copied개를 가져왔습니다',
+      if (already > 0) '이미 있는 $already개는 건너뛰었습니다${move ? ' (원본은 그대로)' : ''}',
       if (failed > 0) '실패 $failed개',
       if (notDeleted > 0) '원본 $notDeleted개는 지우지 못했습니다',
       if (stop) '멈춤',
     ].join(' · ')),
   ));
+}
+
+/// 가져오는 중 창: [job] 이 끝나면 스스로 닫힌다
+class _ProgressDialog extends StatefulWidget {
+  final Future<void> job;
+  final ValueNotifier<(int, String)> progress;
+  final int total;
+  final VoidCallback onStop;
+  const _ProgressDialog({required this.job, required this.progress, required this.total, required this.onStop});
+  @override
+  State<_ProgressDialog> createState() => _ProgressDialogState();
+}
+
+class _ProgressDialogState extends State<_ProgressDialog> {
+  ModalRoute<dynamic>? _route;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.job.whenComplete(_close);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+  }
+
+  void _close() {
+    // 화면이 한 번 그려진 뒤에 닫는다 (일이 아주 빨리 끝난 경우)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final r = _route;
+      if (!mounted || r == null) return;
+      if (r.isCurrent) {
+        Navigator.of(context).pop();
+      } else if (r.isActive) {
+        Navigator.of(context).removeRoute(r); // 다른 화면이 위에 떠 있어도 이 창만 없앤다
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('가져오는 중'),
+          content: ValueListenableBuilder<(int, String)>(
+            valueListenable: widget.progress,
+            builder: (_, v, _) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              LinearProgressIndicator(value: widget.total == 0 ? null : v.$1 / widget.total),
+              const SizedBox(height: 8),
+              Text('${v.$1} / ${widget.total}'),
+              if (v.$2.isNotEmpty) Text(v.$2, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+            ]),
+          ),
+          actions: [TextButton(onPressed: widget.onStop, child: const Text('멈춤'))],
+        ),
+      );
 }
 
 String _safeName(String s) {
@@ -240,7 +292,7 @@ Future<void> showStoreFolderHelp(BuildContext context) {
             onPressed: () async {
               Navigator.pop(ctx);
               final before = state.rawItems.length;
-              await state.rescanAll();
+              await state.rescanWhenFree();
               if (!context.mounted) return;
               final n = state.rawItems.length - before;
               ScaffoldMessenger.of(context)

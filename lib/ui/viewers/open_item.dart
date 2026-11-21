@@ -189,7 +189,8 @@ bool _asking = false;
 
 /// 권 끝에서 한 번 더 넘기면 (탭 · 밀기 · 키 · 음량 키):
 /// 다음 권이 있으면 "다음 권으로 넘어갈까요?" 창, 없으면 "마지막 권입니다" 를 잠깐 보여 준다
-Future<void> askNextVolume(BuildContext context, MediaItem item) async {
+/// [rightIsNext]: 뷰어에서 → 키가 "다음" 인가 (오른쪽→왼쪽 읽기면 ← 가 다음). 창에서도 같은 키로 넘어가게 한다
+Future<void> askNextVolume(BuildContext context, MediaItem item, {bool rightIsNext = true}) async {
   if (_asking) return;
   final app = context.read<AppState>();
   final next = app.nextVolume(item);
@@ -207,29 +208,29 @@ Future<void> askNextVolume(BuildContext context, MediaItem item) async {
       void stay() => Navigator.pop(ctx, 'stay');
       return CallbackShortcuts(
         // 한 번 더 넘기면 다음 권, 뒤로 넘기면 이 권에 머물기
+        // 뷰어에서 쪽을 넘기던 키 그대로: 다음 쪽 키 = 다음 권, 이전 쪽 키 = 머물기.
+        // Space · Enter 는 묶지 않는다 → 초점이 있는 단추("다음 권 보기"가 기본)를 누른다
         bindings: {
           ...volumeKeyBindings(volKeys, (d) => d > 0 ? go() : stay()),
-          const SingleActivator(LogicalKeyboardKey.arrowRight): go,
+          const SingleActivator(LogicalKeyboardKey.arrowRight): rightIsNext ? go : stay,
+          const SingleActivator(LogicalKeyboardKey.arrowLeft): rightIsNext ? stay : go,
           const SingleActivator(LogicalKeyboardKey.pageDown): go,
-          const SingleActivator(LogicalKeyboardKey.space): go,
-          const SingleActivator(LogicalKeyboardKey.arrowLeft): stay,
+          const SingleActivator(LogicalKeyboardKey.arrowDown): go,
           const SingleActivator(LogicalKeyboardKey.pageUp): stay,
+          const SingleActivator(LogicalKeyboardKey.arrowUp): stay,
         },
-        child: Focus(
-          autofocus: true,
-          child: Dialog(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            child: GestureDetector(
-              // 창 위에서 밀어도: 다음 쪽 방향이면 다음 권, 반대면 머물기
-              onHorizontalDragEnd: (d) {
-                final v = d.primaryVelocity ?? 0;
-                if (v.abs() < 250) return;
-                final rtl = ctx.read<Settings>().comicRtl;
-                ((v < 0) != rtl) ? go() : stay();
-              },
-              child: VolumeEndCard(item: item, onStay: stay, onNext: go, onList: () => Navigator.pop(ctx, 'list')),
-            ),
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: GestureDetector(
+            // 창 위에서 밀어도: 다음 쪽 방향이면 다음 권, 반대면 머물기
+            onHorizontalDragEnd: (d) {
+              final v = d.primaryVelocity ?? 0;
+              if (v.abs() < 250) return;
+              final rtl = ctx.read<Settings>().comicRtl;
+              ((v < 0) != rtl) ? go() : stay();
+            },
+            child: VolumeEndCard(item: item, onStay: stay, onNext: go, onList: () => Navigator.pop(ctx, 'list')),
           ),
         ),
       );

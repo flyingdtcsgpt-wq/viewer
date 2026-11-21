@@ -26,22 +26,32 @@ class Ads {
   static final ready = ValueNotifier<bool>(false);
   static bool _started = false;
   static late Settings _s;
-  static final _launched = DateTime.now();
+  static DateTime _launched = DateTime.now(); // start() 에서 다시 잡는다 (static 초기값은 처음 읽을 때 정해지므로)
+
+  /// 지금 전면 광고가 끼어들어도 되는가 (main 이 넣어 준다: 홈 화면이고 위에 뜬 창 · 뷰어가 없을 때만 true).
+  /// 만화 · 책 · 영상을 보는 중이나 안내 창 위에는 띄우지 않는다.
+  static bool Function() canInterrupt = () => true;
 
   static Future<void> start(Settings s) async {
     if (!enabled || _started) return;
     _started = true;
     _s = s;
+    _launched = DateTime.now();
     if (s.firstRunAt == 0) s.firstRunAt = DateTime.now().millisecondsSinceEpoch;
     try {
+      // 동의 창: 사용자가 천천히 읽고 골라도 기다린다 (시간 제한을 두면 그 뒤로는 앱을 다시 켤 때까지 광고가 꺼진다)
       final done = Completer<void>();
-      ConsentInformation.instance.requestConsentInfoUpdate(ConsentRequestParameters(), () async {
-        await ConsentForm.loadAndShowConsentFormIfRequired((_) {});
-        if (!done.isCompleted) done.complete();
+      ConsentInformation.instance.requestConsentInfoUpdate(ConsentRequestParameters(), () {
+        // 창이 필요 없으면 바로, 필요하면 사용자가 닫았을 때 불린다
+        ConsentForm.loadAndShowConsentFormIfRequired((_) {
+          if (!done.isCompleted) done.complete();
+        }).catchError((_) {
+          if (!done.isCompleted) done.complete();
+        });
       }, (_) {
         if (!done.isCompleted) done.complete();
       });
-      await done.future.timeout(const Duration(seconds: 20), onTimeout: () {});
+      await done.future;
       if (!await ConsentInformation.instance.canRequestAds()) return;
       await MobileAds.instance.initialize();
       ready.value = true;
@@ -95,8 +105,8 @@ class _AppOpen with WidgetsBindingObserver {
         onAdLoaded: (ad) {
           _ad = ad;
           _loadedAt = DateTime.now();
-          // 켤 때: 몇 초 안에 준비된 경우에만 (이미 쓰기 시작한 뒤에 갑자기 끼어들지 않게)
-          if (showWhenReady && DateTime.now().difference(Ads._launched) < const Duration(seconds: 5)) _show();
+          // 켤 때: 금방 준비된 경우에만 (이미 쓰기 시작한 뒤에 갑자기 끼어들지 않게). 늦게 준비되면 다음에 돌아올 때 쓴다
+          if (showWhenReady && DateTime.now().difference(Ads._launched) < const Duration(seconds: 8)) _show();
         },
         onAdFailedToLoad: (_) => _ad = null,
       ),
@@ -106,6 +116,8 @@ class _AppOpen with WidgetsBindingObserver {
   void _show() {
     final ad = _ad;
     if (ad == null || _showing || !_allowed) return;
+    // 뷰어 · 창이 떠 있으면 끼어들지 않는다 (광고는 남겨 두었다가 다음 기회에)
+    if (!Ads.canInterrupt()) return;
     // 불러온 지 4시간이 지난 광고는 쓰지 않는다 (AdMob 권장)
     if (_loadedAt != null && DateTime.now().difference(_loadedAt!) > const Duration(hours: 4)) {
       ad.dispose();
@@ -177,7 +189,9 @@ class _AdBannerState extends State<AdBanner> {
     final width = MediaQuery.sizeOf(context).width.truncate();
     if (_ad != null && width == _width) return;
     _width = width;
-    final size = await AdSize.getLargeAnchoredAdaptiveBannerAdSizeWithOrientation(MediaQuery.orientationOf(context), width);
+    // 작은 띠 배너(높이 50~90). "큰" 적응형 배너는 화면의 1/6 쯤을 차지해 거슬린다
+    // ignore: deprecated_member_use
+    final size = await AdSize.getAnchoredAdaptiveBannerAdSize(MediaQuery.orientationOf(context), width);
     if (size == null || !mounted) return;
     _ad?.dispose();
     _loaded = false;

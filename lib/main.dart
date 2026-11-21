@@ -57,7 +57,11 @@ Future<void> main() async {
   }
 
   // 플레이스토어판 광고 (동의 창 → 초기화). 첫 화면을 그린 뒤에
-  if (kStore) WidgetsBinding.instance.addPostFrameCallback((_) => Ads.start(settings));
+  if (kStore) {
+    // 전면 광고는 홈 화면에 아무것도 떠 있지 않을 때만 (뷰어 · 안내 · 창 위에는 띄우지 않는다)
+    Ads.canInterrupt = () => !(appNavigatorKey.currentState?.canPop() ?? true);
+    WidgetsBinding.instance.addPostFrameCallback((_) => Ads.start(settings));
+  }
 
 
   // 플레이스토어판: USB 로 넣은 파일을 켤 때 · 돌아올 때 찾고, "공유 → ARARIFlex" 로 받은 파일을 가져온다
@@ -72,9 +76,10 @@ Future<void> main() async {
       }
     });
     if (Saf.supported) {
-      void take(List<SafEntry> list) {
+      // null = 공유로 온 것이 아님. 빈 목록이면(글자 · 링크만 공유) 가져올 것이 없다고 알려 준다
+      void take(List<SafEntry>? list) {
         final ctx = appNavigatorKey.currentContext;
-        if (list.isNotEmpty && ctx != null && ctx.mounted) importSafEntries(ctx, list, shared: true);
+        if (list != null && ctx != null && ctx.mounted) importSafEntries(ctx, list, shared: true);
       }
 
       Saf.onShared(take);

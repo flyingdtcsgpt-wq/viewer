@@ -310,6 +310,7 @@ class AppState extends ChangeNotifier {
       await Directory(p.join(dir, sub)).create(recursive: true);
     }
     storeDir = dir;
+    unawaited(_cleanParts(dir)); // 가져오다 멈춘 조각(.part)이 남아 있으면 지운다
     settings.libraryRoot = dir;
     if (settings.libraryFolders.length != 1 || !p.equals(settings.libraryFolders.first.path, dir)) {
       settings.libraryFolders = [LibraryFolder(dir, alias: 'ARARIFlex 폴더')];
@@ -321,6 +322,18 @@ class AppState extends ChangeNotifier {
       users = await db.users();
     }
     await _enter(users.first);
+  }
+
+  Future<void> _cleanParts(String dir) async {
+    try {
+      await for (final e in Directory(dir).list(recursive: true, followLinks: false)) {
+        if (e is File && e.path.endsWith('.part')) {
+          try {
+            await e.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 
   /// 플레이스토어판: 종류별 하위 폴더 (가져올 때 여기로)
@@ -1392,6 +1405,14 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> rescanAll() => scanFolders(settings.watchFolders);
+
+  /// 돌고 있는 훑기가 있으면 끝나기를 기다렸다가 다시 훑는다 (방금 넣은 파일을 놓치지 않게)
+  Future<void> rescanWhenFree() async {
+    for (var i = 0; i < 600 && scanning; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    await rescanAll();
+  }
 
   /// 폴더를 하위까지 훑어 지원하는 파일을 등록한다.
   /// 결과를 숫자로 알려준다 (권한 문제로 아무것도 못 읽은 경우를 알아보기 위해).

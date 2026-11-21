@@ -715,9 +715,19 @@ class _LandingTopBarState extends State<_LandingTopBar> {
     super.dispose();
   }
 
+  void _submit(AppState state, String v) {
+    if (state.trySearchUnlock(v)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('숨김 목록을 표시합니다')));
+    } else if (v.trim().isNotEmpty) {
+      state.setQuery(v.trim());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
+    // 플레이스토어판 휴대폰: ＋ · ? 단추가 더 있어 검색 칸이 화면 밖으로 밀린다 → 좁으면 돋보기 단추로
+    final compact = kStore && !widget.wide && MediaQuery.sizeOf(context).width < 520;
     return SafeArea(
       bottom: false,
       child: Padding(
@@ -736,8 +746,19 @@ class _LandingTopBarState extends State<_LandingTopBar> {
             IconButton(color: Colors.white, tooltip: '가져오기', icon: const Icon(Icons.add), onPressed: () => openStoreImport(context)),
             IconButton(color: Colors.white, tooltip: '사용법 안내', icon: const Icon(Icons.help_outline), onPressed: () => showAppGuide(context)),
           ],
+          if (compact)
+            IconButton(
+              color: Colors.white,
+              tooltip: '검색',
+              icon: const Icon(Icons.search),
+              onPressed: () async {
+                final v = await askText(context, '검색', hint: '제목 · 저자 · 태그 · 파일 이름');
+                if (v != null && context.mounted) _submit(state, v);
+              },
+            )
+          else
           SizedBox(
-            width: widget.wide ? 280 : (kStore ? 130 : 170),
+            width: widget.wide ? 280 : 170,
             height: 40,
             child: TextField(
               controller: _c,
@@ -756,11 +777,7 @@ class _LandingTopBarState extends State<_LandingTopBar> {
               // Enter 를 눌러야 검색 (숨김 비밀번호면 숨김 목록이 열림)
               onSubmitted: (v) {
                 _c.clear();
-                if (state.trySearchUnlock(v)) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('숨김 목록을 표시합니다')));
-                } else if (v.trim().isNotEmpty) {
-                  state.setQuery(v.trim());
-                }
+                _submit(state, v);
               },
             ),
           ),

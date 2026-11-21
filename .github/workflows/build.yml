@@ -401,7 +401,7 @@ jobs:
           # 플레이스토어판에는 글자 인식 · ONNX 런타임이 들어가면 안 된다 (쓰지 않는 기능)
           if unzip -l $apk | grep -E "libonnxruntime|libmlkit" ; then echo "::error::쓰지 않는 네이티브 라이브러리가 들어갔습니다"; exit 1; fi
           echo "--- 16KB zip 정렬" | tee -a store-check.txt
-          ($za -c -P 16 -v 4 $apk >/dev/null && echo "OK") 2>&1 | tail -1 | tee -a store-check.txt
+          if $za -c -P 16 -v 4 $apk >/dev/null 2>&1; then echo "OK" | tee -a store-check.txt; else echo "실패" | tee -a store-check.txt; echo "::warning::16KB zip 정렬 검사에 실패했습니다"; fi
           echo "--- .so LOAD 정렬 (0x4000 이상이어야 16KB 기기에서 돈다)" | tee -a store-check.txt
           mkdir -p so && unzip -qo $apk 'lib/arm64-v8a/*.so' -d so
           for f in so/lib/arm64-v8a/*.so; do

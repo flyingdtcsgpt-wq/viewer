@@ -43,8 +43,12 @@ class Saf {
 
   static Future<void> releaseFolder(String tree) => _ch.invokeMethod('releaseFolder', {'tree': tree});
 
-  /// "공유 → ARARIFlex" 로 앱이 열렸을 때 받은 파일
-  static Future<List<SafEntry>> takeShared() async => _list(await _ch.invokeMethod('takeShared'));
+  /// "공유 → ARARIFlex" 로 앱이 열렸을 때 받은 파일.
+  /// null = 공유로 연 것이 아님, 빈 목록 = 공유이지만 파일이 없음(글자 · 링크만)
+  static Future<List<SafEntry>?> takeShared() async {
+    final r = await _ch.invokeMethod('takeShared');
+    return r == null ? null : _list(r);
+  }
 
   /// 앱이 켜져 있을 때 공유받은 파일
   static void onShared(void Function(List<SafEntry>) f) {

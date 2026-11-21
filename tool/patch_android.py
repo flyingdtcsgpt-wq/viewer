@@ -175,10 +175,11 @@ class MainActivity : FlutterActivity() {{
     override fun onNewIntent(newIntent: Intent) {{
         super.onNewIntent(newIntent)
         setIntent(newIntent)
-        val shared = takeShared(newIntent)
-        if (shared.isNotEmpty()) {{
+        if (newIntent.action == Intent.ACTION_SEND || newIntent.action == Intent.ACTION_SEND_MULTIPLE) {{
+            val shared = takeShared(newIntent)
             newIntent.action = Intent.ACTION_MAIN
             Thread {{
+                // 받을 파일이 없어도(글자 · 링크만 공유) 빈 목록을 보내 앱이 알려 주게 한다
                 val out = shared.map {{ describe(it, "") }}
                 runOnUiThread {{ safChannel?.invokeMethod("shared", out) }}
             }}.start()
@@ -353,8 +354,11 @@ class MainActivity : FlutterActivity() {{
                     }}.start()
                 }}
                 "delete" -> {{
-                    val ok = try {{ android.provider.DocumentsContract.deleteDocument(contentResolver, Uri.parse(call.argument<String>("uri") ?: "")) }} catch (e: Exception) {{ false }}
-                    result.success(ok)
+                    val uri = Uri.parse(call.argument<String>("uri") ?: "")
+                    Thread {{
+                        val ok = try {{ android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }} catch (e: Exception) {{ false }}
+                        runOnUiThread {{ result.success(ok) }}
+                    }}.start()
                 }}
                 "releaseFolder" -> {{
                     try {{
@@ -365,12 +369,19 @@ class MainActivity : FlutterActivity() {{
                 }}
                 // 앱을 "공유 → ARARIFlex" 로 열었을 때 받은 파일 (한 번만)
                 "takeShared" -> {{
-                    val list = takeShared(intent)
-                    if (list.isNotEmpty()) intent.action = Intent.ACTION_MAIN
-                    Thread {{
-                        val out = list.map {{ describe(it, "") }}
-                        runOnUiThread {{ result.success(out) }}
-                    }}.start()
+                    val i = intent
+                    // 최근 앱 목록에서 다시 열면 예전 공유 요청이 다시 오므로 무시
+                    val fromHistory = i != null && (i.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+                    if (i == null || fromHistory || (i.action != Intent.ACTION_SEND && i.action != Intent.ACTION_SEND_MULTIPLE)) {{
+                        result.success(null) // 공유로 연 것이 아님
+                    }} else {{
+                        val list = takeShared(i)
+                        i.action = Intent.ACTION_MAIN
+                        Thread {{
+                            val out = list.map {{ describe(it, "") }}
+                            runOnUiThread {{ result.success(out) }}
+                        }}.start()
+                    }}
                 }}
                 else -> result.notImplemented()
             }}
@@ -552,6 +563,19 @@ class MainActivity : FlutterActivity() {{
                     if (si >= 0 && !c.isNull(si)) size = c.getLong(si)
                 }}
             }}
+            // 이름에 확장자가 없으면(일부 메신저 · 브라우저) 종류(MIME)로 붙인다
+            if (name.isNotEmpty() && !name.contains('.')) {{
+                val mime = contentResolver.getType(uri) ?: ""
+                val ext = when (mime) {{
+                    "application/epub+zip" -> "epub"
+                    "application/pdf" -> "pdf"
+                    "text/plain" -> "txt"
+                    "application/zip" -> "zip"
+                    "application/x-cbz", "application/vnd.comicbook+zip" -> "cbz"
+                    else -> android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+                }}
+                if (!ext.isNullOrEmpty()) name = name + "." + ext
+            }}
         }} catch (e: Exception) {{}}
         return mapOf("uri" to uri.toString(), "name" to name, "size" to size, "rel" to rel)
     }}
@@ -598,7 +622,9 @@ class MainActivity : FlutterActivity() {{
         return try {{
             contentResolver.openInputStream(uri)?.use {{ input -> tmp.outputStream().use {{ input.copyTo(it, 1 shl 16) }} }} ?: return false
             if (out.exists()) out.delete()
-            tmp.renameTo(out)
+            val ok = tmp.renameTo(out)
+            if (!ok) tmp.delete() // 받다 만 파일을 남기지 않는다
+            ok
         }} catch (e: Exception) {{
             tmp.delete()
             false

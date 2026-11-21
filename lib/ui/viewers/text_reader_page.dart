@@ -238,7 +238,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
     final pos = _ctrl.position;
     // 끝까지 읽고 한 번 더 넘기면: 다음 권으로 갈지 묻는다 (없으면 "마지막 권입니다")
     if (dir > 0 && pos.pixels >= pos.maxScrollExtent - 2) {
-      askNextVolume(context, item);
+      askNextVolume(context, item, rightIsNext: !context.read<Settings>().comicRtl);
       return;
     }
     final target = (pos.pixels + dir * pos.viewportDimension * 0.9).clamp(pos.minScrollExtent, pos.maxScrollExtent);
@@ -524,6 +524,9 @@ class _TextReaderPageState extends State<TextReaderPage> {
         _handover = true;
         _atEnd = true;
         _app.beginView(next);
+        // 이 화면 위에 창("다음 권으로 넘어갈까요?" 등)이 떠 있으면 먼저 닫는다 (창이 아니라 이 뷰어를 바꿔 넣어야 한다)
+        final me = ModalRoute.of(context);
+        if (me != null && !me.isCurrent) Navigator.of(context).popUntil((r) => r == me);
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => TextReaderPage(item: next, readAloud: true, autoPlay: true, sleepAt: _sleepAt)),
