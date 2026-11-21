@@ -145,7 +145,7 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - 앱 이름은 **ARARIFlex** 붙여쓰기, 로고는 코드로 그린 `ArariLogo`(ARARI + 빨간 기울임 Flex + 물결 + 첫 A 안 재생 ▶)
   — 원본 로고 PNG 를 받으면 교체 예정
 - 만화 기본 넘김: **오른쪽→왼쪽으로 밀면 다음 쪽** (사용자 요청)
-- 삭제는 항상 "목록에서만 / 원본 파일까지" 물어본다
+- 삭제는 항상 "목록에서만 제거 / 파일까지 삭제" 를 물어본다 (지워질 파일 위치 · 개수 · 용량 표시. 플레이스토어판은 파일 삭제 한 가지)
 - 무료 로컬 우선, 안 되면 저렴한 API 를 선택 옵션으로
 - 오프라인 PC 설치 가능해야 함: 코덱(FFmpeg via libmpv) · 7-Zip · VC++ 런타임 동봉, 모델은 폴더에서 가져오기 지원
 - 라이선스 고지 포함 (THIRD_PARTY_NOTICES.txt + 앱 안 라이선스 화면). Supertonic 모델은 OpenRAIL-M, 앱에 넣지 않음
@@ -298,3 +298,21 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - 읽어주기 막대 배경 불투명(휴대폰에서 본문이 비침), 상세 화면에 읽은 정도 · 읽음 표시, 홈 줄(`rootEntries`) 판마다 캐시
 - 읽어주기 이어 읽기: `_ttsPlay` 가 끝까지 가면 `ttsContinueNext` 이고 다음 권이 TXT/EPUB 일 때 `TextReaderPage(next, readAloud, autoPlay, sleepAt)` 로 바꿔 넣음.
   넘어갈 때는 `_handover` 로 알림 · 배경음을 끄지 않는다(다음 화면의 start 와 앞 화면 dispose 의 stop 순서가 엇갈려 꺼지지 않게)
+
+## 15. 플레이스토어판 · 사용법 안내 · 제스처 (11-21)
+- **판 나누기**: 코드는 하나, `lib/edition.dart` 의 `kStore`(`--dart-define=ARARI_STORE=true`). 플레이스토어판은 만화 · 책 · 영상만, 계정 없이 바로(`_setupStoreLibrary`),
+  서재 = 앱 전용 `Android/data/com.arariflex.app/files/ARARIFlex`(저장소 권한 없음). 넣기는 SAF(`saf.dart` · `store_import.dart`) · 공유 받기 · USB.
+  켤 때 · 돌아올 때(15초 간격) 조용히 훑어 새 파일을 올리고, 폴더에서 사라진 파일과 빈 묶음은 목록에서 뺀다(`scanFolders` 의 kStore 갈래, `_dropEmptySeries`).
+  광고는 `ads.dart`(배너 + 앱 열기, 동의 창). 자세한 것은 `docs/store/PLAY_RELEASE.md`
+- **플레이스토어판 빌드에서 빼는 것**: ML Kit(MainActivity 의 OCR 부분을 `patch_android.py --store` 가 들어냄), ONNX 런타임(`tool/store_stubs/flutter_onnxruntime` 빈 껍데기를
+  `pubspec_overrides.yaml` 로 바꿔 끼움 — 플러그인이 켜질 때 네이티브를 바로 불러서 `.so` 만 빼면 죽는다). CI 가 APK 에 `libonnxruntime · libmlkit` 이 있으면 실패 처리
+- **릴리스가 켜자마자 죽던 문제**: 광고 SDK 가 끌고 온 WorkManager 의 `WorkDatabase_Impl` 생성자를 R8 이 지움 → proguard keep. 두 판 모두 해당.
+  CI `android-smoke` 가 두 판의 릴리스 APK 를 에뮬레이터에서 켜 30초 버티는지 본다 (디버그 빌드로 도는 화면 캡처 테스트는 R8 문제를 못 잡는다)
+- **Windows ONNX 런타임**: 플러그인이 GitHub 릴리스에서 받는데 그 주소가 404 → CI 가 NuGet `Microsoft.ML.OnnxRuntime` 에서 받아 플러그인이 찾는 폴더 구조로 풀어 둔다(같은 1.28 계열)
+- **만화 뷰어 제스처**: 탭 · 밀기 · 두 번 탭을 `Listener` 로 직접 판단(GestureDetector 의 인식기가 InteractiveViewer 와 같은 손가락을 두고 다퉈 두 손가락 확대가 씹히던 문제).
+  두 손가락이 닿은 손짓은 확대만, 확대 중 한 번 탭은 무시, 두 번 탭 = 그 자리 확대 ↔ 원래 크기. 터치 기기의 가로/높이 맞춤은 안쪽 스크롤 없이 InteractiveViewer 가 이동을 맡는다(`constrained: false`).
+  마우스 휠은 InteractiveViewer 가 못 건드리게(`scaleFactor: 1e9`) 하고 직접: 휠 = 쪽 넘김, Ctrl+휠 = `_wheelZoom`, 확대 중 휠 = `_moveZoomed` (전에는 휠을 위로 굴리면 이전 쪽 대신 확대가 됐다)
+- **권 끝**: `open_item.dart askNextVolume`(창) · `showViewerToast`("마지막 권입니다"). 세 뷰어의 "끝에서 한 번 더" 가 모두 이것을 부른다
+- **사용법 안내** `ui/guide.dart`: `GuideAtStart` 로 홈을 감싸 처음 뜰 때 표시, `Settings.guideHidden`. 화면 캡처 테스트는 `guideHidden = true` 로 끄고 따로 띄워 찍는다.
+  뷰어 도움말 `showViewerHelp(keys, touch:)` — 터치 기기는 손가락 조작을 먼저
+- 영상: `MaterialVideoControlsTheme` 으로 좌우 두 번 탭 10초 이동(기본값은 꺼짐), 위쪽 단추가 넘치지 않게 정보 · 조작법은 ⋮ 안으로
