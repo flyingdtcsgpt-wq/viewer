@@ -47,7 +47,7 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
   ScrollController _strip = ScrollController();
   final _centerKey = GlobalKey();
   final _itemKeys = <int, GlobalKey>{};
-  DateTime _lastTrack = DateTime(0);
+  bool _trackPending = false;
 
   bool _showUi = true;
   Timer? _slideshow;
@@ -169,25 +169,41 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
     );
   }
 
-  /// 이어 보기: 화면 위쪽 1/3 지점에 걸친 그림을 "지금 그림" 으로 (제목의 몇 번째 · 즐겨찾기 · 정보가 이 그림을 가리킨다)
-  void _trackStrip({bool force = false}) {
-    final now = DateTime.now();
-    if (!force && now.difference(_lastTrack) < const Duration(milliseconds: 120)) return;
-    _lastTrack = now;
+  /// 이어 보기: 화면 위쪽 1/3 지점에 걸친 그림을 "지금 그림" 으로 (제목의 몇 번째 · 즐겨찾기 · 정보가 이 그림을 가리킨다).
+  /// 스크롤 알림은 화면을 다시 배치하기 전에 오므로(그때 재면 옛 위치가 나온다) 이번 화면이 그려진 뒤에 잰다.
+  void _trackStrip() {
+    if (_trackPending) return;
+    _trackPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _trackPending = false;
+      if (!mounted || _mode != 2) return;
+      final found = _stripIndexNow();
+      if (found != null && found != _index) {
+        setState(() => _index = found);
+        _touch();
+      }
+    });
+  }
+
+  int? _stripIndexNow() {
     final line = (context.size?.height ?? 900) / 3;
     final top = _stripTop();
-    for (final e in _itemKeys.entries) {
-      final box = e.value.currentContext?.findRenderObject();
-      if (box is! RenderBox || !box.attached || !box.hasSize) continue;
+    bool at(int i) {
+      final box = _itemKeys[i]?.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return false;
       final y = box.localToGlobal(Offset.zero).dy - top;
-      if (y <= line && y + box.size.height > line) {
-        if (e.key != _index) {
-          setState(() => _index = e.key);
-          _touch();
-        }
-        return;
-      }
+      return y <= line && y + box.size.height > line;
     }
+
+    // 보통은 지금 그림 근처다. 못 찾으면(빠르게 멀리 움직였을 때) 그려져 있는 것을 모두 본다
+    for (var d = 0; d <= 6; d++) {
+      if (at(_index + d)) return _index + d;
+      if (d > 0 && at(_index - d)) return _index - d;
+    }
+    for (final i in _itemKeys.keys) {
+      if (at(i)) return i;
+    }
+    return null;
   }
 
   void _toggleSlideshow() {
@@ -345,8 +361,7 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
       onTap: () => setState(() => _showUi = !_showUi),
       child: NotificationListener<ScrollNotification>(
         onNotification: (n) {
-          if (n is ScrollUpdateNotification) _trackStrip();
-          if (n is ScrollEndNotification) _trackStrip(force: true);
+          if (n is ScrollUpdateNotification || n is ScrollEndNotification) _trackStrip();
           return false;
         },
         child: CustomScrollView(
