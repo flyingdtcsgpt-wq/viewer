@@ -387,18 +387,24 @@ void main() {
       final startAt2 = find.textContaining('(2/${imgs.length})').evaluate().isNotEmpty;
       // 긴 그림은 한 화면씩 내려가다가 다 보면 다음 그림으로 넘어간다 → 몇 번 눌러 본다
       var movedTo3 = false;
+      String title() => tester.widgetList<Text>(find.descendant(of: find.byType(AppBar), matching: find.byType(Text))).map((t) => t.data).join('|');
+      List<int> offsets() => tester.stateList<ScrollableState>(find.byType(Scrollable)).map((s) => s.position.pixels.round()).toList();
+      final trace = <String>['${title()} ${offsets()}'];
       for (var k = 0; k < 6 && !movedTo3; k++) {
         await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
         await wait(700);
         movedTo3 = find.textContaining('(3/${imgs.length})').evaluate().isNotEmpty;
+        trace.add('${title()} ${offsets()}');
       }
+      debugPrint('CHECK image trace ${trace.join(' → ')}');
       // 보던 그림 그대로 위아래 한 장씩으로
       settings.imageViewMode = 1;
       await wait(600);
       final keptAfterSwitch = find.textContaining('(3/${imgs.length})').evaluate().isNotEmpty;
+      final before = title();
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await wait(700);
-      final pagedTo4 = imgs.length < 4 || find.textContaining('(4/${imgs.length})').evaluate().isNotEmpty;
+      final pagedTo4 = title() != before; // 아래 키로 다음 그림으로 넘어갔는가
       await shot('09d_그림뷰어_위아래_한장씩', 300);
       debugPrint('CHECK image strip start=$startAt2 next=$movedTo3 keepOnSwitch=$keptAfterSwitch vertPaged=$pagedTo4');
       settings.imageViewMode = 0;

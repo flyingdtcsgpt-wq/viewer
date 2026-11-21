@@ -132,21 +132,30 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
       final cur = _itemKeys[_index]?.currentContext?.findRenderObject();
       final viewH = context.size?.height ?? 900;
       if (cur is RenderBox && cur.attached && cur.hasSize) {
-        final top = cur.localToGlobal(Offset.zero).dy;
+        final top = cur.localToGlobal(Offset.zero).dy - _stripTop();
         if (delta > 0 ? top + cur.size.height > viewH + 4 : top < -4) {
           _scrollBy(delta * 0.85);
           return;
         }
       }
-      final ctx = _itemKeys[target]?.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 260), curve: Curves.easeOut);
+      // 다음(이전) 그림의 맨 위가 화면 맨 위에 오도록 그만큼 움직인다 (아직 안 그려진 그림이면 한 화면)
+      final next = _itemKeys[target]?.currentContext?.findRenderObject();
+      if (next is RenderBox && next.attached && next.hasSize && _strip.hasClients) {
+        final pos = _strip.position;
+        final to = pos.pixels + next.localToGlobal(Offset.zero).dy - _stripTop();
+        _strip.animateTo(to.clamp(pos.minScrollExtent, pos.maxScrollExtent), duration: const Duration(milliseconds: 260), curve: Curves.easeOut);
       } else {
         _scrollBy(delta * 0.85);
       }
       return;
     }
     _pages.animateToPage(target, duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+  }
+
+  /// 이어 보기 화면의 맨 위 (화면 좌표)
+  double _stripTop() {
+    final box = context.findRenderObject();
+    return box is RenderBox && box.attached ? box.localToGlobal(Offset.zero).dy : 0;
   }
 
   /// 이어 보기: 화면 높이의 [screens] 배만큼 내리거나 올린다
@@ -166,10 +175,11 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
     if (!force && now.difference(_lastTrack) < const Duration(milliseconds: 120)) return;
     _lastTrack = now;
     final line = (context.size?.height ?? 900) / 3;
+    final top = _stripTop();
     for (final e in _itemKeys.entries) {
       final box = e.value.currentContext?.findRenderObject();
       if (box is! RenderBox || !box.attached || !box.hasSize) continue;
-      final y = box.localToGlobal(Offset.zero).dy;
+      final y = box.localToGlobal(Offset.zero).dy - top;
       if (y <= line && y + box.size.height > line) {
         if (e.key != _index) {
           setState(() => _index = e.key);
