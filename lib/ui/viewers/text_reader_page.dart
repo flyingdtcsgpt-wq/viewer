@@ -1162,7 +1162,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
             ToolGroup([
               ToolBtn(
                 icon: Icons.help_outline,
-                tooltip: '단축키',
+                tooltip: '조작법 · 단축키',
                 onTap: () => showViewerHelp(context, const [
                   ('← → / PgUp PgDn', '한 화면씩 넘기기'),
                   ('Space / Shift+Space', '다음 / 이전 화면'),
@@ -1172,6 +1172,15 @@ class _TextReaderPageState extends State<TextReaderPage> {
                   ('F', '전체화면'),
                   ('B', '책갈피'),
                   ('Esc', '패널 닫기 · 나가기'),
+                  ('끝에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
+                ], touch: const [
+                  ('좌우 가장자리 누르기 · 옆으로 밀기', '한 화면씩 넘기기'),
+                  ('위아래로 밀기', '스크롤해서 읽기'),
+                  ('가운데 누르기', '위 메뉴 보이기 · 숨기기'),
+                  ('글자 선택 단추', '글자를 끌어 고른 뒤 형광펜 · 복사 · 검색'),
+                  ('⚙ 뷰어 설정', '글자 크기 · 줄 간격 · 글꼴 · 배경'),
+                  ('끝에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
+                  ('볼륨 버튼', '화면 넘기기 (설정 › 뷰어에서 켜기)'),
                 ]),
               ),
             ]),

@@ -199,13 +199,20 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                         ToolGroup([
                           ToolBtn(
                             icon: Icons.help_outline,
-                            tooltip: '단축키',
+                            tooltip: '조작법 · 단축키',
                             onTap: () => showViewerHelp(context, const [
                               ('← → / PgUp PgDn', '이전 / 다음 쪽'),
                               ('Home / End', '처음 / 끝'),
                               ('Ctrl+휠', '확대 / 축소'),
                               ('F', '전체화면'),
                               ('B', '책갈피'),
+                              ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
+                            ], touch: const [
+                              ('위아래로 밀기', '쪽 넘기기'),
+                              ('두 손가락 벌리기 · 두 번 누르기', '확대 · 축소'),
+                              ('아래 썸네일 줄', '원하는 쪽으로 바로 가기'),
+                              ('마지막 쪽의 "다음 권 보기"', '다음 권으로'),
+                              ('볼륨 버튼', '쪽 넘기기 (설정 › 뷰어에서 켜기)'),
                             ]),
                           ),
                         ]),

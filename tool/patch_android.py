@@ -658,7 +658,7 @@ print("gradle signing patched")
 
 # ---- 글자 인식(ML Kit): 한국어 인식 모델을 앱에 넣는다 (플러그인은 compileOnly 로만 둠) ----
 g = gradle.read_text(encoding="utf-8")
-if "text-recognition-korean" not in g:
+if not STORE and "text-recognition-korean" not in g:  # 플레이스토어판은 글자 인식을 쓰지 않는다 (약 20MB 절약)
     g += """
 dependencies {
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
@@ -760,6 +760,22 @@ class ReadAloudService : Service() {{
 }}
 """, encoding="utf-8")
 print("service written", svc)
+
+# ---- 플레이스토어판: 쓰지 않는 네이티브 라이브러리 빼기 (APK 가 40MB 가까이 줄어든다) ----
+if STORE:
+    # 1) 글자 인식(ML Kit): MainActivity 에서 그 부분을 들어낸다 (위에서 의존성도 넣지 않았다)
+    k = act.read_text(encoding="utf-8")
+    k = re.sub(r"^import com\.google\.mlkit\..*\n", "", k, flags=re.M)
+    k = re.sub(r"^\s*private val recognizer by lazy .*\n", "", k, flags=re.M)
+    a, b = k.index("        // 글자 인식: ML Kit 한국어"), k.index("        // 화면을 꺼도 읽기가 이어지게")
+    k = k[:a] + k[b:]
+    assert "mlkit" not in k and "recognizer" not in k, "OCR 코드가 남았습니다"
+    act.write_text(k, encoding="utf-8")
+    # 2) ONNX 런타임(자연 음성 · PaddleOCR): 플러그인을 빈 껍데기 패키지로 바꿔 끼운다 → 네이티브 라이브러리가 들어가지 않는다
+    Path("pubspec_overrides.yaml").write_text(
+        "# tool/patch_android.py --store 가 만든 파일 (플레이스토어판 빌드에만)\n"
+        "dependency_overrides:\n  flutter_onnxruntime:\n    path: tool/store_stubs/flutter_onnxruntime\n", encoding="utf-8")
+    print("store: ML Kit · ONNX runtime left out")
 
 # ---- 플레이스토어판: 패키지 이름 바꾸기 · 버전 번호 ----
 if STORE:

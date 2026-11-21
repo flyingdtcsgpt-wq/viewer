@@ -432,7 +432,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             ToolGroup([
               ToolBtn(
                 icon: Icons.help_outline,
-                tooltip: '단축키',
+                tooltip: '조작법 · 단축키',
                 onTap: () => showViewerHelp(context, const [
                   ('← →', '쪽 넘기기 (읽기방향 설정을 따름)'),
                   ('↑ ↓ / PgUp PgDn', '이전 / 다음'),
@@ -442,6 +442,17 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   ('B', '책갈피'),
                   ('Esc', '설정 닫기 · 나가기'),
                   ('더블클릭', '확대 / 원래대로'),
+                  ('Ctrl+휠 · 끌기', '확대 · 축소 / 확대 중 이동'),
+                  ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
+                ], touch: const [
+                  ('가장자리 누르기 · 옆으로 밀기', '쪽 넘기기'),
+                  ('가운데 누르기', '위아래 메뉴 보이기 · 숨기기'),
+                  ('두 손가락 벌리기', '확대 · 축소'),
+                  ('두 번 누르기', '그 자리 확대 ↔ 원래 크기'),
+                  ('확대 중 한 손가락', '끌어서 움직이기 (한 번 누르기는 무시)'),
+                  ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
+                  ('책갈피 길게 누르기', '책갈피 목록'),
+                  ('볼륨 버튼', '쪽 넘기기 (설정 › 뷰어에서 켜기)'),
                 ]),
               ),
             ]),
@@ -589,6 +600,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         maxScale: 6,
         constrained: !freePan,
         panEnabled: freePan || _zoomed,
+        // 마우스 휠은 아래에서 직접 다룬다 (휠 = 쪽 넘김, Ctrl+휠 = 확대).
+        // 그대로 두면 휠을 위로 굴릴 때 이전 쪽으로 가지 않고 확대가 되어 버린다.
+        scaleFactor: 1e9,
         child: view,
       );
     }
@@ -662,9 +676,15 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           _visual(d.dx > 0); // 오른쪽으로 밀면 왼쪽 쪽이 나온다
         }
       },
-      // 마우스 휠: 확대 중이 아니면 쪽 넘기기
+      // 마우스 휠: Ctrl+휠 = 그 자리 확대 · 축소, 확대 중 = 위아래로 움직이기, 그 밖에는(전체 맞춤) 쪽 넘기기
       onPointerSignal: (e) {
-        if (e is PointerScrollEvent && !_zoomed && s.viewerFit == 2) {
+        if (e is! PointerScrollEvent || e.scrollDelta.dy == 0 || s.viewerFit == 3) return;
+        final ctrl = HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
+        if (ctrl) {
+          _wheelZoom(e.localPosition, e.scrollDelta.dy, c, s);
+        } else if (_zoomed) {
+          _moveZoomed(Offset(0, -e.scrollDelta.dy), c, s);
+        } else if (s.viewerFit == 2) {
           _turn(e.scrollDelta.dy > 0 ? 1 : -1);
         }
       },
@@ -705,6 +725,37 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       ..scaleByDouble(z, z, 1, 1)
       ..translateByDouble(-p.dx, -p.dy, 0, 1);
     _zoom.value = m.multiplied(_zoom.value);
+  }
+
+  /// 확대한 화면이 가장자리 밖으로 밀려나지 않게 (화면 크기에 맞춘 내용일 때)
+  Matrix4 _inBounds(Matrix4 m, BoxConstraints c) {
+    final z = m.getMaxScaleOnAxis();
+    final t = m.getTranslation();
+    final minX = math.min(0.0, -(z - 1) * c.maxWidth), minY = math.min(0.0, -(z - 1) * c.maxHeight);
+    return m..setTranslationRaw(t.x.clamp(minX, 0.0), t.y.clamp(minY, 0.0), 0);
+  }
+
+  /// Ctrl+휠: 마우스가 있는 자리를 중심으로 확대 · 축소 (1 ~ 6배)
+  void _wheelZoom(Offset p, double dy, BoxConstraints c, Settings s) {
+    final cur = _scale;
+    final next = (cur * math.exp(-dy / 300)).clamp(1.0, 6.0);
+    if (next <= 1.001) {
+      if (cur > 1.001) _unzoom(s);
+      return;
+    }
+    final r = next / cur;
+    final m = Matrix4.identity()
+      ..translateByDouble(p.dx, p.dy, 0, 1)
+      ..scaleByDouble(r, r, 1, 1)
+      ..translateByDouble(-p.dx, -p.dy, 0, 1);
+    final out = m.multiplied(_zoom.value);
+    _zoom.value = _touch && (s.viewerFit == 0 || s.viewerFit == 1) ? out : _inBounds(out, c);
+  }
+
+  /// 확대 중 휠: 위아래로 움직인다
+  void _moveZoomed(Offset d, BoxConstraints c, Settings s) {
+    final out = (Matrix4.identity()..translateByDouble(d.dx, d.dy, 0, 1)).multiplied(_zoom.value);
+    _zoom.value = _touch && (s.viewerFit == 0 || s.viewerFit == 1) ? out : _inBounds(out, c);
   }
 
   /// 원래 크기로 (가로 맞춤에서는 보던 높이를 그대로 둔다)

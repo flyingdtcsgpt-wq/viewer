@@ -1,0 +1,7 @@
+name: flutter_onnxruntime
+description: 플레이스토어판 빌드용 빈 껍데기. 플레이스토어판은 읽어주기 · 글자 인식을 쓰지 않으므로 ONNX 런타임(네이티브 약 20MB)을 넣지 않는다.
+version: 99.0.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.5.0

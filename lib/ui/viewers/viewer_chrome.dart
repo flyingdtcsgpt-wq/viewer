@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 /// 뷰어 공통 부품 (BookManager 스타일)
@@ -135,30 +137,45 @@ class PanelSection extends StatelessWidget {
       );
 }
 
-/// 단축키 도움말
-void showViewerHelp(BuildContext context, List<(String, String)> keys) => showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('단축키'),
-        content: SizedBox(
-          width: 380,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            for (final (k, v) in keys)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(children: [
-                  Container(
-                    width: 130,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(4)),
-                    child: Text(k, style: const TextStyle(fontFamily: 'monospace')),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(v)),
-                ]),
+/// 조작법 도움말. 손가락으로 쓰는 기기(휴대폰 · 태블릿)에서는 [touch] 를 먼저 보여 주고, 키보드 단축키는 그 아래에 둔다.
+void showViewerHelp(BuildContext context, List<(String, String)> keys, {List<(String, String)> touch = const []}) {
+  final mobile = Platform.isAndroid || Platform.isIOS;
+  List<Widget> rows(List<(String, String)> list, {double keyWidth = 130}) => [
+        for (final (k, v) in list)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                width: keyWidth,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(4)),
+                child: Text(k, style: mobile ? const TextStyle(fontWeight: FontWeight.w600) : const TextStyle(fontFamily: 'monospace')),
               ),
+              const SizedBox(width: 12),
+              Expanded(child: Padding(padding: const EdgeInsets.only(top: 3), child: Text(v))),
+            ]),
+          ),
+      ];
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(mobile ? '조작법' : '단축키'),
+      content: SizedBox(
+        width: 400,
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (mobile && touch.isNotEmpty) ...[
+              ...rows(touch, keyWidth: 124),
+              const Padding(
+                padding: EdgeInsets.only(top: 14, bottom: 4),
+                child: Text('키보드를 연결했을 때', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              ),
+            ],
+            ...rows(keys),
           ]),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기'))],
       ),
-    );
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기'))],
+    ),
+  );
+}

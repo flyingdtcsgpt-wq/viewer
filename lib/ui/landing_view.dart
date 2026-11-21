@@ -12,6 +12,7 @@ import 'brand.dart';
 import 'browser.dart' show removeFromContinueWithUndo;
 import 'cover_tile.dart';
 import 'detail_page.dart';
+import 'guide.dart';
 import 'store_import.dart' show StoreEmptyGuide;
 import 'series_widgets.dart';
 import 'viewers/open_item.dart';
@@ -30,7 +31,7 @@ class LandingView extends StatelessWidget {
 
     final rows = <Widget>[
       if (cont.isNotEmpty)
-        _Row(title: '${state.user?.name ?? ''} 님이 보던 작품', entries: cont.map<Entry>(ItemEntry.new).toList(), wideCards: true, removable: true),
+        _Row(title: kStore ? '보던 작품' : '${state.user?.name ?? ''} 님이 보던 작품', entries: cont.map<Entry>(ItemEntry.new).toList(), wideCards: true, removable: true),
       _Row(title: '최근 추가된 작품', entries: state.rootEntries(), onMore: () => state.setFilter(clearKind: true)),
       for (final k in [MediaKind.comic, MediaKind.book, MediaKind.video, if (!kStore) MediaKind.image])
         _Row(title: kindLabel(k), entries: state.rootEntries(kind: k), onMore: () => state.setFilter(kind: k)),
@@ -45,9 +46,15 @@ class LandingView extends StatelessWidget {
             const Icon(Icons.local_library, size: 72),
             const SizedBox(height: 12),
             Text(
-              state.isAdmin ? '아직 작품이 없습니다. 왼쪽 메뉴의 "폴더 등록"으로 추가하세요.' : '볼 수 있는 작품이 없습니다.',
+              !state.isAdmin
+                  ? '볼 수 있는 작품이 없습니다.'
+                  : MediaQuery.sizeOf(context).width >= 840
+                      ? '아직 작품이 없습니다. 위쪽 "＋ 추가" › 폴더 추가로 넣으세요.'
+                      : '아직 작품이 없습니다. 왼쪽 위 ☰ 메뉴 › 폴더 추가로 넣으세요.',
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 8),
+            TextButton.icon(onPressed: () => showAppGuide(context), icon: const Icon(Icons.help_outline, size: 18), label: const Text('사용법 안내 보기')),
           ]),
         ),
         ?topBar,

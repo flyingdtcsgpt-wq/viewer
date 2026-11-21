@@ -21,6 +21,7 @@ import '../services/tts_service.dart';
 import '../version.dart';
 import 'admin_page.dart';
 import 'import_dialog.dart';
+import 'guide.dart';
 import 'brand.dart';
 
 /// 환경 설정 — 왼쪽 분류 / 오른쪽 내용 (BookManager 스타일)
@@ -61,7 +62,7 @@ const _cats = [
   _Cat(Icons.auto_awesome, 'AI 도우미', 'Claude API', adminOnly: true),
   _Cat(Icons.person, '계정 · 보안', '사용자 · 권한 · 숨김'),
   _Cat(Icons.record_voice_over, '읽어주기 · 글자 인식', '자연스러운 음성 · 한국어 글자 인식 모델'),
-  _Cat(Icons.info_outline, '정보', '버전 · 데이터 위치'),
+  _Cat(Icons.info_outline, '정보', kStore ? '사용법 안내 · 버전 · 개인정보' : '사용법 안내 · 버전 · 백업'),
 ];
 
 class _SettingsView extends StatefulWidget {
@@ -522,7 +523,7 @@ class _Viewer extends StatelessWidget {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('볼륨 버튼으로 쪽 넘기기'),
-            subtitle: const Text('볼륨 내림 = 다음 쪽, 올림 = 이전 쪽. 소리 내어 읽는 중에는 음량 조절'),
+            subtitle: Text(kStore ? '볼륨 내림 = 다음 쪽, 올림 = 이전 쪽' : '볼륨 내림 = 다음 쪽, 올림 = 이전 쪽. 소리 내어 읽는 중에는 음량 조절'),
             value: s.volumeKeyTurn,
             onChanged: (v) => s.volumeKeyTurn = v,
           ),
@@ -649,13 +650,20 @@ class _About extends StatelessWidget {
           Align(alignment: Alignment.centerLeft, child: ArariLogo(size: 30, onDark: Theme.of(context).brightness == Brightness.dark)),
           const Text(appNameKo),
           const Text('Version $appVersion'),
-          const SizedBox(height: 12),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: () => showLicensePage(context: context, applicationName: appName, applicationVersion: appVersion),
-            icon: const Icon(Icons.gavel),
-            label: const Text('오픈소스 라이선스'),
-          ),
+          const SizedBox(height: 16),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            FilledButton.tonalIcon(
+              onPressed: () => showAppGuide(context),
+              icon: const Icon(Icons.help_outline),
+              label: const Text('사용법 안내'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => showLicensePage(context: context, applicationName: appName, applicationVersion: appVersion),
+              icon: const Icon(Icons.gavel),
+              label: const Text('오픈소스 라이선스'),
+            ),
+          ]),
+          const _GuideAtStartSwitch(),
           const SizedBox(height: 12),
           if (kStore)
             Text('ARARIFlex 폴더: ${context.read<AppState>().storeDir ?? '…'}', style: Theme.of(context).textTheme.bodySmall)
@@ -670,6 +678,22 @@ class _About extends StatelessWidget {
         if (context.watch<AppState>().isAdmin && !kStore) const _BackupCard(),
         if (!kStore && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) const _PortableCard(),
       ]);
+}
+
+/// 앱을 켤 때 사용법 안내를 띄울지 ("다시 보지 않기" 를 되돌릴 수 있게)
+class _GuideAtStartSwitch extends StatelessWidget {
+  const _GuideAtStartSwitch();
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<Settings>();
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      title: const Text('앱을 켤 때 사용법 안내 보기'),
+      subtitle: const Text('"다시 보지 않기" 를 누르면 꺼집니다. 안내는 위 단추로 언제든 볼 수 있습니다'),
+      value: !s.guideHidden,
+      onChanged: (v) => s.guideHidden = !v,
+    );
+  }
 }
 
 /// 플레이스토어판: 개인정보 처리방침 · 광고 개인정보 선택

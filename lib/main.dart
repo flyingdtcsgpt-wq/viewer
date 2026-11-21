@@ -12,6 +12,7 @@ import 'edition.dart';
 import 'services/ads.dart';
 import 'services/backup.dart';
 import 'services/saf.dart';
+import 'ui/guide.dart';
 import 'ui/store_import.dart';
 import 'services/cover_service.dart';
 import 'services/portable.dart';
@@ -58,12 +59,14 @@ Future<void> main() async {
   // 플레이스토어판 광고 (동의 창 → 초기화). 첫 화면을 그린 뒤에
   if (kStore) WidgetsBinding.instance.addPostFrameCallback((_) => Ads.start(settings));
 
+
   // 플레이스토어판: USB 로 넣은 파일을 켤 때 · 돌아올 때 찾고, "공유 → ARARIFlex" 로 받은 파일을 가져온다
   if (kStore) {
     state.rescanAll();
     var lastScan = DateTime.now();
     AppLifecycleListener(onResume: () {
-      if (!state.scanning && DateTime.now().difference(lastScan) > const Duration(minutes: 2)) {
+      // 다른 앱(파일 관리자 · PC 연결)에 다녀오면 새로 넣은 파일을 바로 찾는다
+      if (!state.scanning && DateTime.now().difference(lastScan) > const Duration(seconds: 15)) {
         lastScan = DateTime.now();
         state.rescanAll();
       }
@@ -108,7 +111,8 @@ class MediaShelfApp extends StatelessWidget {
       darkTheme: appTheme(Brightness.dark),
       themeMode: light ? ThemeMode.light : ThemeMode.dark, // 기본은 어두운 화면
       // 로그인 전에는 아무 목록도 보이지 않는다
-      home: context.select<AppState, bool>((s) => s.user != null) ? const HomePage() : const LoginPage(),
+      // 홈이 처음 나타날 때 사용법 안내를 띄운다 ("다시 보지 않기" 를 누르기 전까지)
+      home: context.select<AppState, bool>((s) => s.user != null) ? const GuideAtStart(child: HomePage()) : const LoginPage(),
     );
   }
 }

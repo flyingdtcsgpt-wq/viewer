@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../models/media_item.dart';
 import '../services/saf.dart';
 import 'browser.dart' show fileSize;
+import 'guide.dart';
 
 /// 플레이스토어판: 파일 · 폴더를 앱의 "ARARIFlex 폴더" 로 가져오기
 ///
@@ -33,8 +34,8 @@ Future<void> openStoreImport(BuildContext context) async {
         ),
         ListTile(
           leading: const Icon(Icons.help_outline),
-          title: const Text('다른 방법'),
-          subtitle: const Text('공유 · PC 에서 USB 로 넣기'),
+          title: const Text('다른 방법으로 넣기'),
+          subtitle: const Text('다른 앱에서 공유 · PC 에서 USB 로'),
           onTap: () => Navigator.pop(ctx, 2),
         ),
         const SizedBox(height: 8),
@@ -98,12 +99,21 @@ Future<void> importSafEntries(BuildContext context, List<SafEntry> picked, {bool
           const SizedBox(height: 12),
           if (!shared) ...[
             Wrap(spacing: 8, runSpacing: 6, children: [
-              ChoiceChip(label: const Text('복사 (원본 그대로)'), selected: !move, onSelected: (_) => set(() => move = false)),
-              ChoiceChip(label: const Text('옮기기 (원본 지움)'), selected: move, onSelected: (_) => set(() => move = true)),
+              ChoiceChip(label: const Text('복사'), selected: !move, onSelected: (_) => set(() => move = false)),
+              ChoiceChip(label: const Text('옮기기'), selected: move, onSelected: (_) => set(() => move = true)),
             ]),
+            const SizedBox(height: 8),
+            // 고른 방식이 무엇을 하는지 바로 아래에 풀어 쓴다
+            Text(
+              move
+                  ? '옮기기: ARARIFlex 폴더에 넣은 뒤, 지금 고른 원래 파일을 지웁니다. 저장공간을 아낍니다.'
+                  : '복사: 지금 고른 원래 파일은 그대로 두고, ARARIFlex 폴더에 하나 더 만듭니다.${total > 0 ? ' 저장공간이 ${fileSize(total)} 더 필요합니다.' : ''}',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
           ],
           const SizedBox(height: 8),
-          Text('ARARIFlex 폴더의 만화 · 책 · 영상 폴더로 들어갑니다.', style: Theme.of(ctx).textTheme.bodySmall),
+          Text('가져온 파일은 ARARIFlex 폴더의 만화 · 책 · 영상 폴더에 들어갑니다. 나중에 앱에서 삭제하면 이 폴더 안의 파일이 지워집니다.',
+              style: Theme.of(ctx).textTheme.bodySmall),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
@@ -206,9 +216,10 @@ Future<String> _free(String path) async {
   }
 }
 
-/// ARARIFlex 폴더 안내 (어디에 넣으면 되는지)
+/// ARARIFlex 폴더 안내: 어디에 있고, 가져오기 말고 어떻게 넣는지 (공유 · USB)
 Future<void> showStoreFolderHelp(BuildContext context) {
-  final dir = context.read<AppState>().storeDir ?? '';
+  final state = context.read<AppState>();
+  final dir = state.storeDir ?? '';
   return showDialog<void>(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -216,24 +227,36 @@ Future<void> showStoreFolderHelp(BuildContext context) {
       title: const Text('ARARIFlex 폴더'),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('ARARIFlex 는 이 폴더 안의 만화 · 책 · 영상만 보여 줍니다. 넣는 방법은 세 가지입니다.'),
-          const SizedBox(height: 12),
-          const Text('1. 앱에서 가져오기', style: TextStyle(fontWeight: FontWeight.bold)),
-          const Text('＋ 가져오기 › 파일 고르기 / 폴더 통째로. 복사하거나 옮길 수 있습니다.'),
-          const SizedBox(height: 8),
-          const Text('2. 다른 앱에서 공유', style: TextStyle(fontWeight: FontWeight.bold)),
-          const Text('파일 관리자 · 메신저 · 브라우저에서 파일을 공유 › ARARIFlex 를 고르면 바로 들어옵니다.'),
-          const SizedBox(height: 8),
-          const Text('3. PC 에서 USB 로', style: TextStyle(fontWeight: FontWeight.bold)),
-          const Text('휴대폰을 PC 에 연결하고(파일 전송) 아래 폴더에 넣은 뒤, 앱에서 "다시 찾기" 를 누르세요.'),
-          const SizedBox(height: 4),
+          const Text('서재는 이 폴더 그 자체입니다. 이 폴더에 들어 있는 만화 · 책 · 영상이 앱에 보이고, 앱에서 삭제하면 이 폴더에서 지워집니다.'),
+          const SizedBox(height: 6),
           SelectableText(_friendly(dir), style: const TextStyle(fontSize: 12)),
-          const SizedBox(height: 12),
-          const Text('앱을 지우면 이 폴더도 함께 지워질 수 있습니다. 지울 때 "앱 데이터 유지" 를 고르거나, 설정 › 정보 › 서재 백업을 해 두세요.',
-              style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 14),
+          const Text('PC 에서 USB 로 넣기', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('1. 기기를 PC 에 연결하고 알림에서 "파일 전송" 을 고릅니다.\n'
+              '2. PC 에서 위 폴더를 열어 만화 · 책 · 영상 폴더에 파일을 복사합니다.\n'
+              '3. 앱을 다시 열면 저절로 서재에 나타납니다. 앱을 켜 둔 채로 넣었다면 아래 단추를 누르세요.'),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final before = state.rawItems.length;
+              await state.rescanAll();
+              if (!context.mounted) return;
+              final n = state.rawItems.length - before;
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text(n > 0 ? '새 파일 $n개를 서재에 넣었습니다' : '새로 넣은 파일이 없습니다')));
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('방금 넣은 파일 불러오기'),
+          ),
+          const SizedBox(height: 14),
+          const Text('다른 앱에서 공유로 넣기', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('파일 관리자 · 브라우저 · 메신저에서 파일을 공유 › ARARIFlex 를 고르면 바로 들어옵니다.'),
+          const SizedBox(height: 14),
+          const Text('앱을 지우면 이 폴더의 파일도 함께 지워집니다. 남기려면 지울 때 나오는 "앱 데이터 보관" 을 고르세요.', style: TextStyle(fontSize: 12)),
         ]),
       ),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('확인'))],
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기'))],
     ),
   );
 }
@@ -277,6 +300,7 @@ class StoreEmptyGuide extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             TextButton(onPressed: () => showStoreFolderHelp(context), child: const Text('다른 방법 (공유 · PC 에서 USB 로)')),
+            TextButton.icon(onPressed: () => showAppGuide(context), icon: const Icon(Icons.help_outline, size: 18), label: const Text('사용법 안내 보기')),
             const SizedBox(height: 16),
             Text('지원 형식: 만화 CBZ · ZIP / 책 EPUB · PDF · TXT / 영상 MP4 · MKV 등', style: text.bodySmall, textAlign: TextAlign.center),
             const SizedBox(height: 8),

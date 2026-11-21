@@ -7,8 +7,11 @@ import 'package:provider/provider.dart';
 import '../edition.dart';
 import '../app_state.dart';
 import '../models/entry.dart';
+import '../models/media_item.dart';
 import '../models/series.dart';
 import 'brand.dart';
+import 'browser.dart' show fileSize;
+import 'detail_page.dart';
 import 'viewers/open_item.dart';
 
 // =====================================================================
@@ -311,6 +314,35 @@ class SelectionBar extends StatelessWidget {
             icon: const Icon(Icons.outbox),
             label: const Text('묶음에서 빼기'),
           ),
+        // 휴대폰에는 오른쪽 클릭 메뉴가 없어서 여기서 읽음 표시 · 정보를 연다
+        PopupMenuButton<bool>(
+          tooltip: '읽음 표시',
+          onSelected: (read) async {
+            final n = await state.markFinishedMany(state.selectedItemsDeep, read);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(read ? '$n개를 읽음으로 표시했습니다' : '$n개를 안 읽음으로 표시했습니다')));
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: true, child: ListTile(leading: Icon(Icons.done_all), title: Text('읽음으로 표시'), dense: true)),
+            PopupMenuItem(value: false, child: ListTile(leading: Icon(Icons.remove_done), title: Text('안 읽음으로 표시'), dense: true)),
+          ],
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.done_all, size: 18), SizedBox(width: 6), Text('읽음 표시')]),
+          ),
+        ),
+        if (state.selected.length == 1 && state.selected.first.startsWith('i:'))
+          TextButton.icon(
+            onPressed: () {
+              final item = state.selectedItemsDeep.firstOrNull;
+              if (item == null) return;
+              state.clearSelection();
+              Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(item: item)));
+            },
+            icon: const Icon(Icons.edit_note),
+            label: const Text('정보'),
+          ),
         const SizedBox(width: 8),
         if (!kStore) ...[
         TextButton.icon(
@@ -562,6 +594,7 @@ class _SeriesEditorState extends State<_SeriesEditor> {
                 ),
               ]),
             ),
+            if (!kStore)
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(Icons.visibility_off),
@@ -601,7 +634,7 @@ class _SeriesEditorState extends State<_SeriesEditor> {
         TextButton(
           style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
           onPressed: () async {
-            final mode = await confirmDelete(context, '"${s.title}" 묶음', isSeries: true);
+            final mode = await confirmDelete(context, '"${s.title}" 묶음', isSeries: true, items: state.itemsUnderSeries(s.id!));
             if (mode == null) return;
             final failed = await state.removeMany(series: [s], deleteFile: mode);
             if (!context.mounted) return;
@@ -656,47 +689,115 @@ class _SeriesEditorState extends State<_SeriesEditor> {
 }
 
 
-/// 삭제 확인: null = 취소, false = 목록에서만, true = 원본 파일까지
-Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = false}) => showDialog<bool>(
+/// 삭제 확인: null = 취소, false = 목록에서만, true = 파일까지
+/// [items]: 지워질 파일들 (주지 않으면 지금 선택한 것). 어떤 파일이 지워지는지 창에 보여 준다.
+Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = false, List<MediaItem>? items}) {
+  final state = context.read<AppState>();
+  final list = items ?? state.selectedItemsDeep;
+  final bytes = list.fold<int>(0, (a, e) => a + e.size);
+  // 지워질 파일을 눈으로 확인할 수 있게 (많으면 앞의 몇 개만)
+  Widget files(BuildContext ctx) => Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Theme.of(ctx).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('지워지는 파일 ${list.length}개${bytes > 0 ? ' · ${fileSize(bytes)}' : ''}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+          for (final e in list.take(4)) Text(friendlyPath(e.path), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+          if (list.length > 4) Text('… 외 ${list.length - 4}개', style: const TextStyle(fontSize: 12)),
+        ]),
+      );
+
+  // 플레이스토어판: 서재가 곧 ARARIFlex 폴더라서 "목록에서만 빼기" 가 없다 (폴더에 남으면 다시 나타남)
+  if (kStore) {
+    return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.delete_forever),
         title: Text('$what 삭제'),
-        content: Text(
-          '어떻게 지울까요?\n\n'
-          '• 목록에서만 제거: ARARIFlex 에서만 빠지고, 하드디스크의 파일은 그대로 남습니다.\n'
-          '• 원본 파일까지 삭제: 실제 파일을 지웁니다. 되돌릴 수 없습니다.'
-          '${isSeries ? '\n\n묶음 안의 모든 하위 묶음과 권이 함께 지워집니다.' : ''}',
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('ARARIFlex 폴더 안에 있는 파일을 지웁니다. 되돌릴 수 없습니다.'),
+            if (isSeries) const Padding(padding: EdgeInsets.only(top: 6), child: Text('묶음 안의 모든 권이 함께 지워집니다.')),
+            const SizedBox(height: 10),
+            Text(
+              '• 가져올 때 "복사"로 넣은 파일: 원래 있던 곳(다운로드 폴더 등)의 파일은 그대로 남아 있습니다.\n'
+              '• "옮기기"로 넣었거나 PC 에서 넣은 파일: 이 파일이 하나뿐이니 지우면 없어집니다.',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+            if (list.isNotEmpty) files(ctx),
+          ]),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-          OutlinedButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('목록에서만 제거')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
-            onPressed: () async {
-              // 한 번 더 확인
-              final sure = await showDialog<bool>(
-                context: ctx,
-                builder: (c2) => AlertDialog(
-                  title: const Text('정말 원본 파일을 지울까요?'),
-                  content: const Text('하드디스크에서 파일이 삭제됩니다. 되돌릴 수 없습니다.'),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(c2), child: const Text('아니오')),
-                    FilledButton(
-                      style: FilledButton.styleFrom(backgroundColor: Theme.of(c2).colorScheme.error),
-                      onPressed: () => Navigator.pop(c2, true),
-                      child: const Text('파일 삭제'),
-                    ),
-                  ],
-                ),
-              );
-              if (sure == true && ctx.mounted) Navigator.pop(ctx, true);
-            },
-            child: const Text('원본 파일까지 삭제'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('삭제'),
           ),
         ],
       ),
     );
+  }
+
+  return showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      icon: const Icon(Icons.delete_forever),
+      title: Text('$what 삭제'),
+      content: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+            '어떻게 지울까요?\n\n'
+            '• 목록에서만 제거: ARARIFlex 목록에서만 빠지고 파일은 그대로 남습니다. '
+            '(등록한 폴더 안의 파일이면 다시 스캔할 때 다시 나타납니다)\n'
+            '• 파일까지 삭제: ARARIFlex 에 등록된 아래 파일을 실제로 지웁니다. 되돌릴 수 없습니다. '
+            '다른 곳에서 복사해 온 파일이었다면, 복사해 온 원래 파일은 건드리지 않습니다.'
+            '${isSeries ? '\n\n묶음 안의 모든 하위 묶음과 권이 함께 지워집니다.' : ''}',
+          ),
+          if (list.isNotEmpty) files(ctx),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+        OutlinedButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('목록에서만 제거')),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+          onPressed: () async {
+            // 한 번 더 확인
+            final sure = await showDialog<bool>(
+              context: ctx,
+              builder: (c2) => AlertDialog(
+                title: Text('정말 파일 ${list.length}개를 지울까요?'),
+                content: const Text('저장 장치에서 파일이 삭제됩니다. 되돌릴 수 없습니다.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(c2), child: const Text('아니오')),
+                  FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: Theme.of(c2).colorScheme.error),
+                    onPressed: () => Navigator.pop(c2, true),
+                    child: const Text('파일 삭제'),
+                  ),
+                ],
+              ),
+            );
+            if (sure == true && ctx.mounted) Navigator.pop(ctx, true);
+          },
+          child: const Text('파일까지 삭제'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// 긴 저장소 경로를 읽기 쉽게: /storage/emulated/0/Android/data/…/ARARIFlex/만화/a.cbz → ARARIFlex 폴더 › 만화 › a.cbz
+String friendlyPath(String path) {
+  const mark = '/files/ARARIFlex/';
+  final i = path.indexOf(mark);
+  if (kStore && i >= 0) return 'ARARIFlex 폴더 › ${path.substring(i + mark.length).split('/').join(' › ')}';
+  const root = '/storage/emulated/0/';
+  if (path.startsWith(root)) return '내장 저장공간 › ${path.substring(root.length).split('/').join(' › ')}';
+  return path;
+}
 
 /// 선택한 묶음/항목을 어떤 사용자가 볼 수 있는지 정하기
 Future<void> showAccessForSelection(BuildContext context) async {

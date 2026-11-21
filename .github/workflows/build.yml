@@ -394,6 +394,12 @@ jobs:
           aapt2=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)aapt2
           za=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)zipalign
           $aapt2 dump badging $apk | grep -E "^package|sdkVersion|targetSdkVersion|uses-permission|application-label:" | tee store-check.txt
+          echo "--- APK 크기" | tee -a store-check.txt
+          du -h build/app/outputs/flutter-apk/*.apk build/app/outputs/bundle/release/*.aab | tee -a store-check.txt
+          echo "--- APK 안의 큰 파일 12개 (바이트)" | tee -a store-check.txt
+          unzip -l $apk | sort -k1 -n -r | sed -n 2,13p | awk '{print $1, $4}' | tee -a store-check.txt
+          # 플레이스토어판에는 글자 인식 · ONNX 런타임이 들어가면 안 된다 (쓰지 않는 기능)
+          if unzip -l $apk | grep -E "libonnxruntime|libmlkit" ; then echo "::error::쓰지 않는 네이티브 라이브러리가 들어갔습니다"; exit 1; fi
           echo "--- 16KB zip 정렬" | tee -a store-check.txt
           ($za -c -P 16 -v 4 $apk >/dev/null && echo "OK") 2>&1 | tail -1 | tee -a store-check.txt
           echo "--- .so LOAD 정렬 (0x4000 이상이어야 16KB 기기에서 돈다)" | tee -a store-check.txt

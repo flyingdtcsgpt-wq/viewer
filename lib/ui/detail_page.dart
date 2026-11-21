@@ -165,7 +165,7 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Future<void> _delete() async {
-    final mode = await confirmDelete(context, '"${item.title}"');
+    final mode = await confirmDelete(context, '"${item.title}"', items: [item]);
     if (mode == null) return;
     final failed = await state.removeMany(items: [item], deleteFile: mode);
     if (!mounted) return;
@@ -314,8 +314,8 @@ class _DetailPageState extends State<DetailPage> {
       field(_year, '연도', type: TextInputType.number),
       field(_tags, '태그 (쉼표로 구분)'),
       field(_desc, '설명 / 메모', lines: 6),
-      Text('파일: ${item.path}', style: Theme.of(context).textTheme.bodySmall),
-      Text('크기: ${fileSize(item.size)} · ${item.storage == StorageMode.managed ? '라이브러리 관리' : '원본 위치 참조'}',
+      Text('파일: ${friendlyPath(item.path)}', style: Theme.of(context).textTheme.bodySmall),
+      Text(kStore ? '크기: ${fileSize(item.size)}' : '크기: ${fileSize(item.size)} · ${item.storage == StorageMode.managed ? '라이브러리 관리' : '원본 위치 참조'}',
           style: Theme.of(context).textTheme.bodySmall),
     ]);
 

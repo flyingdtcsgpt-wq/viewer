@@ -192,6 +192,10 @@ class Settings extends ChangeNotifier {
   bool get ttsContinueNext => _p.getBool('ttsContinueNext') ?? true;
   set ttsContinueNext(bool v) => _set(() => _p.setBool('ttsContinueNext', v));
 
+  /// 켤 때 사용법 안내를 띄우지 않기 ("다시 보지 않기")
+  bool get guideHidden => _p.getBool('guideHidden') ?? false;
+  set guideHidden(bool v) => _set(() => _p.setBool('guideHidden', v));
+
   /// 플레이스토어판 광고: 처음 실행한 때 · 앱 열기 광고를 마지막으로 보여 준 때 (ms)
   int get firstRunAt => _p.getInt('firstRunAt') ?? 0;
   set firstRunAt(int v) => _set(() => _p.setInt('firstRunAt', v));

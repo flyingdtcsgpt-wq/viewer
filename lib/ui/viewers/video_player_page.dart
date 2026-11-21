@@ -10,6 +10,7 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
 import '../detail_page.dart';
+import 'viewer_chrome.dart';
 
 /// 영상 플레이어 (media_kit / libmpv — 거의 모든 코덱, 자막 지원)
 /// - 이어보기: 마지막 위치 자동 저장/복원
@@ -172,14 +173,29 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           ),
           _subtitleMenu(),
           _audioMenu(),
-          IconButton(
-            tooltip: '정보 / 태그',
-            icon: const Icon(Icons.info_outline),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(item: _item))),
+          // 덜 쓰는 것은 ⋮ 안에 (휴대폰에서 위쪽 단추가 넘치지 않게)
+          PopupMenuButton<int>(
+            tooltip: '더보기',
+            icon: const Icon(Icons.more_vert, color: Colors.white),
+            onSelected: (v) {
+              if (v == 0) {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => DetailPage(item: _item)));
+              } else {
+                _help();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.info_outline), title: Text('정보 / 태그'), dense: true)),
+              PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.help_outline), title: Text('조작법'), dense: true)),
+            ],
           ),
         ],
       ),
-      body: Video(
+      // 휴대폰 · 태블릿: 화면 왼쪽 · 오른쪽을 두 번 누르면 10초 뒤 · 앞으로 (기본값은 꺼져 있다)
+      body: MaterialVideoControlsTheme(
+        normal: kDefaultMaterialVideoControlsThemeData.copyWith(seekOnDoubleTap: true),
+        fullscreen: kDefaultMaterialVideoControlsThemeDataFullscreen.copyWith(seekOnDoubleTap: true),
+        child: Video(
         controller: _video,
         subtitleViewConfiguration: SubtitleViewConfiguration(
           style: TextStyle(
@@ -191,8 +207,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           ),
         ),
       ),
+      ),
     );
   }
+
+  void _help() => showViewerHelp(context, const [
+        ('Space', '재생 · 일시정지'),
+        ('← →', '2초 뒤 · 앞으로'),
+        ('J / I', '10초 뒤 · 앞으로'),
+        ('↑ ↓', '음량'),
+        ('F / Esc', '전체화면 / 나가기'),
+        ('A-B', '구간 반복: 시작에서 한 번, 끝에서 한 번 · 한 번 더 누르면 해제'),
+        ('1.0x', '재생 속도'),
+        ('자막 단추', '자막 고르기 · 자막 파일 불러오기 · 크기 · 싱크'),
+      ], touch: const [
+        ('화면 누르기', '재생 · 일시정지, 탐색 막대, 전체화면 단추 보이기'),
+        ('왼쪽 · 오른쪽 두 번 누르기', '10초 뒤 · 앞으로'),
+        ('A-B', '구간 반복: 시작에서 한 번, 끝에서 한 번 · 한 번 더 누르면 해제'),
+        ('1.0x', '재생 속도'),
+        ('자막 단추', '자막 고르기 · 자막 파일 불러오기 · 크기 · 싱크'),
+        ('이전 · 다음 단추', '같은 묶음의 앞 · 뒤 영상'),
+      ]);
 
   // ---------------- 자막 / 오디오 ----------------
 

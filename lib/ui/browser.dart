@@ -266,7 +266,9 @@ class EntryBrowser extends StatelessWidget {
               ? '${collectionLabel(state.collection)}: 항목이 없습니다'
               : state.currentSeriesId != null
                   ? '이 묶음은 비어 있습니다.'
-                  : (state.isAdmin ? '항목이 없습니다. "폴더 추가"로 등록하세요.' : '볼 수 있는 항목이 없습니다.')),
+                  : kStore
+                      ? '아직 없습니다. 위의 ＋ 로 파일을 가져오세요.'
+                      : (state.isAdmin ? '항목이 없습니다. "폴더 추가"로 등록하세요.' : '볼 수 있는 항목이 없습니다.')),
         ]),
       );
     }
@@ -900,7 +902,8 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
           Icon(icon, size: 18, color: color),
           const SizedBox(width: 10),
           Expanded(child: Text(label, style: TextStyle(color: color))),
-          if (key != null) Text(key, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          // 단축키 표시는 키보드를 쓰는 PC 에서만
+          if (key != null && !(Platform.isAndroid || Platform.isIOS)) Text(key, style: const TextStyle(color: Colors.grey, fontSize: 12)),
         ]),
       );
 
@@ -916,7 +919,7 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
       if (state.isInProgress(i.item) || state.isNextUp(i.item)) item('uncontinue', Icons.playlist_remove, '보던 목록에서 빼기'),
       item('rate', Icons.star, '평점 수정'),
       item('fav', i.item.favorite ? Icons.favorite : Icons.favorite_border, i.item.favorite ? '즐겨찾기 해제' : '즐겨찾기'),
-      item('info', Icons.edit_note, '메타데이터 관리'),
+      item('info', Icons.edit_note, kStore ? '정보 · 표지 수정' : '메타데이터 관리'),
       const PopupMenuDivider(),
     ],
     if (multi && state.selectedItemsDeep.any(state.isInProgress)) ...[
@@ -948,7 +951,7 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
     ],
     const PopupMenuDivider(),
     item('all', Icons.select_all, '전체 선택', key: 'Ctrl+A'),
-    if (admin) item('refresh', Icons.refresh, '새로고침 (다시 스캔)', key: 'F5'),
+    if (admin && !kStore) item('refresh', Icons.refresh, '새로고침 (다시 스캔)', key: 'F5'),
   ];
 
   final v = await showMenu<String>(context: context, position: pos, items: items, color: const Color(0xFF242424));
@@ -1078,7 +1081,7 @@ class PathBar extends StatelessWidget {
             child: SingleChildScrollView(scrollDirection: Axis.horizontal, reverse: true, child: Row(children: crumbs)),
           ),
         ),
-        if (state.isAdmin) ...[
+        if (state.isAdmin && !kStore) ...[
           const SizedBox(width: 6),
           nav(Icons.refresh, '다시 스캔 (F5)', state.scanning ? null : state.rescanAll),
         ],

@@ -1411,17 +1411,44 @@ class AppState extends ChangeNotifier {
           if (ent is! File) continue;
           if (kindForPath(ent.path) == null) continue;
           found++;
-          scanStatus = '스캔 중 ($found): ${p.basename(ent.path)}';
-          _progress(); // 파일마다가 아니라 0.3초에 한 번 화면 갱신
+          // 플레이스토어판은 켤 때마다 조용히 훑는다 → 새 파일이 있을 때만 알린다
+          if (!kStore) {
+            scanStatus = '스캔 중 ($found): ${p.basename(ent.path)}';
+            _progress(); // 파일마다가 아니라 0.3초에 한 번 화면 갱신
+          }
           try {
-            if (await _importFile(ent.path, StorageMode.reference)) added++;
+            if (await _importFile(ent.path, StorageMode.reference)) {
+              added++;
+              if (kStore) {
+                scanStatus = '새 파일을 서재에 넣는 중 ($added): ${p.basename(ent.path)}';
+                _progress();
+              }
+            }
           } catch (_) {
             failed++; // 한 파일이 이상해도 나머지는 계속
           }
         }
       }
       await checkMissing(within: dirs);
+      // 플레이스토어판: 서재는 ARARIFlex 폴더 그 자체다 → 폴더에서 사라진 파일(PC 에서 지웠거나 옮긴 것)은 목록에서도 뺀다
+      var gone = 0;
+      if (kStore && dirErrors == 0 && missingDirs == 0) {
+        final lost = _items.where((e) => e.missing).toList();
+        if (lost.isNotEmpty) {
+          await removeMany(items: lost);
+          gone = lost.length;
+        }
+      }
       final grouped = added > 0 && settings.autoGroup ? await autoGroup() : 0;
+      if (kStore) {
+        scanStatus = [
+          if (added > 0) '새 파일 $added개를 서재에 넣었습니다',
+          if (grouped > 0) '$grouped개를 시리즈로 묶었습니다',
+          if (gone > 0) '폴더에서 사라진 $gone개를 목록에서 뺐습니다',
+        ].join(' · ');
+        if (scanStatus.isNotEmpty) _clearStatusLater();
+        return;
+      }
       final parts = [
         '찾은 파일 $found개',
         '새로 등록 $added개',
@@ -1885,10 +1912,27 @@ class AppState extends ChangeNotifier {
     for (final id in seriesIds) {
       _series.remove(id);
     }
+    // 플레이스토어판: 안이 텅 빈 묶음은 남기지 않는다 (파일을 다 지웠는데 빈 묶음만 남는 일이 없게)
+    if (kStore && gone.isNotEmpty) await _dropEmptySeries();
     if (currentSeriesId != null && !_series.containsKey(currentSeriesId)) currentSeriesId = null;
     selected.clear();
     notifyListeners();
     return failed;
+  }
+
+  /// 권이 하나도 없는 묶음(하위 묶음까지 비어 있는 것)을 지운다
+  Future<void> _dropEmptySeries() async {
+    final used = <int>{};
+    for (final e in _items) {
+      var id = e.seriesId;
+      while (id != null && used.add(id)) {
+        id = _series[id]?.parentId;
+      }
+    }
+    final empty = [for (final id in _series.keys) if (!used.contains(id)) id];
+    if (empty.isEmpty) return;
+    await db.deleteSeriesMany(empty);
+    empty.forEach(_series.remove);
   }
 
   /// 선택한 것 삭제

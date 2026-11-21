@@ -14,6 +14,7 @@
 | `lib/main.dart` | 138 | 앱 시작. 순서: `Portable.init`(휴대용 폴더) → `Settings.load` → `LibraryDb.open` → `CoverService.init` → `AppState.load` → `runApp`. iOS 는 켤 때 · 돌아올 때 다시 스캔, 안드로이드는 "ARARIFlex 로 열기" 채널 연결. `appTheme()`(어두운/밝은 테마) |
 | `lib/app_state.dart` | 1791 | ★ 앱의 중심(ChangeNotifier). 아래 표 참고 |
 | `lib/version.dart` | 2 | `appVersion` (pubspec.yaml 의 version 과 맞출 것) |
+| `lib/edition.dart` | 13 | 판 구분 `kStore`(`--dart-define=ARARI_STORE=true` → 플레이스토어판), 개인정보 처리방침 주소 |
 
 ### `AppState` 안의 영역
 | 영역 | 주요 멤버 |
@@ -55,6 +56,8 @@
 | `share_server.dart` | 같은 Wi-Fi 공유: 웹 페이지 · OPDS · **WebDAV(/dav/)** · 파일(Range) · 표지 · HTTPS. 기본 인증, 접속자별 `AccessView`, 로그인 캐시(비밀번호 해시가 느려서) |
 | `storage_permission.dart` | 안드로이드 모든 파일 접근 요청 (네이티브 채널 `mediashelf/storage`), `hasAllFilesAccess` |
 | `backup.dart` | 서재 백업(zip) · 복원 준비 · 시작할 때 적용 · 표지 경로 고침 |
+| `saf.dart` | 안드로이드 Storage Access Framework 채널(`mediashelf/saf`): 파일 · 폴더 고르기, 복사, 원본 지우기, 공유로 받은 파일 (플레이스토어판 가져오기) |
+| `ads.dart` | 플레이스토어판 광고(AdMob): 동의 창(UMP), 목록 아래 배너 `AdBanner`, 앱 열기 광고(첫날 없음 · 4시간에 한 번). 전체판에서는 아무것도 하지 않음 |
 | `share_cert.dart` | HTTPS 자체 서명 인증서 만들기 · 지문 |
 | `webdav_client.dart` | WebDAV 목록 · 하위 전부 · 받기 · 응답 읽기 |
 | `ai_speakers.dart` | AI 화자 분석 묶음 · 저장 · 이어서 (`AiService.dialogueSpeakers`) |
@@ -83,6 +86,8 @@
 |---|---|
 | `home_page.dart` | 큰 틀. PC(폭 840 이상): `_TopActionBar`(추가 · 선택 동작 · 더보기) + `_Sidebar` + 목록 + 상세 + 상태 막대. 휴대폰: 앱바 + 서랍 + 하단 탭(계정에 허용된 종류만). `_ExternalOpener`(다른 앱에서 연 파일) |
 | `landing_view.dart` | 홈: 큰 배너 `_Hero`(표지 없으면 만든 표지), 가로 줄 `_Row`, `HoverZoom` |
+| `guide.dart` | 사용법 안내 `showAppGuide`(판 · 기기에 맞춘 내용: `_storeTopics` / `_fullTopics(touch)`), `GuideAtStart`(홈이 처음 뜰 때 한 번, "다시 보지 않기" = `Settings.guideHidden`) |
+| `store_import.dart` | 플레이스토어판: 가져오기(파일 · 폴더, 복사/옮기기 → ARARIFlex 폴더), ARARIFlex 폴더 안내(USB · 공유 · 방금 넣은 파일 불러오기), 빈 서재 안내 |
 | `browser.dart` | 목록 `EntryBrowser`(격자/표/카드), 경로 막대, 상세 패널, 상태 막대, 오른쪽 클릭 메뉴(소리 내어 읽기로 열기 · 탐색기 · 삭제 …) |
 | `series_widgets.dart` | 묶음 카드 `SeriesTile`, 묶음 머리 `SeriesHeader`, 선택 막대, `askText`, `pickSeries`, 묶음 편집 |
 | `cover_tile.dart` / `brand.dart` | 책 카드 · `CoverImage` / 앱 이름 · `ArariLogo`(코드로 그린 로고) · `TitleCover`(제목 색 표지) |
@@ -114,8 +119,9 @@
 | 파일 | 하는 일 |
 |---|---|
 | `packages/arari_native/` | 로컬 플러그인(iOS · macOS): `ArariNativePlugin.swift` — Vision 글자 인식 `mediashelf/ocr`, AVSpeech 음성 `mediashelf/tts` |
-| `tool/patch_android.py` | `flutter create` 로 만든 android/ 를 고침: 권한, VIEW 인텐트(열기), queries(TTS), launchMode, MainActivity(채널: storage · open · tts · ocr), ML Kit 한국어, R8 규칙, 서명 |
+| `tool/patch_android.py` | `flutter create` 로 만든 android/ 를 고침: 권한, VIEW 인텐트(열기), queries(TTS), launchMode, MainActivity(채널: storage · open · tts · ocr · saf), ML Kit 한국어, R8 규칙, 서명, 광고 SDK 앱 ID. `--store`: 플레이스토어판(패키지 `com.arariflex.app`, 권한 최소화, 공유 받기, ML Kit · ONNX 제외) |
 | `tool/patch_apple.py` | macos/ ios/ 를 고침: Podfile · 최소 버전(macOS 14 / iOS 16), 샌드박스 끔(맥), 창 크기, Info.plist(파일 앱 폴더 · 로컬 네트워크 · 백그라운드 오디오) |
+| `tool/store_stubs/flutter_onnxruntime/` | 플레이스토어판 빌드용 빈 껍데기 패키지 (`patch_android.py --store` 가 `pubspec_overrides.yaml` 로 바꿔 끼움 → ONNX 네이티브 라이브러리가 빠짐). 앱이 쓰는 ONNX API 가 늘면 여기도 맞출 것 |
 | `tool/patch_windows.py` | windows/ 를 고침: 창 제목 · 크기, WebView2 빌드 정의 |
 | `tool/icons_*.yaml` | 아이콘 생성 설정 (assets/icon/icon.png) |
 | `installer/media_shelf.iss` | Windows 설치파일(Inno Setup) |

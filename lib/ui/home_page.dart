@@ -22,6 +22,7 @@ import 'landing_view.dart';
 import 'series_widgets.dart';
 import 'settings_page.dart';
 import 'viewers/open_item.dart';
+import 'guide.dart';
 import 'store_import.dart';
 import 'webdav_import.dart';
 
@@ -57,7 +58,7 @@ class HomePage extends StatelessWidget {
     final body = Column(children: [
       state.selecting ? const SelectionBar() : _Toolbar(phone: width < 600),
       if (state.hiddenUnlocked) const _HiddenBanner(),
-      if (state.scanning || state.scanStatus.isNotEmpty)
+      if (state.scanStatus.isNotEmpty || (state.scanning && !kStore))
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Row(children: [
@@ -113,6 +114,12 @@ class HomePage extends StatelessWidget {
             : AppBar(
                 leading: back,
                 title: state.currentSeriesId != null ? Text(title, overflow: TextOverflow.ellipsis) : const Logo(size: 20),
+                actions: [
+                  if (kStore) ...[
+                    IconButton(tooltip: '가져오기', icon: const Icon(Icons.add), onPressed: () => openStoreImport(context)),
+                    IconButton(tooltip: '사용법 안내', icon: const Icon(Icons.help_outline), onPressed: () => showAppGuide(context)),
+                  ],
+                ],
               ),
         drawer: const Drawer(child: SafeArea(child: _Sidebar(inDrawer: true))),
         body: showLanding ? const LandingView(topBar: _LandingTopBar(wide: false)) : body,
@@ -252,6 +259,7 @@ class _Sidebar extends StatelessWidget {
         (Collection.recentAdded, Icons.calendar_month),
         (Collection.missing, Icons.search),
       ])
+        if (!(kStore && c == Collection.missing)) // 플레이스토어판: 폴더에서 사라진 파일은 목록에서도 저절로 빠진다
         item(
           icon,
           collectionLabel(c),
@@ -259,14 +267,14 @@ class _Sidebar extends StatelessWidget {
           selected: state.collection == c,
           trailing: '${state.collectionCount(c)}',
         ),
-      item(Icons.history, '내 열람 기록', act(() => push(const HistoryPage()))),
+      item(Icons.history, kStore ? '열람 기록' : '내 열람 기록', act(() => push(const HistoryPage()))),
 
       // 플레이스토어판: 서재 폴더는 하나 (ARARIFlex 폴더) — 가져오기만
       if (kStore) ...[
         section('서재'),
         item(Icons.add_circle_outline, '파일 · 폴더 가져오기', act(() => openStoreImport(rootContext))),
-        item(Icons.refresh, '다시 찾기', state.scanning ? null : act(state.rescanAll)),
-        item(Icons.help_outline, 'ARARIFlex 폴더 안내', act(() => showStoreFolderHelp(rootContext))),
+        // USB 로 넣는 방법 · 폴더 위치 (넣은 파일은 앱을 열 때 저절로 서재에 올라온다)
+        item(Icons.folder_special_outlined, 'ARARIFlex 폴더 (USB 로 넣기)', act(() => showStoreFolderHelp(rootContext))),
       ],
 
       // 라이브러리 폴더 (설정에서 정한 순서 · 그룹 · 별칭)
@@ -359,6 +367,7 @@ class _Sidebar extends StatelessWidget {
       section('도구'),
       if (!kStore) item(Icons.auto_awesome, 'AI 도우미', act(() => showAiChat(context))),
       item(Icons.settings, '설정', act(() => showSettings(rootContext))),
+      item(Icons.help_outline, '사용법 안내', act(() => showAppGuide(rootContext))),
       if (admin && !kStore) item(Icons.manage_accounts, '관리자 (사용자·권한·숨김)', act(() => push(const AdminPage()))),
       if (state.hiddenUnlocked) item(Icons.lock, '숨김 목록 다시 잠그기', act(state.lockHidden)),
 
@@ -570,7 +579,8 @@ class _TopActionBar extends StatelessWidget {
             icon: const Icon(Icons.wifi_tethering, color: Colors.greenAccent),
             onPressed: () => push(const SharePage()),
           ),
-        IconButton(tooltip: '내 열람 기록', icon: const Icon(Icons.history), onPressed: () => push(const HistoryPage())),
+        IconButton(tooltip: kStore ? '열람 기록' : '내 열람 기록', icon: const Icon(Icons.history), onPressed: () => push(const HistoryPage())),
+        IconButton(tooltip: '사용법 안내', icon: const Icon(Icons.help_outline), onPressed: () => showAppGuide(context)),
         if (!kStore) IconButton(tooltip: 'AI 도우미', icon: const Icon(Icons.auto_awesome), onPressed: () => showAiChat(context)),
         if (admin && !kStore) IconButton(tooltip: '관리자', icon: const Icon(Icons.manage_accounts), onPressed: () => push(const AdminPage())),
         IconButton(tooltip: '설정', icon: const Icon(Icons.settings), onPressed: () => showSettings(context)),
@@ -722,8 +732,12 @@ class _LandingTopBarState extends State<_LandingTopBar> {
             const Logo(size: 20),
           ],
           const Spacer(),
+          if (kStore && !widget.wide) ...[
+            IconButton(color: Colors.white, tooltip: '가져오기', icon: const Icon(Icons.add), onPressed: () => openStoreImport(context)),
+            IconButton(color: Colors.white, tooltip: '사용법 안내', icon: const Icon(Icons.help_outline), onPressed: () => showAppGuide(context)),
+          ],
           SizedBox(
-            width: widget.wide ? 280 : 170,
+            width: widget.wide ? 280 : (kStore ? 130 : 170),
             height: 40,
             child: TextField(
               controller: _c,

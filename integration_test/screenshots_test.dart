@@ -20,6 +20,7 @@ import 'package:media_shelf/main.dart';
 import 'package:media_shelf/models/entry.dart';
 import 'package:media_shelf/models/media_item.dart';
 import 'package:media_shelf/services/ambient.dart';
+import 'package:media_shelf/ui/guide.dart';
 import 'package:media_shelf/services/speakers.dart';
 import 'package:media_shelf/services/audiobook.dart';
 import 'package:media_shelf/services/auth.dart';
@@ -141,6 +142,7 @@ void main() {
     final settings = Settings();
     final state = await tester.runAsync(() async {
       await settings.load();
+      settings.guideHidden = true; // 켤 때 뜨는 사용법 안내는 끈다 (아래에서 따로 띄워 찍는다)
       final db = await LibraryDb.open();
       final covers = CoverService();
       await covers.init();
@@ -293,10 +295,38 @@ void main() {
       await popAll();
     });
 
+    await step('guide', () async {
+      final ctx = tester.element(find.byType(HomePage, skipOffstage: false));
+      showAppGuide(ctx);
+      await shot('07b_사용법_안내', 700);
+      final shown = find.text('사용법 안내').evaluate().isNotEmpty && find.textContaining('작품 넣기').evaluate().isNotEmpty;
+      // 켤 때 뜬 안내에서 "다시 보지 않기" → 설정이 바뀌는지
+      await popAll();
+      settings.guideHidden = false;
+      showAppGuide(tester.element(find.byType(HomePage, skipOffstage: false)), atStart: true);
+      await wait(500);
+      final again = find.text('다시 보지 않기');
+      if (again.evaluate().isNotEmpty) await tester.tap(again.first);
+      await wait(400);
+      debugPrint('CHECK guide shown=$shown hideButton=${again.evaluate().isEmpty ? 'closed' : 'still'} hidden=${settings.guideHidden}');
+      settings.guideHidden = true;
+      await popAll();
+    });
+
     await step('comic viewer', () async {
       if (comic == null) return;
       await push(ComicReaderPage(item: comic!));
       await shot('08_만화뷰어', 2500);
+      // 마우스 휠: 아래 = 다음 쪽, 위 = 이전 쪽 (위로 굴릴 때 확대가 되면 안 된다)
+      final mouse = TestPointer(77, ui.PointerDeviceKind.mouse);
+      await tester.sendEventToBinding(mouse.hover(tester.getCenter(find.byType(ComicReaderPage))));
+      final p0 = comic!.position;
+      await tester.sendEventToBinding(mouse.scroll(const Offset(0, 120)));
+      await wait(500);
+      final p1 = comic!.position;
+      await tester.sendEventToBinding(mouse.scroll(const Offset(0, -120)));
+      await wait(500);
+      debugPrint('CHECK comic wheel start=$p0 down=$p1 up=${comic!.position} zoom100=${find.text('100%').evaluate().isNotEmpty} fit=${settings.viewerFit}');
       // 마지막 쪽에서 한 번 더 넘기면: 다음 권이 있으면 묻는 창, 없으면 "마지막 권" 안내
       await tester.sendKeyEvent(LogicalKeyboardKey.end);
       await wait(500);
