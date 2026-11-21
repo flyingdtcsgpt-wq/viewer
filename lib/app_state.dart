@@ -342,7 +342,14 @@ class AppState extends ChangeNotifier {
     final info = await Saf.treeInfo(tree);
     final path = info.path;
     final cur = Linked.folders;
-    if (cur.any((f) => f.tree == tree)) return '이미 연결한 폴더입니다';
+    if (cur.any((f) => f.tree == tree)) {
+      // 같은 폴더를 다시 고름: 앱을 다시 깔고 백업에서 복원했거나 권한이 풀렸던 것이면, 방금 받은 권한으로 다시 읽을 수 있다
+      if (!offlineLinked.contains(path) && info.alive) return '이미 연결한 폴더입니다';
+      offlineLinked.remove(path);
+      notifyListeners();
+      unawaited(rescanWhenFree());
+      return null;
+    }
     if (path == null || !info.alive) {
       await Saf.releaseFolder(tree).catchError((_) {});
       return path == null ? '이 위치는 연결할 수 없습니다. 기기 저장공간이나 SD 카드 안의 폴더를 골라 주세요' : '폴더를 읽을 수 없습니다';

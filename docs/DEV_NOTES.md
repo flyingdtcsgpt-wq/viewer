@@ -388,3 +388,14 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - **확인한 것 / 못 한 것**: 파일 번호로 읽기(통째 · 압축 · PDF)는 에뮬레이터 점검 `CHECK fd`, 경로 계산 · 압축 다리는 `test/linked_test.dart`.
   폴더 선택 창 · 지속 권한 · SD 카드 · 영상 재생은 자동으로 못 본다 → 실제 기기에서 확인
 
+## 19. 백업: 암호 · 자동 · 플레이스토어판 (11-22)
+- `Backup.create(password:)` → `ZipFileEncoder(password:)`(AES, 안의 파일 전부). `Backup.isLocked` 는 zip 첫 머리표의 암호화 표시(6번째 바이트의 1)를 본다.
+  `stage(zip, password:)`: 암호가 걸렸는데 없으면 "암호를 넣어 주세요", 풀다 실패하거나 DB 머리표가 아니면 "암호가 맞지 않습니다" (`test/backup_password_test.dart`)
+- 암호는 `Settings.backupPassword`(이 기기에만. `exportForBackup` 이 백업에 넣을 설정에서 뺀다) — 자동 백업에도 쓴다
+- `Backup.auto`: 7일에 한 번 표지 없이, `ARARIFlex-자동백업-날짜.zip`, 자기가 만든 것 중 최근 4개만. main 에서 화면을 띄우고 20초 뒤.
+  기본값: 플레이스토어판 켬 · 전체판 끔(계정 · API 키가 들어가므로)
+- 저장 위치 `Backup.defaultDir`: 안드로이드 `Download/ARARIFlex 백업`. 안드로이드 11+ 는 권한 없이도 Download 아래에 자기 파일을 만들 수 있다(다시 깐 뒤에는 그 파일의 주인이 아니라 경로로 못 읽는다 → 복원은 파일 선택 창으로).
+  못 쓰면 수동 백업은 "저장 위치 고르기" 창으로 넘어간다
+- **다시 깐 뒤 연결한 폴더**: 설정은 복원되지만 폴더 권한은 사라진다 → `offlineLinked`. 같은 폴더를 다시 고르면 `linkFolder` 가 권한만 되살리고 다시 훑는다(경로가 같아 읽던 위치가 그대로)
+- 다음에 할 것(실기기에서 폴더 연결 확인 뒤): 앱 폴더의 파일을 내 폴더로 옮기기(파일까지 백업), 플레이스토어판 그림(가족 사진), NAS
+

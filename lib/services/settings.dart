@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import '../edition.dart';
 import '../models/media_item.dart';
 import 'linked.dart';
 import 'portable.dart';
@@ -18,6 +19,9 @@ class Settings extends ChangeNotifier {
 
   /// 지금 설정 값 전부 (휴대용으로 옮길 때)
   Map<String, Object?> exportAll() => _p.all();
+
+  /// 백업 파일에 넣을 설정 (백업 암호 자체는 넣지 않는다)
+  Map<String, Object?> exportForBackup() => {...exportAll()}..removeWhere((k, _) => k.endsWith('backupPassword'));
 
   /// EPUB 표시 방식: true = 원본 스타일(출판사 CSS 그대로, Windows), false = 읽기 최적화
   bool get epubOriginal => _p.getBool('epubOriginal') ?? false;
@@ -248,6 +252,17 @@ class Settings extends ChangeNotifier {
   /// 마지막 백업 (때 · 파일)
   String get lastBackup => _p.getString('lastBackup') ?? '';
   set lastBackup(String v) => _set(() => _p.setString('lastBackup', v));
+
+  /// 자동 백업 (일주일에 한 번, 서재 · 설정만 작게)
+  /// (플레이스토어판은 기본으로 켠다. 전체판은 백업에 계정 · API 키가 들어가므로 켜고 싶을 때만)
+  bool get autoBackup => _p.getBool('autoBackup') ?? kStore;
+  set autoBackup(bool v) => _set(() => _p.setBool('autoBackup', v));
+  String get lastAutoBackup => _p.getString('lastAutoBackup') ?? '';
+  set lastAutoBackup(String v) => _set(() => _p.setString('lastAutoBackup', v));
+
+  /// 백업 파일에 거는 암호 (비어 있으면 암호 없이). 이 기기에만 저장하고 백업 파일에는 넣지 않는다
+  String get backupPassword => _p.getString('backupPassword') ?? '';
+  set backupPassword(String v) => _set(() => v.isEmpty ? _p.remove('backupPassword') : _p.setString('backupPassword', v));
 
   /// 살짝 열어만 본 작품(영상 1분 미만 · 만화/PDF 두 쪽 이내 · 소설 첫 부분)은 "보던 작품 · 읽는 중" 에 넣지 않는다
   bool get continueSkipBrief => _p.getBool('continueSkipBrief') ?? true;

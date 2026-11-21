@@ -50,6 +50,22 @@ Future<void> main() async {
     child: const ArariFlexApp(),
   ));
 
+  // 자동 백업 (일주일에 한 번, 서재 · 읽던 위치 · 설정만 작게). 화면을 띄운 뒤 조용히
+  if (settings.autoBackup) {
+    Future<void>.delayed(const Duration(seconds: 20), () async {
+      if (state.user == null || state.rawItems.isEmpty) return;
+      final out = await Backup.auto(
+        db: db,
+        prefs: settings.exportForBackup(),
+        outDir: await Backup.defaultDir(),
+        info: Backup.describe(items: state.rawItems.length, series: state.allSeries.length, users: state.users.length, covers: 0),
+        last: settings.lastAutoBackup,
+        password: settings.backupPassword,
+      );
+      if (out != null) settings.lastAutoBackup = DateTime.now().toIso8601String();
+    });
+  }
+
   // iPhone · iPad: 파일 앱에서 ARARIFlex 폴더에 넣은 책을 켤 때 · 돌아올 때 찾는다
   if (Platform.isIOS) {
     state.rescanAll();

@@ -23,6 +23,7 @@ import 'admin_page.dart';
 import 'import_dialog.dart';
 import 'guide.dart';
 import 'brand.dart';
+import 'series_widgets.dart' show friendlyPath;
 
 /// 환경 설정 — 왼쪽 분류 / 오른쪽 내용 (BookManager 스타일)
 /// 손가락으로 쓰는 기기 (휴대폰 · 태블릿): 마우스 · 키보드 설명을 빼고 보여 준다
@@ -719,7 +720,7 @@ class _About extends StatelessWidget {
           ),
         ])),
         if (kStore) const _StorePrivacyCard(),
-        if (context.watch<AppState>().isAdmin && !kStore) const _BackupCard(),
+        if (context.watch<AppState>().isAdmin) const _BackupCard(),
         if (!kStore && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) const _PortableCard(),
       ]);
 }
@@ -781,16 +782,15 @@ class _BackupCardState extends State<_BackupCard> {
   bool _busy = false;
   String _status = '';
 
-  Future<String> _defaultDir() async {
-    if (Platform.isAndroid) return '/storage/emulated/0/Download/ARARIFlex 백업';
-    return p.join((await getApplicationDocumentsDirectory()).path, 'ARARIFlex 백업');
-  }
+  Future<String> _defaultDir() => Backup.defaultDir();
 
   Future<void> _backup() async {
     final app = context.read<AppState>();
     final settings = context.read<Settings>();
     var dir = await _defaultDir();
     var covers = true;
+    final pw = TextEditingController(text: settings.backupPassword);
+    var showPw = false;
     if (!mounted) return;
     final go = await showDialog<bool>(
       context: context,
@@ -801,17 +801,22 @@ class _BackupCardState extends State<_BackupCard> {
           content: SizedBox(
             width: 460,
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('서재 목록 · 묶음 · 계정 · 읽은 위치 · 열람 기록 · 접근 권한 · 모든 설정을 파일 하나(zip)로 저장합니다. '
-                  '책 · 만화 · 영상 파일 자체와 내려받은 AI 음성 모델은 들어가지 않습니다.'),
+              Text(kStore
+                  ? '서재 목록 · 묶음 · 읽던 위치 · 책갈피 · 열람 기록 · 모든 설정을 파일 하나(zip)로 저장합니다. '
+                      '만화 · 책 · 영상 파일 자체는 들어가지 않습니다 (파일은 연결한 폴더나 ARARIFlex 폴더에 그대로 있습니다).'
+                  : '서재 목록 · 묶음 · 계정 · 읽은 위치 · 열람 기록 · 접근 권한 · 모든 설정을 파일 하나(zip)로 저장합니다. '
+                      '책 · 만화 · 영상 파일 자체와 내려받은 AI 음성 모델은 들어가지 않습니다.'),
               const SizedBox(height: 10),
-              SelectableText(dir, style: const TextStyle(fontSize: 12)),
-              TextButton(
-                onPressed: () async {
-                  final d = await FilePicker.getDirectoryPath(dialogTitle: '백업을 저장할 폴더');
-                  if (d != null) set(() => dir = d);
-                },
-                child: const Text('다른 폴더'),
-              ),
+              SelectableText(friendlyPath(dir), style: const TextStyle(fontSize: 12)),
+              // (플레이스토어판은 저장소 권한이 없어 아무 폴더에나 쓸 수 없다 → 늘 Download 아래)
+              if (!kStore)
+                TextButton(
+                  onPressed: () async {
+                    final d = await FilePicker.getDirectoryPath(dialogTitle: '백업을 저장할 폴더');
+                    if (d != null) set(() => dir = d);
+                  },
+                  child: const Text('다른 폴더'),
+                ),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 value: covers,
@@ -819,7 +824,25 @@ class _BackupCardState extends State<_BackupCard> {
                 title: const Text('표지도 넣기'),
                 subtitle: const Text('직접 고른 표지까지 그대로 되살립니다 (파일이 커짐). 끄면 복원 뒤 표지를 다시 만듭니다'),
               ),
-              const Text('백업 파일에는 계정 비밀번호(암호화된 값)와 검색 · AI API 키가 들어 있으니 남에게 주지 마세요.', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: pw,
+                obscureText: !showPw,
+                decoration: InputDecoration(
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                  labelText: '백업 암호 (비워 두면 암호 없이)',
+                  suffixIcon: IconButton(
+                    tooltip: showPw ? '가리기' : '보기',
+                    icon: Icon(showPw ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => set(() => showPw = !showPw),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text('암호를 걸면 백업 파일을 열 때 이 암호가 있어야 합니다. 잊으면 복원할 수 없습니다. 자동 백업에도 같은 암호가 걸립니다.', style: TextStyle(fontSize: 12)),
+              if (!kStore)
+                const Text('백업 파일에는 계정 비밀번호(암호화된 값)와 검색 · AI API 키가 들어 있으니 남에게 주지 마세요.', style: TextStyle(fontSize: 12)),
             ]),
           ),
           actions: [
@@ -830,6 +853,7 @@ class _BackupCardState extends State<_BackupCard> {
       ),
     );
     if (go != true || !mounted) return;
+    settings.backupPassword = pw.text; // 다음 백업 · 자동 백업에도 쓴다 (이 기기에만 저장)
     setState(() {
       _busy = true;
       _status = '백업 만드는 중…';
@@ -841,18 +865,18 @@ class _BackupCardState extends State<_BackupCard> {
       final info = Backup.describe(items: app.rawItems.length, series: app.allSeries.length, users: app.users.length, covers: coverCount);
       String out;
       try {
-        out = await Backup.create(db: app.db, prefs: settings.exportAll(), outDir: dir, info: info, covers: covers);
+        out = await Backup.create(db: app.db, prefs: settings.exportForBackup(), outDir: dir, info: info, covers: covers, password: settings.backupPassword);
       } on FileSystemException {
         // 그 폴더에 쓸 수 없으면 (안드로이드 권한 등) 앱 폴더에 만든 뒤 저장 위치를 고르게 한다
         final tmp = p.join((await getTemporaryDirectory()).path, 'arari_backup');
-        final made = await Backup.create(db: app.db, prefs: settings.exportAll(), outDir: tmp, info: info, covers: covers);
+        final made = await Backup.create(db: app.db, prefs: settings.exportForBackup(), outDir: tmp, info: info, covers: covers, password: settings.backupPassword);
         final saved = await FilePicker.saveFile(dialogTitle: '백업 저장', fileName: p.basename(made), bytes: await File(made).readAsBytes());
         await File(made).delete();
         if (saved == null) throw const BackupError('저장을 취소했습니다');
         out = saved.scheme == 'file' ? saved.toFilePath() : Uri.decodeFull(saved.toString());
       }
       settings.lastBackup = '${DateTime.now().toIso8601String().substring(0, 16).replaceFirst('T', ' ')} · $out';
-      if (mounted) setState(() => _status = '백업했습니다: $out');
+      if (mounted) setState(() => _status = '백업했습니다${settings.backupPassword.isEmpty ? '' : ' (암호 걸림)'}: ${friendlyPath(out)}');
     } catch (e) {
       if (mounted) setState(() => _status = '백업하지 못했습니다: $e');
     } finally {
@@ -871,7 +895,21 @@ class _BackupCardState extends State<_BackupCard> {
     });
     BackupInfo info;
     try {
-      info = await Backup.stage(path);
+      String? pw;
+      if (await Backup.isLocked(path)) {
+        if (!mounted) return;
+        pw = await _askPassword();
+        if (pw == null) {
+          if (mounted) {
+            setState(() {
+              _busy = false;
+              _status = '';
+            });
+          }
+          return;
+        }
+      }
+      info = await Backup.stage(path, password: pw);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -919,10 +957,34 @@ class _BackupCardState extends State<_BackupCard> {
     exit(0);
   }
 
+  /// 암호가 걸린 백업을 열 때
+  Future<String?> _askPassword() {
+    final c = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.lock_outline),
+        title: const Text('백업 암호'),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          obscureText: true,
+          decoration: const InputDecoration(border: OutlineInputBorder(), labelText: '백업할 때 건 암호'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, c.text), child: const Text('열기')),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final last = context.watch<Settings>().lastBackup;
+    final s = context.watch<Settings>();
+    final last = s.lastBackup;
     return _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         const Icon(Icons.backup),
@@ -930,7 +992,9 @@ class _BackupCardState extends State<_BackupCard> {
         Text('서재 백업 · 복원', style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
       ]),
       const SizedBox(height: 8),
-      const Text('앱을 지웠다 다시 깔거나 PC 를 바꿔도 서재 목록 · 읽던 위치 · 계정 · 설정을 되살릴 수 있게 파일로 저장해 둡니다.'),
+      Text(kStore
+          ? '앱을 지웠다 다시 깔아도 서재 목록 · 읽던 위치 · 책갈피 · 설정을 되살릴 수 있게 파일로 저장해 둡니다. 백업은 Download 폴더에 있어 앱을 지워도 남습니다.'
+          : '앱을 지웠다 다시 깔거나 PC 를 바꿔도 서재 목록 · 읽던 위치 · 계정 · 설정을 되살릴 수 있게 파일로 저장해 둡니다.'),
       const SizedBox(height: 4),
       Text(last.isEmpty ? '아직 백업한 적이 없습니다' : '마지막 백업: $last', style: text.bodySmall),
       const SizedBox(height: 10),
@@ -940,6 +1004,18 @@ class _BackupCardState extends State<_BackupCard> {
       ]),
       if (_busy) const Padding(padding: EdgeInsets.only(top: 10), child: LinearProgressIndicator()),
       if (_status.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: SelectableText(_status, style: text.bodySmall)),
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('자동 백업 (일주일에 한 번)'),
+        subtitle: Text('서재 목록 · 읽던 위치 · 설정만 작게 저장하고 최근 4개만 남깁니다. '
+            '${s.lastAutoBackup.isEmpty ? '아직 만든 적이 없습니다' : '마지막: ${s.lastAutoBackup.substring(0, 16).replaceFirst('T', ' ')}'}'
+            '${s.backupPassword.isEmpty ? '' : ' · 암호 걸림'}'),
+        value: s.autoBackup,
+        onChanged: (v) => s.autoBackup = v,
+      ),
+      if (kStore)
+        Text('복원한 뒤 연결한 폴더가 "읽을 수 없음" 으로 나오면, ＋ › 폴더 연결에서 같은 폴더를 한 번 더 골라 주세요 (앱을 다시 깔면 폴더 권한을 다시 받아야 합니다).',
+            style: text.bodySmall),
     ]));
   }
 }

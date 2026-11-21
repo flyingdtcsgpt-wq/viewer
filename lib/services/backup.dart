@@ -58,16 +58,19 @@ class Backup {
     required String outDir,
     required BackupInfo info,
     bool covers = true,
+    String? password,
+    String? name,
   }) async {
     final support = await _support();
     await Directory(outDir).create(recursive: true);
-    final out = p.join(outDir, fileName(DateTime.now()));
+    final out = p.join(outDir, name ?? fileName(DateTime.now()));
+    final pw = password == null || password.isEmpty ? null : password;
     final tmpDb = p.join(support, 'backup_tmp.db');
     await db.copyTo(tmpDb);
     try {
       final manifest = jsonEncode({...info.toJson(), 'supportDir': support, 'hasCovers': covers});
       final settings = const JsonEncoder.withIndent(' ').convert(prefs);
-      await Isolate.run(() => _zip(out, tmpDb, support, manifest, settings, covers));
+      await Isolate.run(() => _zip(out, tmpDb, support, manifest, settings, covers, pw));
     } finally {
       try {
         await File(tmpDb).delete();
@@ -76,8 +79,9 @@ class Backup {
     return out;
   }
 
-  static void _zip(String out, String dbFile, String support, String manifest, String settings, bool covers) {
-    final enc = ZipFileEncoder()..create(out, level: 6);
+  /// [password] 가 있으면 안의 파일을 모두 암호화한다 (AES. 암호를 잊으면 풀 수 없다)
+  static void _zip(String out, String dbFile, String support, String manifest, String settings, bool covers, String? password) {
+    final enc = ZipFileEncoder(password: password)..create(out, level: 6);
     try {
       enc.addArchiveFile(ArchiveFile.string('manifest.json', manifest));
       enc.addArchiveFile(ArchiveFile.string('settings.json', settings));
@@ -100,19 +104,82 @@ class Backup {
     }
   }
 
-  /// 백업 파일을 확인하고, 다음에 앱을 켤 때 적용되게 준비한다
-  static Future<BackupInfo> stage(String zipPath) async {
+  /// 백업을 두는 기본 폴더 (안드로이드: Download/ARARIFlex 백업 — 앱을 지워도 남는다. 그 밖: 문서/ARARIFlex 백업)
+  static Future<String> defaultDir() async {
+    if (Platform.isAndroid) return '/storage/emulated/0/Download/ARARIFlex 백업';
+    return p.join((await getApplicationDocumentsDirectory()).path, 'ARARIFlex 백업');
+  }
+
+  /// 암호가 걸린 백업인가 (zip 의 첫 파일 머리표에 있는 "암호화" 표시를 본다)
+  static Future<bool> isLocked(String zipPath) async {
+    try {
+      final head = await File(zipPath).openRead(0, 8).fold<List<int>>([], (a, b) => a..addAll(b));
+      return head.length >= 8 && head[0] == 0x50 && head[1] == 0x4b && head[2] == 3 && head[3] == 4 && (head[6] & 1) != 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 자동 백업: [everyDays] 일이 지났으면 서재 · 설정만(표지 없이) 작게 저장하고, 자기가 만든 것 중 최근 [keep] 개만 남긴다.
+  /// 만들었으면 파일 경로, 아직 때가 아니거나 못 만들었으면 null. [last]: 마지막 자동 백업 때 (ISO)
+  static Future<String?> auto({
+    required LibraryDb db,
+    required Map<String, Object?> prefs,
+    required String outDir,
+    required BackupInfo info,
+    required String last,
+    String? password,
+    int everyDays = 7,
+    int keep = 4,
+  }) async {
+    final lastAt = DateTime.tryParse(last);
+    if (lastAt != null && DateTime.now().difference(lastAt) < Duration(days: everyDays)) return null;
+    try {
+      final t = DateTime.now();
+      String two(int n) => n.toString().padLeft(2, '0');
+      final name = '$autoPrefix${t.year}${two(t.month)}${two(t.day)}-${two(t.hour)}${two(t.minute)}.zip';
+      final out = await create(db: db, prefs: prefs, outDir: outDir, info: info, covers: false, password: password, name: name);
+      // 오래된 자동 백업 정리 (이름순 = 날짜순). 앱을 다시 깔기 전에 만든 것은 지울 권한이 없을 수 있다 → 그냥 둔다
+      final old = [
+        await for (final e in Directory(outDir).list(followLinks: false))
+          if (e is File && p.basename(e.path).startsWith(autoPrefix) && e.path.endsWith('.zip')) e.path,
+      ]..sort();
+      for (final f in old.take(old.length > keep ? old.length - keep : 0)) {
+        try {
+          await File(f).delete();
+        } catch (_) {}
+      }
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static const autoPrefix = 'ARARIFlex-자동백업-';
+
+  /// 백업 파일을 확인하고, 다음에 앱을 켤 때 적용되게 준비한다. 암호가 걸린 백업이면 [password]
+  static Future<BackupInfo> stage(String zipPath, {String? password}) async {
     final support = await _support();
     final tmp = Directory(p.join(support, '$_pending.tmp'));
     if (await tmp.exists()) await tmp.delete(recursive: true);
     await tmp.create(recursive: true);
     try {
-      final manifest = await Isolate.run(() => _unzip(zipPath, tmp.path));
+      final locked = await isLocked(zipPath);
+      if (locked && (password == null || password.isEmpty)) throw const BackupError('암호가 걸린 백업입니다. 암호를 넣어 주세요');
+      final into = tmp.path;
+      final pw = locked ? password : null;
+      String? manifest;
+      try {
+        manifest = await Isolate.run(() => _unzip(zipPath, into, pw));
+      } catch (e) {
+        if (locked) throw const BackupError('암호가 맞지 않습니다');
+        rethrow;
+      }
       if (manifest == null) throw const BackupError('ARARIFlex 백업 파일이 아닙니다 (library.db 가 없음)');
       final dbFile = File(p.join(tmp.path, 'library.db'));
       final head = await dbFile.openRead(0, 16).fold<List<int>>([], (a, b) => a..addAll(b));
       if (utf8.decode(head.take(15).toList(), allowMalformed: true) != 'SQLite format 3') {
-        throw const BackupError('백업 파일이 깨졌습니다 (서재 DB 를 읽을 수 없음)');
+        throw BackupError(locked ? '암호가 맞지 않습니다' : '백업 파일이 깨졌습니다 (서재 DB 를 읽을 수 없음)');
       }
       final target = Directory(p.join(support, _pending));
       if (await target.exists()) await target.delete(recursive: true);
@@ -126,10 +193,10 @@ class Backup {
   }
 
   /// zip 을 풀고 manifest.json 내용을 돌려준다 (library.db 가 없으면 null). 폴더 밖으로 나가는 이름은 무시
-  static String? _unzip(String zipPath, String into) {
+  static String? _unzip(String zipPath, String into, String? password) {
     final input = InputFileStream(zipPath);
     try {
-      final zip = ZipDecoder().decodeStream(input);
+      final zip = ZipDecoder().decodeStream(input, password: password);
       String? manifest;
       var hasDb = false;
       for (final f in zip.files.where((f) => f.isFile)) {
