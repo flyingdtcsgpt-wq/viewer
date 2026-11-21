@@ -6,7 +6,7 @@ import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 
-import 'text_document.dart' show decodeText, chapterRe;
+import 'text_document.dart' show decodeText, isChapterTitle;
 
 /// TXT → EPUB 3 (EPUB 2 리더용 toc.ncx 도 함께)
 /// - "제1장", "1화", "프롤로그" 같은 줄로 장을 나누고, 없으면 일정 길이로 나눈다
@@ -26,7 +26,7 @@ class EpubWriter {
       var cur = <String>[];
       for (final raw in lines) {
         final l = raw.trimRight();
-        if (autoChapters && l.trim().isNotEmpty && l.trim().length <= 40 && chapterRe.hasMatch(l)) {
+        if (autoChapters && isChapterTitle(l)) {
           if (cur.any((e) => e.trim().isNotEmpty)) chapters.add((curTitle, cur));
           curTitle = l.trim();
           cur = [];

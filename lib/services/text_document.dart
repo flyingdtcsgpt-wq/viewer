@@ -69,11 +69,50 @@ String _utf16(Uint8List b, {required bool little}) {
   return String.fromCharCodes(units);
 }
 
-/// "제 1 장", "1화", "Chapter 3", "프롤로그" 같은 줄을 목차로 인식
-final chapterRe = RegExp(
-  r'^\s*(제\s*[0-9一二三四五六七八九十百]+\s*[장화권부편]|[0-9]+\s*[장화]\b|[0-9]+\.\s|chapter\s*[0-9]+|prologue|epilogue|프롤로그|에필로그|서장|종장|외전)',
+// ---- 목차(장 제목) 알아보기: TXT 뷰어 목차 · TXT → EPUB · PDF → 텍스트가 같이 쓴다 ----
+//
+// 한 줄이 아래를 모두 만족하면 장 제목으로 본다 (TXT 에는 목차 정보가 없어서 줄의 모양으로 짐작한다):
+//  1. 앞뒤 빈칸을 뺀 길이가 40자 이하
+//  2. 꾸밈 기호(【 】 [ ] ■ ◆ = - * 등)를 떼고 난 줄의 "맨 앞"이 다음 중 하나
+//     - 제1장 · 제 12 화 · 제3권/부/편/막/회/절 (한자 숫자도)
+//     - 1화 · 12장 · 2부 · 3권 · 5편 · 1막 · 3회 ("제" 없이 숫자로 시작)
+//     - 1. 제목 · 1.
+//     - #1 · # 12 제목
+//     - Chapter 3 · Part 2 · Ep.1 · Episode 4 · Act 1 · Vol.2 · Book 1 (로마 숫자 iv 도)
+//     - Prologue · Epilogue · Interlude · Afterword · Foreword · Preface · Introduction
+//     - 프롤로그 · 에필로그 · 서장 · 종장 · 외전 · 번외 · 막간 · 후일담 · 특별편 · 후기 · 서문 · 머리말 · 맺음말 · 작가의 말 · 작가 후기 · 들어가며 · 나가며
+//     - 第一章 · 第3話 (한자)
+//  3. 그 뒤에 글자가 바로 붙어 있지 않다 ("1장의 사진", "서장훈은…", "외전이라고…" 는 제목이 아니다)
+//  4. 문장으로 끝나지 않는다 ("3회 반복했다.", "1. 그리고 떠났다." 는 제목이 아니다)
+// 숫자만 있는 줄("12", "- 12 -")은 쪽 번호일 수 있어 제목으로 보지 않는다.
+final _decoStart = RegExp(r'^[\s\[\(【〔<《「『■□◆◇●○★☆※▶▷=\-–—~*·]+');
+final _decoEnd = RegExp(r'[\s\]\)】〕>》」』■□◆◇●○★☆※◀◁=\-–—~*·:]+$');
+const _end = '(?![0-9A-Za-z가-힣])'; // 뒤에 글자 · 숫자가 바로 붙지 않는다
+const _wordEnd = '(?![A-Za-z가-힣])'; // 낱말 뒤 (숫자는 붙어도 된다: "외전2")
+const _num = '[0-9一二三四五六七八九十百千]+';
+final _chapterStart = RegExp(
+  '^(?:'
+  '제\\s*$_num\\s*(?:장|화|권|부|편|막|회|절)$_end'
+  '|[0-9]+\\s*(?:장|화|권|부|편|막|회)$_end'
+  r'|[0-9]+\.(?:\s+\S|$)'
+  '|#\\s*[0-9]+$_end'
+  '|(?:chapter|chap\\.?|ch\\.|part|episode|ep\\.?|act|volume|vol\\.?|book)\\s*(?:[0-9]+|[ivxlc]+)$_end'
+  '|(?:prologue|epilogue|interlude|afterword|foreword|preface|introduction)$_wordEnd'
+  '|(?:프롤로그|에필로그|서장|종장|외전|번외|막간|후일담|특별편|후기|서문|머리말|맺음말|작가의 말|작가 후기|들어가며|나가며)$_wordEnd'
+  '|第\\s*$_num\\s*[章話话回巻卷部節节幕]'
+  ')',
   caseSensitive: false,
 );
+final _proseEnd = RegExp(r'\s.*(?:[다요죠]\.|[a-z]{2}\.)$|[,，]$', caseSensitive: false);
+
+/// 이 줄이 장 제목(목차에 올릴 줄)인가. 규칙은 위 설명 참고
+bool isChapterTitle(String line) {
+  final t = line.trim();
+  if (t.isEmpty || t.length > 40) return false;
+  final core = t.replaceFirst(_decoStart, '').replaceFirst(_decoEnd, '');
+  if (core.isEmpty) return false;
+  return _chapterStart.hasMatch(core) && !_proseEnd.hasMatch(core);
+}
 
 TextDocument _loadTxt(String path) {
   final (text, enc) = decodeText(File(path).readAsBytesSync());
@@ -88,7 +127,7 @@ TextDocument _loadTxt(String path) {
       blocks.add(TextBlock.text(line.substring(0, at)));
       line = line.substring(at);
     }
-    if (line.trim().isNotEmpty && line.trim().length <= 40 && chapterRe.hasMatch(line)) {
+    if (isChapterTitle(line)) {
       toc.add(TocEntry(line.trim(), blocks.length));
       blocks.add(TextBlock.text(line.trim(), heading: 3));
     } else {

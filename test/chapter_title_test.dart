@@ -1,0 +1,34 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:media_shelf/services/text_document.dart';
+
+/// TXT 목차(장 제목) 알아보기 규칙
+void main() {
+  test('장 제목으로 보는 줄', () {
+    for (final l in [
+      '제1장 시작', '제 12 화', '제1장.', '제3부: 귀환', //
+      '1화', '1화 만남', '001화', '12장', '12장 - 폭풍', '1부', '2권', '3회', '5편 귀향', // "제" 없이 숫자로 시작
+      '1. 만남', '1.', '#1', '# 12 재회',
+      'Chapter 3', 'CHAPTER 10: The End', 'chapter iv', 'Part 2', 'EP.1', 'Ep 12 - Home', 'Prologue', 'Epilogue.',
+      '프롤로그', '외전 1', '외전2', '에필로그 - 그 후', '후기', '작가의 말', '서문', '막간',
+      '[1화]', '【제1장】', '■ 제1장', '◆ 3화 ◆', '=== 제2장 ===', // 꾸밈 기호
+      '第一章 出会い', '第3話',
+    ]) {
+      expect(isChapterTitle(l), isTrue, reason: l);
+    }
+  });
+
+  test('장 제목이 아닌 줄', () {
+    for (final l in [
+      '1장의 사진을 보았다.', '외전이라고 하기엔 길다', '서장훈은 농구 선수였다', '후기를 남겼다', '서문을 읽었다', // 뒤에 글자가 붙음
+      '3회 반복했다.', '2부 리그에서 뛰었습니다.', '3. 그리고 그는 떠났다.', // 문장
+      '1', '12', '- 12 -', // 쪽 번호일 수 있음
+      '그는 1화를 보았다', '"제1장이야." 그가 말했다.', // 줄 맨 앞이 아님
+      '2024년 3월의 일이다', '1.5배 빠르다', '100미터를 달렸다', '10시 30분',
+      'part of the plan', 'Act like you mean it', 'Book club meets today', 'Chapters are long',
+      '   ', '',
+      '이 줄은 사십 자가 넘는 아주 긴 줄입니다 제1장이라는 말이 들어 있어도 제목이 아닙니다 정말로요',
+    ]) {
+      expect(isChapterTitle(l), isFalse, reason: l);
+    }
+  });
+}

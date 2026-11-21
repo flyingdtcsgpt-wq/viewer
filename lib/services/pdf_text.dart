@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:pdfrx/pdfrx.dart';
 
 import 'ocr_service.dart';
-import 'text_document.dart' show chapterRe;
+import 'text_document.dart' show isChapterTitle;
 
 /// PDF 를 글로: 글자가 든 쪽은 그대로, 스캔한 쪽(그림뿐)은 글자 인식
 class PdfText {
@@ -134,7 +134,7 @@ class PdfText {
         final l = pg[k];
         final edge = k < 2 || k >= pg.length - 2;
         if (edge && (_pageNo.hasMatch(l) || running.contains(_norm(l)))) continue;
-        if (l.length <= 40 && chapterRe.hasMatch(l)) {
+        if (isChapterTitle(l)) {
           flush();
           out.add(l);
           continue;
