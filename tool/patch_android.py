@@ -674,6 +674,12 @@ rules.write_text("""-dontwarn com.google.mlkit.vision.text.chinese.**
 -dontwarn com.google.mlkit.vision.text.devanagari.**
 -dontwarn com.google.mlkit.vision.text.japanese.**
 -keep class ai.onnxruntime.** { *; }
+# 광고 SDK 가 쓰는 WorkManager: Room 이 만든 DB 클래스를 이름으로 찾아 만든다. R8 이 생성자를 지우면 앱이 켜지자마자 죽는다
+-keep class * extends androidx.room.RoomDatabase { <init>(...); }
+-keep class androidx.work.impl.WorkDatabase_Impl { *; }
+# ML Kit(글자 인식) 부품도 이름으로 찾아 만든다 (생성자가 지워지면 글자 인식이 안 된다)
+-keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
+-keep class com.google.mlkit.**.*Registrar { <init>(); }
 """, encoding="utf-8")
 g = gradle.read_text(encoding="utf-8")
 if "proguard-rules.pro" not in g:

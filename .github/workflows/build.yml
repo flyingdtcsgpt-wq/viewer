@@ -497,10 +497,16 @@ jobs:
           git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots-android
 
   # 플레이스토어판을 에뮬레이터에서 실제로 켜 보고, 꺼지면 원인 로그(logcat)를 남긴다
-  store-smoke:
+  android-smoke:
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { edition: store, patch: '--store', pkg: com.arariflex.app, define: '--dart-define=ARARI_STORE=true' }
+          - { edition: full, patch: '', pkg: com.mediashelf.media_shelf, define: '' }
     steps:
       - uses: actions/checkout@v4
 
@@ -518,13 +524,13 @@ jobs:
       - name: Generate platform folders
         run: flutter create --platforms=android --org com.mediashelf --project-name media_shelf .
 
-      - name: Store manifest
-        run: python3 tool/patch_android.py --store
+      - name: Android manifest
+        run: python3 tool/patch_android.py ${{ matrix.patch }}
 
       - run: flutter pub get
 
-      - name: Build store APK (x86_64, release)
-        run: flutter build apk --release --target-platform android-x64 --dart-define=ARARI_STORE=true
+      - name: Build APK (x86_64, release)
+        run: flutter build apk --release --target-platform android-x64 ${{ matrix.define }}
 
       - name: Enable KVM
         run: |
@@ -544,20 +550,22 @@ jobs:
           script: |
             adb install -r build/app/outputs/flutter-apk/app-release.apk
             adb logcat -c
-            adb shell monkey -p com.arariflex.app -c android.intent.category.LAUNCHER 1
+            adb shell monkey -p ${{ matrix.pkg }} -c android.intent.category.LAUNCHER 1
             sleep 30
-            echo "STORE pid=$(adb shell pidof com.arariflex.app)"
-            adb exec-out screencap -p > store-smoke.png || true
-            adb logcat -d > store-logcat.txt || true
-            grep -nE "FATAL|AndroidRuntime|F DEBUG|Abort message|backtrace|signal [0-9]|Exception|flutter|Process com.arariflex.app.*died|Force finishing" store-logcat.txt | head -120 || true
+            echo "STORE pid=$(adb shell pidof ${{ matrix.pkg }})"
+            adb exec-out screencap -p > smoke.png || true
+            adb logcat -d > smoke-logcat.txt || true
+            grep -nE "FATAL|E AndroidRuntime|F DEBUG|Abort message|NoSuchMethodException|flutter|Process ${{ matrix.pkg }}.*died|Force finishing" smoke-logcat.txt | head -60 || true
+            # 켜진 채로 30초를 버티지 못하면 실패 (앱이 꺼지는 문제를 빌드 단계에서 잡는다)
+            [ -n "$(adb shell pidof ${{ matrix.pkg }})" ] || { echo "::error::${{ matrix.edition }} 판이 켜지자마자 꺼졌습니다 (smoke-logcat.txt 확인)"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ARARIFlex-store-smoke
+          name: ARARIFlex-smoke-${{ matrix.edition }}
           path: |
-            store-smoke.png
-            store-logcat.txt
+            smoke.png
+            smoke-logcat.txt
 
   # ---------------- macOS (맥북 · 아이맥) ----------------
   macos:
