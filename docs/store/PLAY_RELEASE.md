@@ -86,7 +86,7 @@ push 할 때마다 CI `store` 작업이 만듭니다. Artifact **ARARIFlex-store
   - 전송 중 암호화: 예 · 삭제 요청 방법: 앱 삭제(앱 데이터), 광고 ID 는 기기 설정에서 재설정/삭제
   - 넣은 파일 · 읽은 기록은 기기를 떠나지 않으므로 "수집"이 아닙니다(신고 대상 아님).
   - (AdMob 공식 안내: https://developers.google.com/admob/android/privacy/play-data-disclosure — SDK 판에 따라 항목이 바뀌면 이 문서를 따르세요)
-- **권한**: 인터넷 · 네트워크 상태 · 광고 ID 뿐. 저장소 · 사진/동영상 · 모든 파일 · 알림 · 포그라운드 서비스 권한 없음 → 별도 권한 신고서 없음.
+- **권한** (실제 빌드 결과): 인터넷 · 네트워크 상태 · 광고 ID(`AD_ID`, `ACCESS_ADSERVICES_*` — 광고 SDK 가 넣는 Privacy Sandbox 권한) · `WAKE_LOCK`(광고 SDK). 그 밖에 없음. 저장소 · 사진/동영상 · 모든 파일 · 알림 · 포그라운드 서비스 권한 없음 → 별도 권한 신고서 없음.
 
 ## 4. 출시 순서
 
@@ -97,7 +97,7 @@ push 할 때마다 CI `store` 작업이 만듭니다. Artifact **ARARIFlex-store
 
 ## 5. 정책 확인 목록 (2026-11 기준)
 
-- [x] targetSdk: Flutter 3.50 기본값(35 이상). 2026-08-31 부터 새 앱 · 업데이트는 **API 36** 필요 → `store-check.txt` 에서 확인, 모자라면 `android/app/build.gradle.kts` 의 `targetSdk` 를 올림
+- [x] targetSdk **36** (2026-11-21 빌드에서 확인. 2026-08-31 부터 API 36 필요)
 - [x] AAB 로 업로드
 - [x] 저장소 권한 없음 (MANAGE_EXTERNAL_STORAGE 는 뷰어 앱에 허용되지 않음) → SAF(파일 선택 창) + 앱 전용 폴더
 - [x] 앱을 나갈 때 광고 없음, 앱 열기 광고 횟수 제한, 콘텐츠 보는 중 광고 없음
@@ -105,6 +105,6 @@ push 할 때마다 CI `store` 작업이 만듭니다. Artifact **ARARIFlex-store
 - [x] 개인정보처리방침 (한/영), 앱 안에서도 열 수 있음 (설정 › 정보)
 - [x] 콘텐츠 제공 없음 · 저작권 안내 문구 (빈 서재 화면 · 설명)
 - [x] 지울 때 "앱 데이터 보관" 묻기 (`hasFragileUserData`) — 앱 폴더의 파일을 실수로 잃지 않게
-- [ ] 16KB 메모리 페이지 지원 (기한 2027-02-01, Play Console 의 안내 날짜를 따를 것). `store-check.txt` 의 `.so` 정렬이 `0x4000` 이상인지 확인 (모자란 라이브러리는 판을 올려야 함)
+- [x] 16KB 메모리 페이지: 2026-11-21 빌드에서 모든 `.so` 가 0x4000 이상, zip 정렬 OK (라이브러리 판을 올릴 때마다 `store-check.txt` 다시 확인)
 - [ ] 개발자 신원 확인 (Android 개발자 인증) 완료
 - [ ] 테스터 12명 · 14일
