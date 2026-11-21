@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -44,7 +46,6 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   int _dir = 1; // 마지막 이동 방향 (애니메이션용)
   bool _panel = false; // 오른쪽 설정 패널
   bool _chrome = true; // 위/아래 막대
-  bool _end = false; // 마지막 쪽에서 더 넘기면 "권 끝" 카드
   bool _awake = false; // 화면 켜 두기를 걸었는가
   bool _fullscreen = false;
   final _zoom = TransformationController();
@@ -63,6 +64,20 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     return sp[_spread].last / (_n - 1);
   }
   double get _scale => _zoom.value.getMaxScaleOnAxis();
+  bool _zoomed = false; // 확대 중 (바뀔 때만 다시 그린다. 두 손가락으로 움직이는 동안 매 프레임 화면 전체를 다시 그리지 않게)
+
+  // 손가락 추적 (탭 · 밀기를 직접 판단해 확대 제스처와 다투지 않게)
+  final _touches = <int>{};
+  Offset? _downAt;
+  Duration _downTime = Duration.zero;
+  bool _multi = false; // 이번 손짓에 손가락이 둘 이상이었다 → 확대/축소만
+  Timer? _tapTimer;
+  Offset? _tapPos;
+
+  void _onZoom() {
+    final z = _scale > 1.01;
+    if (z != _zoomed && mounted) setState(() => _zoomed = z);
+  }
 
   @override
   void initState() {
@@ -74,7 +89,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       ScreenAwake.hold();
     }
     _open();
-    _zoom.addListener(() => setState(() {}));
+    _zoom.addListener(_onZoom);
   }
 
   Future<void> _open() async {
@@ -107,6 +122,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _zip?.close();
     _loader?.close();
+    _tapTimer?.cancel();
     _zoom.dispose();
     _strip.dispose();
     _scroll.dispose();
@@ -200,25 +216,19 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   /// +1 다음, -1 이전 (읽는 순서 기준)
   void _turn(int d) {
-    // 권 끝 카드가 떠 있으면: 뒤로 넘기면 카드를 닫고 마지막 쪽으로, 한 번 더 넘기면 다음 권으로
-    if (_end) {
-      if (d < 0) {
-        setState(() => _end = false);
-      } else {
-        final next = _app.nextVolume(item);
-        if (next != null) openNextVolume(context, next);
-      }
-      return;
-    }
-    // 마지막 쪽에서 더 넘기면 다음 권 안내
+    // 마지막 쪽에서 더 넘기면: 다음 권으로 갈지 묻는다 (없으면 "마지막 권입니다")
     if (d > 0 && _s.comicMode != 2 && _spread >= _spreads.length - 1) {
-      setState(() => _end = true);
       _app.saveProgress(item, '$_page', _progress);
+      askNextVolume(context, item);
       return;
     }
     if (_s.comicMode == 2) {
       if (!_scroll.hasClients) return;
       final pos = _scroll.position;
+      if (d > 0 && pos.pixels >= pos.maxScrollExtent - 2) {
+        askNextVolume(context, item);
+        return;
+      }
       _scroll.animateTo((pos.pixels + d * pos.viewportDimension * 0.85).clamp(0.0, pos.maxScrollExtent),
           duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
       return;
@@ -386,7 +396,10 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   for (final z in const [1.0, 1.25, 1.5, 2.0, 3.0])
                     PopupMenuItem(value: z, child: Text('${(z * 100).round()}%', style: const TextStyle(color: Colors.white))),
                 ],
-                child: ToolBtn(icon: Icons.zoom_in, label: '${(_scale * 100).round()}%', tooltip: '확대 (두 손가락 / Ctrl+휠)'),
+                child: ValueListenableBuilder<Matrix4>(
+                  valueListenable: _zoom,
+                  builder: (_, m, _) => ToolBtn(icon: Icons.zoom_in, label: '${(m.getMaxScaleOnAxis() * 100).round()}%', tooltip: '확대 (두 손가락 / Ctrl+휠)'),
+                ),
               ),
             ]),
             ToolGroup([
@@ -463,24 +476,6 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               : Container(color: viewerBg),
         ),
         Positioned.fill(child: content),
-        // 권 끝: 다음 권 보기 / 다음 권이 없습니다
-        if (_end && s.comicMode != 2)
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: () {}, // 뒤 화면으로 탭이 넘어가지 않게
-              // 카드 위에서도 밀어서: 뒤로 밀면 마지막 쪽, 한 번 더 넘기면 다음 권
-              onHorizontalDragEnd: (d) {
-                final v = d.primaryVelocity ?? 0;
-                if (v.abs() >= 250) _visual(v > 0);
-              },
-              child: Container(
-                color: Colors.black.withValues(alpha: 0.75),
-                alignment: Alignment.center,
-                padding: const EdgeInsets.all(16),
-                child: VolumeEndCard(item: item, onStay: () => setState(() => _end = false)),
-              ),
-            ),
-          ),
         // 썸네일 줄 접기/펼치기 탭
         if (_chrome && s.comicMode != 2)
           Positioned(
@@ -522,12 +517,32 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     final n = order.length;
     switch (s.viewerFit) {
       case 0: // 가로 맞춤 → 세로로 스크롤
+        // 휴대폰: 안쪽 스크롤 없이 확대 화면이 직접 끌어 움직인다 (스크롤이 첫 손가락을 가져가 두 손가락 확대가 안 먹던 문제)
+        if (_touch) {
+          return ConstrainedBox(
+            constraints: BoxConstraints(minWidth: c.maxWidth, minHeight: c.maxHeight),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                for (final i in order) _img(i, fit: BoxFit.fitWidth, width: c.maxWidth / n),
+              ]),
+            ),
+          );
+        }
         return SingleChildScrollView(
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             for (final i in order) _img(i, fit: BoxFit.fitWidth, width: c.maxWidth / n),
           ]),
         );
       case 1: // 높이 맞춤 → 가로로 스크롤
+        if (_touch) {
+          return ConstrainedBox(
+            constraints: BoxConstraints(minWidth: c.maxWidth, maxHeight: c.maxHeight, minHeight: c.maxHeight),
+            child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
+              for (final i in order) _img(i, fit: BoxFit.fitHeight, height: c.maxHeight),
+            ]),
+          );
+        }
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: ConstrainedBox(
@@ -565,8 +580,17 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
     Widget view = KeyedSubtree(key: ValueKey('${s.comicMode}-${s.comicCoverAlone}-$idx'), child: _spreadView(sp[idx], c, s));
     if (s.viewerFit != 3) {
-      // 확대했을 때만 끌어서 이동 (아닐 때는 좌우로 밀어 쪽 넘김)
-      view = InteractiveViewer(transformationController: _zoom, minScale: 1, maxScale: 6, panEnabled: _scale > 1.01, child: view);
+      // 전체 맞춤: 확대했을 때만 끌어서 이동 (아닐 때는 좌우로 밀어 쪽 넘김)
+      // 휴대폰의 가로/높이 맞춤: 확대 화면이 스크롤까지 맡는다 (한 손가락 = 이동, 두 손가락 = 확대)
+      final freePan = _touch && (s.viewerFit == 0 || s.viewerFit == 1);
+      view = InteractiveViewer(
+        transformationController: _zoom,
+        minScale: 1,
+        maxScale: 6,
+        constrained: !freePan,
+        panEnabled: freePan || _zoomed,
+        child: view,
+      );
     }
 
     final switcher = AnimatedSwitcher(
@@ -603,37 +627,95 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       child: KeyedSubtree(key: ValueKey('${s.comicMode}-${s.comicCoverAlone}-$idx'), child: view),
     );
 
-    return GestureDetector(
+    // 탭 · 밀기는 손가락 움직임을 직접 보고 판단한다.
+    // (예전에는 GestureDetector 의 밀기 · 두 번 탭 인식기가 확대(InteractiveViewer)와 같은 손가락을 두고 다퉈서,
+    //  두 번째 손가락이 조금 늦게 닿으면 첫 손가락이 "밀기"로 잡혀 두 손가락 확대가 무시되곤 했다)
+    return Listener(
       behavior: HitTestBehavior.translucent,
-      // 좌우로 밀기 (확대 중에는 이동만)
-      onHorizontalDragEnd: s.viewerFit == 1 || _scale > 1.01
-          ? null
-          : (d) {
-              final v = d.primaryVelocity ?? 0;
-              if (v.abs() < 250) return;
-              _visual(v > 0); // 오른쪽으로 밀면 왼쪽 쪽이 나온다
-            },
-      onTapUp: (d) {
-        final x = d.localPosition.dx / c.maxWidth;
-        if (s.tapToTurn && x < 0.3) {
-          _visual(true);
-        } else if (s.tapToTurn && x > 0.7) {
-          _visual(false);
+      onPointerDown: (e) {
+        if (e.kind == PointerDeviceKind.mouse && e.buttons != kPrimaryMouseButton) return; // 오른쪽 · 가운데 단추는 무시
+        _touches.add(e.pointer);
+        if (_touches.length == 1) {
+          _downAt = e.localPosition;
+          _downTime = e.timeStamp;
+          _multi = false;
         } else {
-          setState(() => _chrome = !_chrome);
+          _multi = true; // 두 손가락: 확대/축소만 (탭 · 쪽 넘김으로 보지 않는다)
+          _tapTimer?.cancel();
         }
       },
-      onDoubleTap: () => _scale > 1.01 ? _zoom.value = Matrix4.identity() : _setZoom(2),
-      child: Listener(
-        // 마우스 휠: 확대 중이 아니면 쪽 넘기기
-        onPointerSignal: (e) {
-          if (e is PointerScrollEvent && _scale <= 1.01 && s.viewerFit == 2) {
-            _turn(e.scrollDelta.dy > 0 ? 1 : -1);
-          }
-        },
-        child: ClipRect(child: switcher),
-      ),
+      onPointerCancel: (e) {
+        _touches.remove(e.pointer);
+        _multi = true;
+      },
+      onPointerUp: (e) {
+        _touches.remove(e.pointer);
+        final start = _downAt;
+        if (_touches.isNotEmpty || start == null) return; // 아직 다른 손가락이 닿아 있음
+        _downAt = null;
+        if (_multi) return;
+        final d = e.localPosition - start;
+        final ms = (e.timeStamp - _downTime).inMilliseconds;
+        if (d.distance < 18 && ms < 500) {
+          _onTap(e.localPosition, c, s);
+        } else if (!_zoomed && s.viewerFit != 1 && s.viewerFit != 3 && ms < 700 && d.dx.abs() > 48 && d.dx.abs() > d.dy.abs() * 1.4) {
+          _visual(d.dx > 0); // 오른쪽으로 밀면 왼쪽 쪽이 나온다
+        }
+      },
+      // 마우스 휠: 확대 중이 아니면 쪽 넘기기
+      onPointerSignal: (e) {
+        if (e is PointerScrollEvent && !_zoomed && s.viewerFit == 2) {
+          _turn(e.scrollDelta.dy > 0 ? 1 : -1);
+        }
+      },
+      child: ClipRect(child: switcher),
     );
+  }
+
+  static final _touch = Platform.isAndroid || Platform.isIOS;
+
+  /// 한 번 탭: 가장자리 = 쪽 넘김, 가운데 = 메뉴 보이기/숨기기. 두 번 탭 = 그 자리 확대 ↔ 원래 크기
+  /// 확대 중에는 한 번 탭으로 아무것도 하지 않는다 (메뉴가 사라지며 화면이 밀리거나 쪽이 넘어가지 않게)
+  void _onTap(Offset p, BoxConstraints c, Settings s) {
+    final prev = _tapPos;
+    if (_tapTimer?.isActive == true && prev != null && (p - prev).distance < 48) {
+      _tapTimer!.cancel();
+      _tapPos = null;
+      _zoomed ? _unzoom(s) : _zoomAt(p, 2.5);
+      return;
+    }
+    final x = p.dx / c.maxWidth;
+    if (!_zoomed && s.tapToTurn && (x < 0.3 || x > 0.7)) {
+      _tapPos = null;
+      _visual(x < 0.3); // 가장자리는 기다리지 않고 바로 넘긴다
+      return;
+    }
+    _tapPos = p;
+    _tapTimer?.cancel();
+    _tapTimer = Timer(const Duration(milliseconds: 260), () {
+      _tapPos = null;
+      if (!mounted || _zoomed) return;
+      setState(() => _chrome = !_chrome);
+    });
+  }
+
+  void _zoomAt(Offset p, double z) {
+    final m = Matrix4.identity()
+      ..translateByDouble(p.dx, p.dy, 0, 1)
+      ..scaleByDouble(z, z, 1, 1)
+      ..translateByDouble(-p.dx, -p.dy, 0, 1);
+    _zoom.value = m.multiplied(_zoom.value);
+  }
+
+  /// 원래 크기로 (가로 맞춤에서는 보던 높이를 그대로 둔다)
+  void _unzoom(Settings s) {
+    if (_touch && s.viewerFit == 0) {
+      final sc = _scale;
+      final y = _zoom.value.getTranslation().y / sc;
+      _zoom.value = Matrix4.identity()..translateByDouble(0, math.min(0.0, y), 0, 1);
+    } else {
+      _zoom.value = Matrix4.identity();
+    }
   }
 
   bool _initialDone = false;

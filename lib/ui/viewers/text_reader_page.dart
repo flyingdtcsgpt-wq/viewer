@@ -236,6 +236,11 @@ class _TextReaderPageState extends State<TextReaderPage> {
   void _page(int dir) {
     if (!_ctrl.hasClients) return;
     final pos = _ctrl.position;
+    // 끝까지 읽고 한 번 더 넘기면: 다음 권으로 갈지 묻는다 (없으면 "마지막 권입니다")
+    if (dir > 0 && pos.pixels >= pos.maxScrollExtent - 2) {
+      askNextVolume(context, item);
+      return;
+    }
     final target = (pos.pixels + dir * pos.viewportDimension * 0.9).clamp(pos.minScrollExtent, pos.maxScrollExtent);
     _ctrl.animateTo(target, duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
   }

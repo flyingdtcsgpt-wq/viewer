@@ -9,6 +9,7 @@ import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
@@ -296,6 +297,17 @@ void main() {
       if (comic == null) return;
       await push(ComicReaderPage(item: comic!));
       await shot('08_만화뷰어', 2500);
+      // 마지막 쪽에서 한 번 더 넘기면: 다음 권이 있으면 묻는 창, 없으면 "마지막 권" 안내
+      await tester.sendKeyEvent(LogicalKeyboardKey.end);
+      await wait(500);
+      await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+      await wait(400);
+      final hasNext = state.nextVolume(comic!) != null;
+      final asked = find.text('다음 권으로 넘어갈까요?').evaluate().isNotEmpty;
+      final lastToast = find.textContaining('마지막').evaluate().isNotEmpty;
+      debugPrint('CHECK volumeEnd hasNext=$hasNext asked=$asked lastToast=$lastToast ok=${hasNext ? asked : lastToast}');
+      if (asked) await shot('08b_다음권_묻기', 300);
+      await wait(1800); // 안내가 사라질 때까지
       await popAll();
     });
 

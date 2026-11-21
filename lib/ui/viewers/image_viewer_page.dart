@@ -51,6 +51,13 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
 
   void _touch() => _app.saveProgress(_item, '0', 0); // '최근 본' 기록용
 
+  int _fingers = 0;
+  void _lift() {
+    _fingers = (_fingers - 1).clamp(0, 10);
+    if (_fingers == 1) setState(() {});
+    if (_fingers == 0 && mounted) setState(() {});
+  }
+
   TransformationController _zoomFor(int i) => _zoom.putIfAbsent(i, () {
         final c = TransformationController();
         c.addListener(() {
@@ -110,9 +117,16 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
         child: Scaffold(
           backgroundColor: Colors.black,
           body: Stack(children: [
-            PageView.builder(
+            // 두 손가락이 닿으면 옆으로 넘기기를 잠깐 멈춘다 (넘기기가 첫 손가락을 가져가 확대가 안 먹던 문제)
+            Listener(
+              onPointerDown: (_) {
+                if (++_fingers == 2) setState(() {});
+              },
+              onPointerUp: (_) => _lift(),
+              onPointerCancel: (_) => _lift(),
+              child: PageView.builder(
               controller: _pages,
-              physics: _zoomed ? const NeverScrollableScrollPhysics() : const PageScrollPhysics(),
+              physics: _zoomed || _fingers >= 2 ? const NeverScrollableScrollPhysics() : const PageScrollPhysics(),
               itemCount: widget.images.length,
               onPageChanged: (i) {
                 setState(() {
@@ -140,6 +154,7 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
                   ),
                 ),
               ),
+            ),
             ),
             if (_showUi) ...[
               Positioned(

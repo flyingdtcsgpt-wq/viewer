@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 
 import '../../models/media_item.dart';
 import '../../services/ext_archive.dart';
+import '../../services/background_reading.dart';
 import '../../services/settings.dart';
 import '../cover_tile.dart';
 import 'epub_original_page.dart';
@@ -108,7 +111,10 @@ class NextVolumeButton extends StatelessWidget {
 class VolumeEndCard extends StatelessWidget {
   final MediaItem item;
   final VoidCallback? onStay;
-  const VolumeEndCard({super.key, required this.item, this.onStay});
+  /// 팝업으로 띄울 때: 다음 권 · 목록으로 를 창을 닫으며 알려 준다 (없으면 바로 연다)
+  final VoidCallback? onNext;
+  final VoidCallback? onList;
+  const VolumeEndCard({super.key, required this.item, this.onStay, this.onNext, this.onList});
 
   @override
   Widget build(BuildContext context) {
@@ -130,11 +136,13 @@ class VolumeEndCard extends StatelessWidget {
             const Icon(Icons.done_all, color: Colors.white70, size: 30),
             const SizedBox(height: 6),
             Text('${item.volumeLabel ?? item.title} 끝', style: white.copyWith(fontSize: 18, fontWeight: FontWeight.w800), textAlign: TextAlign.center),
+            if (onNext != null && next != null)
+              const Padding(padding: EdgeInsets.only(top: 4), child: Text('다음 권으로 넘어갈까요?', style: TextStyle(color: Colors.white70))),
             const SizedBox(height: 16),
             if (next != null) ...[
               InkWell(
                 borderRadius: BorderRadius.circular(10),
-                onTap: () => openNextVolume(context, next),
+                onTap: onNext ?? () => openNextVolume(context, next),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   SizedBox(width: 72, height: 104, child: ClipRRect(borderRadius: BorderRadius.circular(6), child: CoverImage(item: next))),
                   const SizedBox(width: 14),
@@ -153,7 +161,7 @@ class VolumeEndCard extends StatelessWidget {
               FilledButton.icon(
                 autofocus: true,
                 style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14)),
-                onPressed: () => openNextVolume(context, next),
+                onPressed: onNext ?? () => openNextVolume(context, next),
                 icon: const Icon(Icons.skip_next),
                 label: const Text('다음 권 보기'),
               ),
@@ -168,7 +176,7 @@ class VolumeEndCard extends StatelessWidget {
             const SizedBox(height: 10),
             Wrap(alignment: WrapAlignment.center, spacing: 8, children: [
               if (onStay != null) TextButton(onPressed: onStay, child: const Text('이 권 계속 보기')),
-              TextButton(onPressed: () => Navigator.maybePop(context), child: const Text('목록으로')),
+              TextButton(onPressed: onList ?? () => Navigator.maybePop(context), child: const Text('목록으로')),
             ]),
           ]),
         ),
@@ -176,3 +184,95 @@ class VolumeEndCard extends StatelessWidget {
     );
   }
 }
+
+bool _asking = false;
+
+/// 권 끝에서 한 번 더 넘기면 (탭 · 밀기 · 키 · 음량 키):
+/// 다음 권이 있으면 "다음 권으로 넘어갈까요?" 창, 없으면 "마지막 권입니다" 를 잠깐 보여 준다
+Future<void> askNextVolume(BuildContext context, MediaItem item) async {
+  if (_asking) return;
+  final app = context.read<AppState>();
+  final next = app.nextVolume(item);
+  if (next == null) {
+    showViewerToast(context, item.seriesId == null ? '마지막 쪽입니다' : '마지막 권입니다');
+    return;
+  }
+  _asking = true;
+  final volKeys = context.read<Settings>().volumeKeyTurn;
+  final r = await showDialog<String>(
+    context: context,
+    barrierColor: Colors.black54,
+    builder: (ctx) {
+      void go() => Navigator.pop(ctx, 'next');
+      void stay() => Navigator.pop(ctx, 'stay');
+      return CallbackShortcuts(
+        // 한 번 더 넘기면 다음 권, 뒤로 넘기면 이 권에 머물기
+        bindings: {
+          ...volumeKeyBindings(volKeys, (d) => d > 0 ? go() : stay()),
+          const SingleActivator(LogicalKeyboardKey.arrowRight): go,
+          const SingleActivator(LogicalKeyboardKey.pageDown): go,
+          const SingleActivator(LogicalKeyboardKey.space): go,
+          const SingleActivator(LogicalKeyboardKey.arrowLeft): stay,
+          const SingleActivator(LogicalKeyboardKey.pageUp): stay,
+        },
+        child: Focus(
+          autofocus: true,
+          child: Dialog(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            child: GestureDetector(
+              // 창 위에서 밀어도: 다음 쪽 방향이면 다음 권, 반대면 머물기
+              onHorizontalDragEnd: (d) {
+                final v = d.primaryVelocity ?? 0;
+                if (v.abs() < 250) return;
+                final rtl = ctx.read<Settings>().comicRtl;
+                ((v < 0) != rtl) ? go() : stay();
+              },
+              child: VolumeEndCard(item: item, onStay: stay, onNext: go, onList: () => Navigator.pop(ctx, 'list')),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+  _asking = false;
+  if (!context.mounted) return;
+  if (r == 'next') {
+    openNextVolume(context, next);
+  } else if (r == 'list') {
+    Navigator.maybePop(context);
+  }
+}
+
+/// 뷰어 위에 잠깐 뜨는 안내 (1.6초)
+void showViewerToast(BuildContext context, String text) {
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+  _toast?.remove();
+  final entry = OverlayEntry(
+    builder: (_) => IgnorePointer(
+      child: Center(
+        child: Material(
+          color: const Color(0xE6202020),
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.done_all, color: Colors.white70, size: 20),
+              const SizedBox(width: 8),
+              Text(text, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+            ]),
+          ),
+        ),
+      ),
+    ),
+  );
+  _toast = entry;
+  overlay.insert(entry);
+  Timer(const Duration(milliseconds: 1600), () {
+    if (_toast == entry) _toast = null;
+    if (entry.mounted) entry.remove();
+  });
+}
+
+OverlayEntry? _toast;

@@ -35,6 +35,26 @@ jobs:
 
       - run: flutter pub get
 
+      # 글자 인식(ONNX) 런타임: 플러그인 빌드가 GitHub 에서 받다 한 번 실패하면 빌드 전체가 멈춰서, 미리 받아 둔다 (재시도)
+      - name: Prefetch ONNX Runtime
+        shell: pwsh
+        run: |
+          $cfg = Get-Content .dart_tool/package_config.json -Raw | ConvertFrom-Json
+          $pk = $cfg.packages | Where-Object { $_.name -eq 'flutter_onnxruntime' }
+          $root = ([Uri]$pk.rootUri).LocalPath
+          $v = (Select-String -Path "$root/windows/CMakeLists.txt" -Pattern 'set\(ONNXRUNTIME_VERSION "([0-9.]+)"\)').Matches[0].Groups[1].Value
+          $dir = "build/windows/x64/plugins/flutter_onnxruntime/onnxruntime"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$v/onnxruntime-win-x64-$v.zip"
+          Write-Host "ONNX Runtime $v <- $url"
+          for ($i = 1; $i -le 5; $i++) {
+            try { Invoke-WebRequest -Uri $url -OutFile "$dir/ort.zip" -UseBasicParsing; break }
+            catch { Write-Host "try $i : $($_.Exception.Message)"; Start-Sleep -Seconds (15 * $i) }
+          }
+          Expand-Archive -Force "$dir/ort.zip" $dir
+          Remove-Item "$dir/ort.zip"
+          Get-ChildItem $dir
+
       - name: App icon
         run: dart run flutter_launcher_icons -f tool/icons_windows.yaml
 
@@ -135,6 +155,26 @@ jobs:
         run: python tool/patch_windows.py
 
       - run: flutter pub get
+
+      # 글자 인식(ONNX) 런타임: 플러그인 빌드가 GitHub 에서 받다 한 번 실패하면 빌드 전체가 멈춰서, 미리 받아 둔다 (재시도)
+      - name: Prefetch ONNX Runtime
+        shell: pwsh
+        run: |
+          $cfg = Get-Content .dart_tool/package_config.json -Raw | ConvertFrom-Json
+          $pk = $cfg.packages | Where-Object { $_.name -eq 'flutter_onnxruntime' }
+          $root = ([Uri]$pk.rootUri).LocalPath
+          $v = (Select-String -Path "$root/windows/CMakeLists.txt" -Pattern 'set\(ONNXRUNTIME_VERSION "([0-9.]+)"\)').Matches[0].Groups[1].Value
+          $dir = "build/windows/x64/plugins/flutter_onnxruntime/onnxruntime"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$v/onnxruntime-win-x64-$v.zip"
+          Write-Host "ONNX Runtime $v <- $url"
+          for ($i = 1; $i -le 5; $i++) {
+            try { Invoke-WebRequest -Uri $url -OutFile "$dir/ort.zip" -UseBasicParsing; break }
+            catch { Write-Host "try $i : $($_.Exception.Message)"; Start-Sleep -Seconds (15 * $i) }
+          }
+          Expand-Archive -Force "$dir/ort.zip" $dir
+          Remove-Item "$dir/ort.zip"
+          Get-ChildItem $dir
 
       - name: Analyze screenshot test
         run: flutter analyze --no-fatal-infos --no-fatal-warnings integration_test test_driver
