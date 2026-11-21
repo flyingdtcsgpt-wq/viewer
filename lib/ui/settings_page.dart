@@ -511,6 +511,8 @@ class _Viewer extends StatelessWidget {
         _seg<bool>('커버 표시 (두장보기)', s.comicCoverAlone, const [(false, '두장보기에 포함'), (true, '단독 표시')], (v) => s.comicCoverAlone = v),
         _seg<int>('넘김효과', s.viewerEffect, const [(0, '없음'), (1, '슬라이드'), (2, '페이드'), (3, '책 넘김')], (v) => s.viewerEffect = v),
         _seg<bool>('배경', s.viewerImmersive, const [(false, '단색'), (true, '몰입형')], (v) => s.viewerImmersive = v),
+        if (!kStore)
+          _seg<int>('그림 보기 방식', s.imageViewMode, const [(0, '좌우 넘기기'), (1, '위아래 한 장씩'), (2, '위아래 이어 보기')], (v) => s.imageViewMode = v),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('화면 좌우 눌러 넘기기'), value: s.tapToTurn, onChanged: (v) => s.tapToTurn = v),
         if (Platform.isAndroid) ...[
           SwitchListTile(

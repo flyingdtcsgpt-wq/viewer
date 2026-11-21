@@ -309,6 +309,9 @@ class Settings extends ChangeNotifier {
   set comicCoverAlone(bool v) => _set(() => _p.setBool('comicCoverAlone', v));
 
   // ---------- 이미지 / 영상 ----------
+  /// 그림 뷰어 보기 방식: 0 좌우로 넘기기, 1 위아래로 넘기기(한 장씩), 2 위아래로 이어 보기(스크롤)
+  int get imageViewMode => _p.getInt('imageViewMode') ?? 0;
+  set imageViewMode(int v) => _set(() => _p.setInt('imageViewMode', v));
   int get slideshowSeconds => _p.getInt('slideshowSeconds') ?? 4;
   set slideshowSeconds(int v) => _set(() => _p.setInt('slideshowSeconds', v));
   /// 영상: GPU(하드웨어) 디코딩

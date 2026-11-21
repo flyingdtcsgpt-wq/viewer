@@ -45,6 +45,7 @@ import 'package:media_shelf/ui/import_dialog.dart';
 import 'package:media_shelf/ui/settings_page.dart';
 import 'package:media_shelf/ui/tools/tools_page.dart';
 import 'package:media_shelf/ui/viewers/comic_reader_page.dart';
+import 'package:media_shelf/ui/viewers/image_viewer_page.dart';
 import 'package:media_shelf/ui/viewers/text_reader_page.dart';
 import 'package:media_shelf/ui/viewers/viewer_chrome.dart';
 import 'package:path/path.dart' as p;
@@ -373,6 +374,34 @@ void main() {
       settings.eyeCare = false;
       if (settings.readerIsDark != wasDark) settings.toggleReaderDark();
       settings.readerLineHeight = lh;
+      await popAll();
+    });
+
+    await step('image viewer modes', () async {
+      final imgs = state.allItems.where((e) => e.kind == MediaKind.image).toList();
+      if (imgs.length < 3) return;
+      // 위아래로 이어 보기: 두 번째 그림에서 시작 → 다음 그림으로
+      settings.imageViewMode = 2;
+      await push(ImageViewerPage(images: imgs, initialIndex: 1));
+      await shot('09c_그림뷰어_위아래_이어보기', 1500);
+      final startAt2 = find.textContaining('(2/${imgs.length})').evaluate().isNotEmpty;
+      // 긴 그림은 한 화면씩 내려가다가 다 보면 다음 그림으로 넘어간다 → 몇 번 눌러 본다
+      var movedTo3 = false;
+      for (var k = 0; k < 6 && !movedTo3; k++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await wait(700);
+        movedTo3 = find.textContaining('(3/${imgs.length})').evaluate().isNotEmpty;
+      }
+      // 보던 그림 그대로 위아래 한 장씩으로
+      settings.imageViewMode = 1;
+      await wait(600);
+      final keptAfterSwitch = find.textContaining('(3/${imgs.length})').evaluate().isNotEmpty;
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await wait(700);
+      final pagedTo4 = imgs.length < 4 || find.textContaining('(4/${imgs.length})').evaluate().isNotEmpty;
+      await shot('09d_그림뷰어_위아래_한장씩', 300);
+      debugPrint('CHECK image strip start=$startAt2 next=$movedTo3 keepOnSwitch=$keptAfterSwitch vertPaged=$pagedTo4');
+      settings.imageViewMode = 0;
       await popAll();
     });
 
