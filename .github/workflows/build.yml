@@ -555,25 +555,30 @@ jobs:
           ram-size: 4096M
           disk-size: 8000M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            adb install -r build/app/outputs/flutter-apk/app-release.apk
-            adb logcat -c
-            adb shell monkey -p ${{ matrix.pkg }} -c android.intent.category.LAUNCHER 1
-            sleep 30
-            echo "STORE pid=$(adb shell pidof ${{ matrix.pkg }})"
-            adb exec-out screencap -p > smoke.png || true
-            adb logcat -d > smoke-logcat.txt || true
-            grep -nE "FATAL|E AndroidRuntime|F DEBUG|Abort message|NoSuchMethodException|flutter|Process ${{ matrix.pkg }}.*died|Force finishing" smoke-logcat.txt | head -60 || true
-            # 켜진 채로 30초를 버티지 못하면 실패 (앱이 꺼지는 문제를 빌드 단계에서 잡는다)
-            [ -n "$(adb shell pidof ${{ matrix.pkg }})" ] || { echo "::error::${{ matrix.edition }} 판이 켜지자마자 꺼졌습니다 (smoke-logcat.txt 확인)"; exit 1; }
+          script: bash tool/smoke.sh ${{ matrix.pkg }} ${{ matrix.edition }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ARARIFlex-smoke-${{ matrix.edition }}
           path: |
-            smoke.png
+            smoke/*.png
             smoke-logcat.txt
+
+      # 찍은 화면을 가지(screenshots-smoke-store / -full)에 올려 바로 볼 수 있게
+      - name: Publish smoke screens
+        if: always() && github.event_name == 'push'
+        run: |
+          [ -d smoke ] || exit 0
+          cd smoke
+          { echo "# ARARIFlex ${{ matrix.edition }} 판 실행 점검 (에뮬레이터, 릴리스 APK)"; echo; echo "커밋 ${{ github.sha }}"; echo; for f in $(ls *.png | sort); do echo "## ${f%.png}"; echo; echo "![]($f)"; echo; done; } > README.md
+          git init -q
+          git checkout -q -b screenshots-smoke-${{ matrix.edition }}
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Smoke screens for ${{ github.sha }}"
+          git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots-smoke-${{ matrix.edition }}
 
   # ---------------- macOS (맥북 · 아이맥) ----------------
   macos:
