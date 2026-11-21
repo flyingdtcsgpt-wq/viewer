@@ -257,12 +257,12 @@ PRAGMA journal_mode=WAL, synchronous=NORMAL. 열람 기록이 5만 줄을 넘으
 ## 8. 네이티브 채널
 | 채널 | 메서드 | 플랫폼 |
 |---|---|---|
-| `mediashelf/tts` | voices · speak · stop · **render**(파일로) | Android(Kotlin) · iOS/macOS(Swift) |
-| `mediashelf/audio` | encodeM4a(src, dst) | Android · iOS/macOS |
-| `mediashelf/ocr` | recognize(path) | Android(ML Kit) · iOS/macOS(Vision) |
-| `mediashelf/bg` | start(title) · stop | Android (ReadAloudService) |
-| `mediashelf/storage` | hasAllFilesAccess · requestAllFilesAccess | Android |
-| `mediashelf/open` | takeFile (다른 앱에서 연 파일, content:// 는 앱 폴더로 복사) | Android |
+| `arariflex/tts` | voices · speak · stop · **render**(파일로) | Android(Kotlin) · iOS/macOS(Swift) |
+| `arariflex/audio` | encodeM4a(src, dst) | Android · iOS/macOS |
+| `arariflex/ocr` | recognize(path) | Android(ML Kit) · iOS/macOS(Vision) |
+| `arariflex/bg` | start(title) · stop | Android (ReadAloudService) |
+| `arariflex/storage` | hasAllFilesAccess · requestAllFilesAccess | Android |
+| `arariflex/open` | takeFile (다른 앱에서 연 파일, content:// 는 앱 폴더로 복사) | Android |
 - Android 권한: INTERNET, READ_EXTERNAL_STORAGE(≤32), MANAGE_EXTERNAL_STORAGE(폴더 등록 때만 요청), FOREGROUND_SERVICE(+MEDIA_PLAYBACK), WAKE_LOCK, POST_NOTIFICATIONS
 - macOS 샌드박스 끔(폴더 · 7-Zip · say 사용), iOS 는 파일 앱 공유(UIFileSharingEnabled, LSSupportsOpeningDocumentsInPlace)
 

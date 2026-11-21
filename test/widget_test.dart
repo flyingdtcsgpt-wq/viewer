@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:media_shelf/models/media_item.dart';
-import 'package:media_shelf/services/organizer.dart';
+import 'package:arariflex/models/media_item.dart';
+import 'package:arariflex/services/organizer.dart';
 
 void main() {
   test('확장자로 종류 판별', () {

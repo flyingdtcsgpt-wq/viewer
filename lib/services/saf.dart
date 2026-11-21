@@ -20,7 +20,7 @@ class SafEntry {
 /// 네이티브 쪽은 tool/patch_android.py 가 MainActivity 에 넣는다.
 class Saf {
   Saf._();
-  static const _ch = MethodChannel('mediashelf/saf');
+  static const _ch = MethodChannel('arariflex/saf');
 
   static bool get supported => Platform.isAndroid;
 

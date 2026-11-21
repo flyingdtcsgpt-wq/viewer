@@ -29,7 +29,7 @@ class TtsService {
   static bool get _mobile => Platform.isAndroid || Platform.isIOS;
 
   /// 안드로이드 기기 음성 (MainActivity 의 TextToSpeech)
-  static const _android = MethodChannel('mediashelf/tts');
+  static const _android = MethodChannel('arariflex/tts');
   static const _andPrefix = 'and:';
   static const _iosPrefix = 'ios:';
   static String get _prefix => Platform.isIOS ? _iosPrefix : _andPrefix;

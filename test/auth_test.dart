@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:media_shelf/services/auth.dart';
+import 'package:arariflex/services/auth.dart';
 
 void main() {
   test('비밀번호 해시/확인', () {

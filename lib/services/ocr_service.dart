@@ -226,7 +226,7 @@ foreach ($path in [IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8)) {
   }
 
   /// 안드로이드(ML Kit) · 애플(Vision) 네이티브 글자 인식. 결과는 위→아래, 왼→오른 순서의 줄
-  static const _native = MethodChannel('mediashelf/ocr');
+  static const _native = MethodChannel('arariflex/ocr');
   static Future<Map<String, String>> _recognizeNative(List<String> paths) async {
     usedLang = 'ko';
     final tmp = await Directory.systemTemp.createTemp('arari_ocr');

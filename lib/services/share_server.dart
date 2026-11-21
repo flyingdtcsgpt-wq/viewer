@@ -477,12 +477,12 @@ ${series.isEmpty && items.isEmpty ? '<p style="padding:20px;color:#888">항목�
     final b = StringBuffer()
       ..write('<?xml version="1.0" encoding="UTF-8"?>\n'
           '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:dc="http://purl.org/dc/terms/">'
-          '<id>urn:mediashelf:${seriesId ?? 'root'}</id><title>${_esc(s?.title ?? 'ARARIFlex')}</title><updated>$now</updated>'
+          '<id>urn:arariflex:${seriesId ?? 'root'}</id><title>${_esc(s?.title ?? 'ARARIFlex')}</title><updated>$now</updated>'
           '<link rel="start" href="/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>'
           '<link rel="search" href="/opds/search.xml" type="application/opensearchdescription+xml"/>');
     if (query.isEmpty) {
       for (final c in _children(seriesId, v)) {
-        b.write('<entry><title>${_esc(c.title)}</title><id>urn:mediashelf:s:${c.id}</id><updated>$now</updated>'
+        b.write('<entry><title>${_esc(c.title)}</title><id>urn:arariflex:s:${c.id}</id><updated>$now</updated>'
             '<content type="text">${_count(c, v)}권</content>'
             '<link rel="subsection" href="/opds/s/${c.id}" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>'
             '<link rel="http://opds-spec.org/image/thumbnail" href="/scover/${c.id}" type="image/jpeg"/></entry>');
@@ -490,7 +490,7 @@ ${series.isEmpty && items.isEmpty ? '<p style="padding:20px;color:#888">항목�
     }
     final items = query.isNotEmpty ? _items(v).where((e) => e.title.toLowerCase().contains(query)).take(200) : _itemsIn(seriesId, v);
     for (final e in items) {
-      b.write('<entry><title>${_esc(e.title)}</title><id>urn:mediashelf:i:${e.id}</id><updated>$now</updated>'
+      b.write('<entry><title>${_esc(e.title)}</title><id>urn:arariflex:i:${e.id}</id><updated>$now</updated>'
           '${e.author != null ? '<author><name>${_esc(e.author!)}</name></author>' : ''}'
           '${e.description != null ? '<summary>${_esc(e.description!)}</summary>' : ''}'
           '<link rel="http://opds-spec.org/acquisition" href="/file/${e.id}" type="${_mime(e.extension)}"/>'

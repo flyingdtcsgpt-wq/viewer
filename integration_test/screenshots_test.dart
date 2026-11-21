@@ -14,41 +14,41 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_shelf/app_state.dart';
-import 'package:media_shelf/db/library_db.dart';
-import 'package:media_shelf/main.dart';
-import 'package:media_shelf/models/entry.dart';
-import 'package:media_shelf/models/media_item.dart';
-import 'package:media_shelf/services/ambient.dart';
-import 'package:media_shelf/ui/guide.dart';
-import 'package:media_shelf/services/speakers.dart';
-import 'package:media_shelf/services/audiobook.dart';
-import 'package:media_shelf/services/auth.dart';
-import 'package:media_shelf/services/backup.dart';
-import 'package:media_shelf/services/cover_service.dart';
-import 'package:media_shelf/services/epub_writer.dart';
-import 'package:media_shelf/services/file_tools.dart';
-import 'package:media_shelf/services/image_pdf.dart';
-import 'package:media_shelf/services/kokoro_tts.dart';
-import 'package:media_shelf/services/natural_tts.dart';
-import 'package:media_shelf/services/ocr_service.dart';
-import 'package:media_shelf/services/paddle_ocr.dart';
-import 'package:media_shelf/services/pdf_text.dart';
-import 'package:media_shelf/services/settings.dart';
-import 'package:media_shelf/services/tts_service.dart';
-import 'package:media_shelf/services/share_cert.dart';
-import 'package:media_shelf/services/webdav_client.dart';
-import 'package:media_shelf/ui/admin_page.dart';
-import 'package:media_shelf/ui/detail_page.dart';
-import 'package:media_shelf/ui/home_page.dart';
-import 'package:media_shelf/ui/import_dialog.dart';
-import 'package:media_shelf/ui/settings_page.dart';
-import 'package:media_shelf/ui/tools/tools_page.dart';
-import 'package:media_shelf/ui/viewers/comic_reader_page.dart';
-import 'package:media_shelf/ui/viewers/image_viewer_page.dart';
-import 'package:media_shelf/ui/viewers/pdf_reader_page.dart';
-import 'package:media_shelf/ui/viewers/text_reader_page.dart';
-import 'package:media_shelf/ui/viewers/viewer_chrome.dart';
+import 'package:arariflex/app_state.dart';
+import 'package:arariflex/db/library_db.dart';
+import 'package:arariflex/main.dart';
+import 'package:arariflex/models/entry.dart';
+import 'package:arariflex/models/media_item.dart';
+import 'package:arariflex/services/ambient.dart';
+import 'package:arariflex/ui/guide.dart';
+import 'package:arariflex/services/speakers.dart';
+import 'package:arariflex/services/audiobook.dart';
+import 'package:arariflex/services/auth.dart';
+import 'package:arariflex/services/backup.dart';
+import 'package:arariflex/services/cover_service.dart';
+import 'package:arariflex/services/epub_writer.dart';
+import 'package:arariflex/services/file_tools.dart';
+import 'package:arariflex/services/image_pdf.dart';
+import 'package:arariflex/services/kokoro_tts.dart';
+import 'package:arariflex/services/natural_tts.dart';
+import 'package:arariflex/services/ocr_service.dart';
+import 'package:arariflex/services/paddle_ocr.dart';
+import 'package:arariflex/services/pdf_text.dart';
+import 'package:arariflex/services/settings.dart';
+import 'package:arariflex/services/tts_service.dart';
+import 'package:arariflex/services/share_cert.dart';
+import 'package:arariflex/services/webdav_client.dart';
+import 'package:arariflex/ui/admin_page.dart';
+import 'package:arariflex/ui/detail_page.dart';
+import 'package:arariflex/ui/home_page.dart';
+import 'package:arariflex/ui/import_dialog.dart';
+import 'package:arariflex/ui/settings_page.dart';
+import 'package:arariflex/ui/tools/tools_page.dart';
+import 'package:arariflex/ui/viewers/comic_reader_page.dart';
+import 'package:arariflex/ui/viewers/image_viewer_page.dart';
+import 'package:arariflex/ui/viewers/pdf_reader_page.dart';
+import 'package:arariflex/ui/viewers/text_reader_page.dart';
+import 'package:arariflex/ui/viewers/viewer_chrome.dart';
 import 'package:path/path.dart' as p;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:path_provider/path_provider.dart';
@@ -175,7 +175,7 @@ void main() {
                   ChangeNotifierProvider.value(value: settings),
                   ChangeNotifierProvider.value(value: state),
                 ],
-                child: const MediaShelfApp(),
+                child: const ArariFlexApp(),
               ),
             ),
           ),

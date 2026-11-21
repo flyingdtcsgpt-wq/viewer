@@ -18,7 +18,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequiredOverridesAllowed=dialog
 WizardStyle=modern
-UninstallDisplayIcon={app}\media_shelf.exe
+UninstallDisplayIcon={app}\ARARIFlex.exe
 ; 설치 전에 오픈소스 구성요소 안내를 보여준다
 InfoBeforeFile=..\THIRD_PARTY_NOTICES.txt
 SetupIconFile=..\windows\runner\resources\app_icon.ico
@@ -30,13 +30,17 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+; 0.6 까지의 실행 파일 이름 (지금은 ARARIFlex.exe). 덮어 깔 때 예전 것이 남지 않게 지운다
+[InstallDelete]
+Type: files; Name: "{app}\media_shelf.exe"
+
 [Files]
 Source: "..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\ARARIFlex"; Filename: "{app}\media_shelf.exe"
+Name: "{group}\ARARIFlex"; Filename: "{app}\ARARIFlex.exe"
 Name: "{group}\{cm:UninstallProgram,ARARIFlex}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\ARARIFlex"; Filename: "{app}\media_shelf.exe"; Tasks: desktopicon
+Name: "{autodesktop}\ARARIFlex"; Filename: "{app}\ARARIFlex.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\media_shelf.exe"; Description: "{cm:LaunchProgram,ARARIFlex}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\ARARIFlex.exe"; Description: "{cm:LaunchProgram,ARARIFlex}"; Flags: nowait postinstall skipifsilent

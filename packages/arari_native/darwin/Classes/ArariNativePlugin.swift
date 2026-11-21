@@ -21,11 +21,11 @@ public class ArariNativePlugin: NSObject, FlutterPlugin, AVSpeechSynthesizerDele
     #else
     let messenger = registrar.messenger
     #endif
-    let ocr = FlutterMethodChannel(name: "mediashelf/ocr", binaryMessenger: messenger)
+    let ocr = FlutterMethodChannel(name: "arariflex/ocr", binaryMessenger: messenger)
     ocr.setMethodCallHandler { call, result in instance.handleOcr(call, result) }
-    let tts = FlutterMethodChannel(name: "mediashelf/tts", binaryMessenger: messenger)
+    let tts = FlutterMethodChannel(name: "arariflex/tts", binaryMessenger: messenger)
     tts.setMethodCallHandler { call, result in instance.handleTts(call, result) }
-    let audio = FlutterMethodChannel(name: "mediashelf/audio", binaryMessenger: messenger)
+    let audio = FlutterMethodChannel(name: "arariflex/audio", binaryMessenger: messenger)
     audio.setMethodCallHandler { call, result in instance.handleAudio(call, result) }
   }
 

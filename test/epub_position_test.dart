@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:media_shelf/services/text_document.dart';
+import 'package:arariflex/services/text_document.dart';
 
 /// EPUB 을 "원본 스타일"(장 번호 + 장 안에서의 비율) ↔ "읽기 최적화"(문단 번호)로 바꿔 볼 때 읽던 자리가 이어지는지
 void main() {

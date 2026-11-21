@@ -4,7 +4,7 @@
 
 | | 전체판 | 플레이스토어판 |
 |---|---|---|
-| 패키지 | `com.mediashelf.media_shelf` | `com.arariflex.app` |
+| 패키지 | `com.arariflex.full` | `com.arariflex.app` |
 | 보는 것 | 만화 · 책 · 영상 · 그림 | 만화 · 책 · 영상 |
 | 서재 위치 | 아무 폴더나 등록 (모든 파일 접근 권한) | 앱 전용 `ARARIFlex` 폴더 하나 (권한 없음) |
 | 넣는 방법 | 폴더 등록 | 가져오기(파일 · 폴더 고르기, 복사/옮기기) · 공유 · PC 에서 USB |

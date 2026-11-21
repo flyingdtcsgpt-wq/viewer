@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:media_shelf/services/text_document.dart';
+import 'package:arariflex/services/text_document.dart';
 
 /// TXT 목차(장 제목) 알아보기 규칙
 void main() {

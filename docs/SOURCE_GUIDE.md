@@ -54,9 +54,9 @@
 | `metadata_service.dart` | 책 정보 검색: 카카오 · 네이버 · Google Books · Open Library |
 | `ai_service.dart` | Claude API (선택, 키 필요): 뜻풀이, 원제 찾기, 묶음 정보 |
 | `share_server.dart` | 같은 Wi-Fi 공유: 웹 페이지 · OPDS · **WebDAV(/dav/)** · 파일(Range) · 표지 · HTTPS. 기본 인증, 접속자별 `AccessView`, 로그인 캐시(비밀번호 해시가 느려서) |
-| `storage_permission.dart` | 안드로이드 모든 파일 접근 요청 (네이티브 채널 `mediashelf/storage`), `hasAllFilesAccess` |
+| `storage_permission.dart` | 안드로이드 모든 파일 접근 요청 (네이티브 채널 `arariflex/storage`), `hasAllFilesAccess` |
 | `backup.dart` | 서재 백업(zip) · 복원 준비 · 시작할 때 적용 · 표지 경로 고침 |
-| `saf.dart` | 안드로이드 Storage Access Framework 채널(`mediashelf/saf`): 파일 · 폴더 고르기, 복사, 원본 지우기, 공유로 받은 파일 (플레이스토어판 가져오기) |
+| `saf.dart` | 안드로이드 Storage Access Framework 채널(`arariflex/saf`): 파일 · 폴더 고르기, 복사, 원본 지우기, 공유로 받은 파일 (플레이스토어판 가져오기) |
 | `ads.dart` | 플레이스토어판 광고(AdMob): 동의 창(UMP), 목록 아래 배너 `AdBanner`, 앱 열기 광고(첫날 없음 · 4시간에 한 번). 전체판에서는 아무것도 하지 않음 |
 | `share_cert.dart` | HTTPS 자체 서명 인증서 만들기 · 지문 |
 | `webdav_client.dart` | WebDAV 목록 · 하위 전부 · 받기 · 응답 읽기 |
@@ -74,11 +74,11 @@
 | `natural_tts.dart` | Supertonic 3 (한국어 등 31개 언어, 44.1kHz): 모델 받기/가져오기, 한글 자모 분해 전처리, 4개 ONNX(길이 · 텍스트 · 8단계 잡음 제거 · vocoder), `chunkText`, `wavBytes` |
 | `kokoro_tts.dart` | 영어 원서용 Kokoro-82M (24kHz): eSpeak NG 로 발음 기호 → 어휘 178개 → ONNX. voices-v1.0.bin(npz) 읽기. 맨 아래 `kokoroVocab` |
 | `speakers.dart` | 대사 화자 찾기(규칙, 한국어 · 영어): "…" 민호가 속삭였다 / said Holmes. `speakerAt`, `scan`(등장인물 순위), `alternate`(주고받는 대사), `autoVoice`(자동 배역) |
-| `ocr_service.dart` | 글자 인식 진입점 `recognizeFiles/recognizeBytes`. Windows: PaddleOCR(있으면) → Windows OCR(PowerShell+WinRT). 안드로이드(ML Kit) · 애플(Vision): 채널 `mediashelf/ocr`. 긴 그림은 2600px 조각(80px 겹침). `tidy`(줄 잇기) |
+| `ocr_service.dart` | 글자 인식 진입점 `recognizeFiles/recognizeBytes`. Windows: PaddleOCR(있으면) → Windows OCR(PowerShell+WinRT). 안드로이드(ML Kit) · 애플(Vision): 채널 `arariflex/ocr`. 긴 그림은 2600px 조각(80px 겹침). `tidy`(줄 잇기) |
 | `paddle_ocr.dart` | PaddleOCR PP-OCRv5 한국어: 모델 목록에서 골라 받기, DB 검출 → 상자 → 높이 48 인식 → CTC 디코딩 → 줄 합치기 |
 | `audiobook.dart` | 오디오북 저장: `AudiobookMaker.make`(장마다 조각 합성 → 24kHz 모노로 이어 붙임 → M4A, 이어 만들기, m3u8), `pcmFromWav`(어떤 WAV 든 변환), `AudioRender`(플랫폼별 글 → WAV · WAV → M4A), `_WinVoices`(PowerShell 하나로 System.Speech 파일 출력) |
 | `ambient.dart` | 배경음: 빗소리 · 파도 · 벽난로 · 잡음을 직접 만들어(`makeWav`) 반복 재생, 내 소리 파일, 커지기/줄이기 |
-| `background_reading.dart` | 안드로이드 화면 꺼도 읽기: `mediashelf/bg` start/stop → `ReadAloudService`. `ScreenAwake`(읽는 동안 화면 켜 두기), `volumeKeyBindings`(볼륨 버튼 넘기기) |
+| `background_reading.dart` | 안드로이드 화면 꺼도 읽기: `arariflex/bg` start/stop → `ReadAloudService`. `ScreenAwake`(읽는 동안 화면 켜 두기), `volumeKeyBindings`(볼륨 버튼 넘기기) |
 
 ## 5. 화면 (lib/ui)
 
@@ -118,13 +118,13 @@
 
 | 파일 | 하는 일 |
 |---|---|
-| `packages/arari_native/` | 로컬 플러그인(iOS · macOS): `ArariNativePlugin.swift` — Vision 글자 인식 `mediashelf/ocr`, AVSpeech 음성 `mediashelf/tts` |
+| `packages/arari_native/` | 로컬 플러그인(iOS · macOS): `ArariNativePlugin.swift` — Vision 글자 인식 `arariflex/ocr`, AVSpeech 음성 `arariflex/tts` |
 | `tool/patch_android.py` | `flutter create` 로 만든 android/ 를 고침: 권한, VIEW 인텐트(열기), queries(TTS), launchMode, MainActivity(채널: storage · open · tts · ocr · saf), ML Kit 한국어, R8 규칙, 서명, 광고 SDK 앱 ID. `--store`: 플레이스토어판(패키지 `com.arariflex.app`, 권한 최소화, 공유 받기, ML Kit · ONNX 제외) |
 | `tool/patch_apple.py` | macos/ ios/ 를 고침: Podfile · 최소 버전(macOS 14 / iOS 16), 샌드박스 끔(맥), 창 크기, Info.plist(파일 앱 폴더 · 로컬 네트워크 · 백그라운드 오디오) |
 | `tool/store_stubs/flutter_onnxruntime/` | 플레이스토어판 빌드용 빈 껍데기 패키지 (`patch_android.py --store` 가 `pubspec_overrides.yaml` 로 바꿔 끼움 → ONNX 네이티브 라이브러리가 빠짐). 앱이 쓰는 ONNX API 가 늘면 여기도 맞출 것 |
 | `tool/patch_windows.py` | windows/ 를 고침: 창 제목 · 크기, WebView2 빌드 정의 |
 | `tool/icons_*.yaml` | 아이콘 생성 설정 (assets/icon/icon.png) |
-| `installer/media_shelf.iss` | Windows 설치파일(Inno Setup) |
+| `installer/arariflex.iss` | Windows 설치파일(Inno Setup) |
 | `.github/workflows/build.yml` | CI: windows(설치판 · 포터블 zip, 7-Zip · eSpeak NG · VC++ 동봉), screenshots(Windows 캡처 · 검사), android(APK), android-screens(에뮬레이터), macos(dmg/zip + 캡처), ios(서명 없는 ipa + 시뮬레이터 캡처), package(전체 묶음) |
 | `integration_test/screenshots_test.dart` | 실제 앱을 샘플 데이터로 띄워 화면 30장 캡처 + 자동 검사(숨김 누출, 계정 권한, 공유 서버 HTTP, 자연 음성, Kokoro, 기기 음성, OCR, PaddleOCR) |
 | `test_driver/integration_test.dart` | 안드로이드 · iOS 캡처 결과를 받아 저장하는 드라이버 |

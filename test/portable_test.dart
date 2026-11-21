@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:media_shelf/services/portable.dart';
+import 'package:arariflex/services/portable.dart';
 
 void main() {
   test('휴대용 모드 설정 파일: 저장하고 다시 읽기', () async {

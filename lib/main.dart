@@ -15,6 +15,7 @@ import 'services/saf.dart';
 import 'ui/guide.dart';
 import 'ui/store_import.dart';
 import 'services/cover_service.dart';
+import 'services/legacy_data.dart';
 import 'services/portable.dart';
 import 'services/settings.dart';
 import 'ui/home_page.dart';
@@ -25,6 +26,7 @@ Future<void> main() async {
   MediaKit.ensureInitialized(); // 영상 플레이어(libmpv)
   _registerNativeLicenses();
   await Portable.init(); // 앱 옆 arariflex_data 가 있으면 모든 데이터를 거기에
+  await LegacyData.migrate(); // 예전 이름 때의 데이터 폴더가 있으면 지금 자리로 옮긴다 (PC, 한 번만)
   // 백업에서 복원하기로 해 둔 것이 있으면 DB · 설정을 열기 전에 바꿔 넣는다
   try {
     await Backup.applyPending();
@@ -45,7 +47,7 @@ Future<void> main() async {
       ChangeNotifierProvider.value(value: settings),
       ChangeNotifierProvider.value(value: state),
     ],
-    child: const MediaShelfApp(),
+    child: const ArariFlexApp(),
   ));
 
   // iPhone · iPad: 파일 앱에서 ARARIFlex 폴더에 넣은 책을 켤 때 · 돌아올 때 찾는다
@@ -89,7 +91,7 @@ Future<void> main() async {
 
   // 안드로이드: 파일 관리자에서 "ARARIFlex 로 열기" 한 파일 (복사가 오래 걸릴 수 있어 화면을 먼저 띄운 뒤)
   if (Platform.isAndroid) {
-    const ch = MethodChannel('mediashelf/open');
+    const ch = MethodChannel('arariflex/open');
     ch.setMethodCallHandler((call) async {
       if (call.method == 'opened' && call.arguments is String) state.requestOpen(call.arguments as String);
     });
@@ -102,8 +104,8 @@ Future<void> main() async {
 /// 화면 어디서든 창을 띄울 때 (공유받은 파일 가져오기 등)
 final appNavigatorKey = GlobalKey<NavigatorState>();
 
-class MediaShelfApp extends StatelessWidget {
-  const MediaShelfApp({super.key});
+class ArariFlexApp extends StatelessWidget {
+  const ArariFlexApp({super.key});
 
   @override
   Widget build(BuildContext context) {

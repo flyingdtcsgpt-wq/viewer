@@ -45,7 +45,7 @@ flutter pub get
 
 **Windows**
 ```bash
-flutter create --platforms=windows --org com.mediashelf --project-name media_shelf .
+flutter create --platforms=windows --org com.arariflex --project-name arariflex .
 python tool/patch_windows.py
 dart run flutter_launcher_icons -f tool/icons_windows.yaml
 flutter run -d windows            # 개발 실행
@@ -56,7 +56,7 @@ RAR/7Z 와 영어 성우를 쓰려면 `Release/tools/7zip/7z.exe`(7-Zip), `Relea
 
 **Android**
 ```bash
-flutter create --platforms=android --org com.mediashelf --project-name media_shelf .
+flutter create --platforms=android --org com.arariflex --project-name arariflex .
 python3 tool/patch_android.py
 dart run flutter_launcher_icons -f tool/icons_android.yaml
 flutter build apk --release --split-per-abi
@@ -65,7 +65,7 @@ flutter build apk --release --split-per-abi
 
 **macOS**
 ```bash
-flutter create --platforms=macos --org com.mediashelf --project-name media_shelf .
+flutter create --platforms=macos --org com.arariflex --project-name arariflex .
 flutter pub get
 python3 tool/patch_apple.py macos
 dart run flutter_launcher_icons -f tool/icons_macos.yaml
@@ -74,7 +74,7 @@ flutter build macos --release
 
 **iPhone · iPad**
 ```bash
-flutter create --platforms=ios --org com.mediashelf --project-name media_shelf .
+flutter create --platforms=ios --org com.arariflex --project-name arariflex .
 flutter pub get
 python3 tool/patch_apple.py ios
 dart run flutter_launcher_icons -f tool/icons_ios.yaml
@@ -98,7 +98,7 @@ flutter test integration_test/screenshots_test.dart -d windows   # 화면 캡처
 | eSpeak NG (Windows 동봉) | github.com/espeak-ng/espeak-ng releases (msi) | 앱 폴더 `tools/espeak-ng/` | GPL-3 |
 | 7-Zip (Windows 동봉) | 7-zip.org | 앱 폴더 `tools/7zip/` | LGPL + unRAR |
 
-데이터 폴더: Windows `%APPDATA%\com.mediashelf\media_shelf`, 휴대용 모드면 앱 옆 `arariflex_data`.
+데이터 폴더: Windows `%APPDATA%\ARARIFlex\ARARIFlex`, 휴대용 모드면 앱 옆 `arariflex_data`.
 인터넷 없는 PC: 위 파일을 받아 설정 화면의 "폴더에서 가져오기", 또는 휴대용 폴더째 복사.
 
 ## 5. CI (GitHub Actions) 결과 보는 곳

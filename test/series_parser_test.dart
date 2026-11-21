@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:media_shelf/models/series.dart';
-import 'package:media_shelf/services/series_parser.dart';
+import 'package:arariflex/models/series.dart';
+import 'package:arariflex/services/series_parser.dart';
 
 void main() {
   void check(String name, String title, double? vol) {

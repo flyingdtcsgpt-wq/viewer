@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:media_shelf/services/natural_tts.dart';
-import 'package:media_shelf/services/speakers.dart';
+import 'package:arariflex/services/natural_tts.dart';
+import 'package:arariflex/services/speakers.dart';
 
 void main() {
   test('대사 뒤 서술에서 화자', () {

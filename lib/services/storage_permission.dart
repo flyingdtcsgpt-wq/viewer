@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 
 /// 안드로이드 "모든 파일 관리" 권한 (안드로이드 11+).
 /// 네이티브 쪽은 tool/patch_android.py 가 MainActivity 에 넣는다.
-const _ch = MethodChannel('mediashelf/storage');
+const _ch = MethodChannel('arariflex/storage');
 
 Future<bool> _granted() async {
   try {

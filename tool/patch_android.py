@@ -7,6 +7,9 @@ from pathlib import Path
 # --store: 플레이스토어판 (패키지 com.arariflex.app, 저장소 · 알림 · 백그라운드 권한 없음, 광고)
 STORE = "--store" in sys.argv
 STORE_ID = "com.arariflex.app"
+# 전체판(직접 설치) 패키지. 기기에서는 내장 저장공간/Android/data/<이 이름>/files 로 보인다.
+# (0.6 까지는 com.mediashelf.media_shelf 였다. 패키지가 다르면 다른 앱이라, 예전 것을 덮어 깔지 않고 따로 깔린다)
+FULL_ID = "com.arariflex.full"
 # AdMob 앱 ID: Secrets(ADMOB_APP_ID) 가 없으면 구글 시험용 ID (시험 광고만 나온다)
 ADMOB_APP_ID = os.environ.get("ADMOB_APP_ID") or "ca-app-pub-3940256099942544~3347511713"
 
@@ -28,7 +31,9 @@ if STORE:
     perms = [("android.permission.INTERNET", ""), ("android.permission.ACCESS_NETWORK_STATE", "")]
 lines = "".join(f'    <uses-permission android:name="{p}"{extra}/>\n' for p, extra in perms if p not in xml)
 xml = re.sub(r"(<manifest[^>]*>\n)", r"\1" + lines, xml, count=1)
-xml = xml.replace('android:label="media_shelf"', 'android:label="ARARIFlex"')
+# 앱 이름표 (flutter create 는 프로젝트 이름을 그대로 넣는다)
+xml, n_label = re.subn(r'android:label="[^"]*"', 'android:label="ARARIFlex"', xml, count=1)
+assert n_label == 1, "android:label not found"
 # 파일 관리자에서 "ARARIFlex 로 열기"
 if "application/epub+zip" not in xml:
     mimes = ["application/epub+zip", "application/pdf", "text/plain", "application/zip", "application/x-cbz",
@@ -320,7 +325,7 @@ class MainActivity : FlutterActivity() {{
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
         super.configureFlutterEngine(flutterEngine)
-        safChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/saf")
+        safChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "arariflex/saf")
         safChannel?.setMethodCallHandler {{ call, result ->
             when (call.method) {{
                 "pickFiles" -> {{
@@ -386,7 +391,7 @@ class MainActivity : FlutterActivity() {{
                 else -> result.notImplemented()
             }}
         }}
-        openChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/open")
+        openChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "arariflex/open")
         openChannel?.setMethodCallHandler {{ call, result ->
             when (call.method) {{
                 // 앱을 연 파일 (한 번만 돌려줌)
@@ -405,7 +410,7 @@ class MainActivity : FlutterActivity() {{
             }}
         }}
         // 글자 인식: ML Kit 한국어 (기기 안에서 처리)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/ocr").setMethodCallHandler {{ call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "arariflex/ocr").setMethodCallHandler {{ call, result ->
             if (call.method != "recognize") {{ result.notImplemented(); return@setMethodCallHandler }}
             val path = call.argument<String>("path")
             if (path == null) {{ result.success(""); return@setMethodCallHandler }}
@@ -423,7 +428,7 @@ class MainActivity : FlutterActivity() {{
             }}
         }}
         // 화면을 꺼도 읽기가 이어지게: 읽기를 시작하면 알림과 함께 서비스를 켜고, 멈추면 끈다
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/bg").setMethodCallHandler {{ call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "arariflex/bg").setMethodCallHandler {{ call, result ->
             val i = Intent(this, ReadAloudService::class.java)
             try {{
                 when (call.method) {{
@@ -444,7 +449,7 @@ class MainActivity : FlutterActivity() {{
                 result.success(true)
             }} catch (e: Exception) {{ result.success(false) }}
         }}
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/tts").setMethodCallHandler {{ call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "arariflex/tts").setMethodCallHandler {{ call, result ->
             when (call.method) {{
                 "voices" -> withTts {{ ok ->
                     if (!ok) {{ result.success(listOf<String>()); return@withTts }}
@@ -490,7 +495,7 @@ class MainActivity : FlutterActivity() {{
             }}
         }}
         // 오디오북: WAV → M4A(AAC) 로 줄이기 (기기 내장 인코더)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/audio").setMethodCallHandler {{ call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "arariflex/audio").setMethodCallHandler {{ call, result ->
             if (call.method != "encodeM4a") {{ result.notImplemented(); return@setMethodCallHandler }}
             val src = call.argument<String>("src") ?: ""
             val dst = call.argument<String>("dst") ?: ""
@@ -499,7 +504,7 @@ class MainActivity : FlutterActivity() {{
                 runOnUiThread {{ result.success(ok) }}
             }}.start()
         }}
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/storage").setMethodCallHandler {{ call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "arariflex/storage").setMethodCallHandler {{ call, result ->
             when (call.method) {{
                 "hasAllFilesAccess" -> result.success(hasAccess())
                 "requestAllFilesAccess" -> {{
@@ -803,10 +808,11 @@ if STORE:
         "dependency_overrides:\n  flutter_onnxruntime:\n    path: tool/store_stubs/flutter_onnxruntime\n", encoding="utf-8")
     print("store: ML Kit · ONNX runtime left out")
 
-# ---- 플레이스토어판: 패키지 이름 바꾸기 · 버전 번호 ----
-if STORE:
-    g = gradle.read_text(encoding="utf-8")
-    g, n = re.subn(r'applicationId\s*=\s*"[^"]+"', f'applicationId = "{STORE_ID}"', g, count=1)
-    assert n == 1, "applicationId not found"
-    gradle.write_text(g, encoding="utf-8")
-    print("store: applicationId", STORE_ID)
+# ---- 패키지 이름: 전체판 com.arariflex.full · 플레이스토어판 com.arariflex.app ----
+# (코드가 들어 있는 자리(namespace)는 flutter create 가 만든 com.arariflex.arariflex 그대로 둔다)
+g = gradle.read_text(encoding="utf-8")
+APP_ID = STORE_ID if STORE else FULL_ID
+g, n = re.subn(r'applicationId\s*=\s*"[^"]+"', f'applicationId = "{APP_ID}"', g, count=1)
+assert n == 1, "applicationId not found"
+gradle.write_text(g, encoding="utf-8")
+print("applicationId", APP_ID)

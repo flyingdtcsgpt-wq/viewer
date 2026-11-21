@@ -14,7 +14,7 @@
 | 기술 | Flutter / Dart 3.13+, Flutter ≥ 3.47 (stable) |
 | 순서 | **Windows 먼저 → Android → iOS/macOS** |
 | 저장소 | https://github.com/flyingdtcsgpt-wq/viewer (공개, 브랜치 `main`) |
-| 패키지 이름 | Dart `media_shelf`, 조직 `com.mediashelf` (예전 이름 MediaShelf 의 흔적, 바꾸지 말 것: DB · 설정 경로가 바뀜) |
+| 패키지 이름 | Dart `arariflex`, 조직 `com.arariflex`. 안드로이드 패키지: 전체판 `com.arariflex.full` · 플레이스토어판 `com.arariflex.app`(`tool/patch_android.py`). Windows 실행 파일 `ARARIFlex.exe`, 데이터 `%APPDATA%\ARARIFlex\ARARIFlex`(`tool/patch_windows.py` 가 파일 정보의 회사 · 제품 이름을 정한다). 0.6 까지의 옛 이름 → 아래 17절 |
 | 빌드 | GitHub Actions 만 사용 (개발 컨테이너에 Flutter 없음). push 하면 Windows 설치파일 생성 |
 | 사용자 | 한국어 사용자. 답변 · UI · 주석 모두 **한국어** |
 
@@ -30,7 +30,7 @@
   4. `flutter analyze lib test` (오류만 실패), `flutter test`
   5. `flutter build windows --release`
   6. 7-Zip(빌드 머신의 Program Files 에서 복사), VC++ 런타임 DLL, `THIRD_PARTY_NOTICES.txt` 동봉
-  7. Inno Setup `installer/media_shelf.iss` → `dist/ARARIFlex-<ver>-windows-setup.exe` + 포터블 zip
+  7. Inno Setup `installer/arariflex.iss` → `dist/ARARIFlex-<ver>-windows-setup.exe` + 포터블 zip
   8. Artifact `ARARIFlex-windows`. 태그 `v*` 면 Releases 에 게시 (태그 생성은 사용자가 직접)
 - **screenshots** 잡 (push 마다, 실패해도 전체는 통과)
   - `integration_test/screenshots_test.dart` 를 실제 Windows 앱으로 실행 (`flutter test ... -d windows`)
@@ -39,7 +39,7 @@
     자연 음성 모델 받기 + 한국어 합성(길이 · 음량), Windows OCR(영어; 서버엔 한국어 인식기 없음)
   - 결과 PNG · WAV 를 **`screenshots` 브랜치**로 강제 push → https://github.com/flyingdtcsgpt-wq/viewer/tree/screenshots
 - **android** 잡: 태그 또는 수동 실행(workflow_dispatch) 때만
-  - `tool/patch_android.py`: 권한, 앱 이름, MainActivity 의 `mediashelf/storage` 채널(모든 파일 접근), 서명
+  - `tool/patch_android.py`: 권한, 앱 이름, MainActivity 의 `arariflex/storage` 채널(모든 파일 접근), 서명
   - Secrets `ANDROID_KEYSTORE_BASE64/PASSWORD/KEY_ALIAS` 가 있으면 정식 서명, 없으면 debug 키
   - ABI 별 APK (`…-android.apk` = arm64, `…-android-old32bit.apk`)
 
@@ -93,7 +93,7 @@ lib/
 integration_test/screenshots_test.dart   CI 화면 캡처 + 자동 검사
 test/                       단위 테스트 (auth, series_parser, speakers, widget)
 tool/                       patch_windows.py, patch_android.py, 아이콘 설정
-installer/media_shelf.iss   Inno Setup
+installer/arariflex.iss   Inno Setup
 THIRD_PARTY_NOTICES.txt     라이선스 고지 (UTF-8 BOM 유지)
 docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서)
 ```
@@ -121,7 +121,7 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - 한 번에 하나만 (scanning 플래그)
 
 ### 비밀번호 초기화
-데이터 폴더(`getApplicationSupportDirectory`, Windows 는 보통 `%APPDATA%\com.mediashelf\media_shelf`)에
+데이터 폴더(`getApplicationSupportDirectory`, Windows 는 `%APPDATA%\ARARIFlex\ARARIFlex`)에
 `RESET_PASSWORD.txt` 가 있으면 로그인 화면이 초기화 화면으로 바뀐다. 끝나면 파일 삭제.
 
 ### 소리 내어 읽기
@@ -172,14 +172,14 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   (flutter test 는 끝나면 앱을 지워서 기기 안 파일을 못 꺼냄)
 - 에뮬레이터 확인 결과: 자연 음성(Supertonic) 정상(7.9초 음성 7.5초), ML Kit 한국어 OCR 정확("언덕 위에는 오래된 풍차가 하나 서 있었다."),
   숨김 · 계정 권한 · 공유 서버 검사 모두 통과
-- 기기 음성: `tool/patch_android.py` 가 MainActivity 에 `mediashelf/tts` 채널(TextToSpeech) 추가. 음성 이름은 `and:<name>|<locale>|local/net`
+- 기기 음성: `tool/patch_android.py` 가 MainActivity 에 `arariflex/tts` 채널(TextToSpeech) 추가. 음성 이름은 `and:<name>|<locale>|local/net`
   (flutter_tts 는 Windows 빌드에 nuget 이 필요해서 쓰지 않음). 매니페스트 `<queries>` 에 TTS_SERVICE 필요(Android 11+)
 - OCR: google_mlkit_text_recognition + 앱 gradle 에 `text-recognition-korean` 추가. R8 이 안 쓰는 중국어/일본어/데바나가리 클래스를
   찾지 못해 실패 → `proguard-rules.pro` 에 -dontwarn
-- "ARARIFlex 로 열기": VIEW 인텐트 필터 + `mediashelf/open` 채널(`takeFile`, `opened`). content:// 는 files/opened 로 복사.
+- "ARARIFlex 로 열기": VIEW 인텐트 필터 + `arariflex/open` 채널(`takeFile`, `opened`). content:// 는 files/opened 로 복사.
   Dart 는 `AppState.requestOpen` → HomePage 의 `_ExternalOpener` 가 라이브러리에 원본 연결로 넣고 연다
 - RAR/7Z 는 안드로이드에서 아직 못 엶(7-Zip 실행 파일이 없음) → 뷰어가 안내 문구를 보여 줌
-- 모든 파일 접근: `mediashelf/storage` 채널 (폴더 추가 때만 요청)
+- 모든 파일 접근: `arariflex/storage` 채널 (폴더 추가 때만 요청)
 - 열기 인텐트 검수 반영: 책·만화 MIME 만 받음(이미지·영상·octet-stream 제외), 복사는 백그라운드 스레드, `opened/<이름+크기 해시>/이름`
   (덮어쓰기 · 재복사 방지, .part → rename), launchMode singleTask, 최근 앱에서 다시 열 때(FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) 무시,
   확장자 없으면 MIME 으로, 계정이 막힌 종류면 추가하지 않음
@@ -197,9 +197,9 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   라이브러리 = 앱 Documents(UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace 로 파일 앱에 "ARARIFlex" 폴더),
   `AppState._setupIosLibrary` 가 라이브러리 폴더로 등록하고 앱 업데이트로 컨테이너 경로가 바뀌면 저장된 경로를 옮긴다.
   켤 때 · 돌아올 때(AppLifecycleListener) 다시 스캔. "폴더 추가"는 안내 창, "파일 추가"는 Documents 로 복사
-- 네이티브: `packages/arari_native` (로컬 플러그인, sharedDarwinSource) — `mediashelf/ocr`(Vision, ko-KR/en-US),
-  `mediashelf/tts`(AVSpeechSynthesizer, iOS 에서 사용; macOS 는 기존 `say`). 음성 이름 `ios:<identifier>|<lang>|local|<name>`
-- 안드로이드 OCR 도 플러그인 대신 MainActivity 의 `mediashelf/ocr` 채널(ML Kit 한국어)로 통일 (ML Kit iOS pod 는 애플 실리콘 시뮬레이터에서 문제)
+- 네이티브: `packages/arari_native` (로컬 플러그인, sharedDarwinSource) — `arariflex/ocr`(Vision, ko-KR/en-US),
+  `arariflex/tts`(AVSpeechSynthesizer, iOS 에서 사용; macOS 는 기존 `say`). 음성 이름 `ios:<identifier>|<lang>|local|<name>`
+- 안드로이드 OCR 도 플러그인 대신 MainActivity 의 `arariflex/ocr` 채널(ML Kit 한국어)로 통일 (ML Kit iOS pod 는 애플 실리콘 시뮬레이터에서 문제)
 - CI: `macos` 잡(빌드 + `flutter test -d macos` 캡처 → `screenshots-macos` 브랜치), `ios` 잡(빌드 + 아이폰 · 아이패드 시뮬레이터
   `flutter drive` 캡처 → `screenshots-ios` 브랜치)
 - 확인됨(맥 러너): Vision 한국어 OCR 정확, macOS 음성 194개 · 읽기 성공, 권한 · 숨김 · 공유 서버 통과.
@@ -226,17 +226,17 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   권한은 `_DenyIndex`(O(1)), DB 는 WAL · 색인 · 묶음 트랜잭션(`insertMany/updateMany/deleteMany`), 표지는 isolate 에서 480px.
   CI "scale" 단계(2만 항목 · 2천 묶음): 목록 85ms(두 번째 0ms) · 전체 선택 38ms · 5천 개 이동 0.27초 · 전부 삭제 1.1초
 - 취침 타이머: `text_reader_page.dart` `_setSleep/_sleepDue` (분, 또는 -1 = 다음 차례 블록 앞에서 멈춤)
-- 화면 꺼도 읽기(안드로이드): `BackgroundReading`(`mediashelf/bg`) → `ReadAloudService`(foreground mediaPlayback + 알림 + PARTIAL_WAKE_LOCK 6시간).
+- 화면 꺼도 읽기(안드로이드): `BackgroundReading`(`arariflex/bg`) → `ReadAloudService`(foreground mediaPlayback + 알림 + PARTIAL_WAKE_LOCK 6시간).
   읽기 · 오디오북 만들기 시작에 start, 멈춤 · 끝 · 실패 · dispose 에 stop
 - 오디오북: `lib/services/audiobook.dart`
   - `AudiobookMaker.make`: 부분(장)마다 `plan(문단)` → (글, 음성, 속도) 조각 → `AudioRender.toWav` → `pcmFromWav`(어떤 WAV 든 24kHz 모노 16비트로) →
     `NNN 제목.wav.part` 에 이어 쓰기(조각 사이 0.12초, 문단 사이 0.35초) → 머리 길이 채움 → `.wav` → `encodeM4a` 성공하면 `.m4a`.
     이미 `.m4a/.wav` 가 있으면 건너뜀(이어 만들기). 범위 밖 장은 빈 자리로 넘겨 번호가 늘 같다. 끝에 `제목.m3u8`
   - 글 → WAV: 모델 음성(`st:`/`kk:`)은 `TtsService.renderModel`; Windows 기기 음성은 PowerShell 하나를 띄워 두고 JSON 한 줄씩(`_WinVoices`,
-    System.Speech `SetOutputToWaveFile` 24kHz); macOS `say -o --data-format=LEI16@24000`; 안드로이드 `TextToSpeech.synthesizeToFile`(`mediashelf/tts` render);
+    System.Speech `SetOutputToWaveFile` 24kHz); macOS `say -o --data-format=LEI16@24000`; 안드로이드 `TextToSpeech.synthesizeToFile`(`arariflex/tts` render);
     iOS `AVSpeechSynthesizer.write` → AVAudioFile(`arari_native`)
   - WAV → M4A: Windows `MediaTranscoder`(PowerShell `.ps1`, AAC 96kbps 모노), 안드로이드 MediaCodec AAC-LC 64kbps + MediaMuxer,
-    macOS · iOS AVAudioFile AAC 64kbps (`mediashelf/audio` encodeM4a). 실패하면 WAV 그대로
+    macOS · iOS AVAudioFile AAC 64kbps (`arariflex/audio` encodeM4a). 실패하면 WAV 그대로
   - 화면: `lib/ui/viewers/audiobook_dialog.dart` (범위 · 형식 · 위치 → 진행 창, 멈춤, 결과)
 - PDF → 텍스트: `lib/services/pdf_text.dart`. 글자 15자 이상 쪽은 PDF 글, 아니면 2600px PNG 로 그려 6쪽씩 묶어 `OcrService.recognizeFiles`.
   `joinPages`: 쪽 위아래 2줄 중 쪽 번호 · 여러 쪽(≥3, ≥30%)에 되풀이되는 짧은 줄(숫자 무시) 제거, 문장부호로 안 끝나면 다음 줄과 이음,
@@ -291,7 +291,7 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   `_nextUp`: 묶음마다 가장 최근에 다 본 권의 다음 권 { id: 앞 권 본 시각 } — 읽다 만 권이 있는 묶음 · 60일 지난 묶음 제외, 뺀 기록(`cwOff`)이 앞 권 본 시각 이후면 숨김(설정 `continueNextUp`)
 - 권 끝 카드에서 한 번 더 넘기면 다음 권(`_turn`/`_go`), 카드 위 밀기 처리. `CoverTile` 에 `corner`(× 자리) · `note`("다음 권")
 - 여러 개 읽음/안 읽음: `markFinishedMany` + `db.saveProgressMany` (마지막 본 날 · 열람 기록은 안 건드림)
-- 안드로이드: `ScreenAwake.hold/release`(`mediashelf/bg` keepScreen → FLAG_KEEP_SCREEN_ON, 뷰어 init/dispose), `volumeKeyBindings`(audioVolumeDown/Up 을 CallbackShortcuts 에 넣으면 눌림이 소비돼 음량이 안 바뀜; TTS 중에는 뺀다)
+- 안드로이드: `ScreenAwake.hold/release`(`arariflex/bg` keepScreen → FLAG_KEEP_SCREEN_ON, 뷰어 init/dispose), `volumeKeyBindings`(audioVolumeDown/Up 을 CallbackShortcuts 에 넣으면 눌림이 소비돼 음량이 안 바뀜; TTS 중에는 뺀다)
 - **백업 · 복원** `lib/services/backup.dart`: `create`(DB 는 `VACUUM INTO`, 안 되면 체크포인트 뒤 복사 → zip: manifest · settings · library.db · ai_speakers · covers),
   `stage`(zip 확인 뒤 `<지원>/restore_pending/`), `applyPending`(main 에서 설정 · DB 열기 전: 지금 DB → library.before-restore.db, 표지 · 설정 덮어쓰기,
   데이터 폴더가 달라졌으면 `restore_fix.json`), `fixAfterRestore`(DB 연 뒤 표지 경로 고침). 휴대용 모드는 settings.json 을 바로 씀. 복원 뒤 `exit(0)`
@@ -358,4 +358,15 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - 그 밖: RAR · 7Z 를 휴대폰에서 누르면 안내 창(`openItem`), 가져오기 창 처음 값이 설정 › 파일 처리를 따름, 슬라이드쇼 간격 설정 + 그동안 화면 켜 두기, 정렬 · 하위 묶음 포함은 듣지 않는 화면에서 흐리게,
   안내서 `_storeTopics(wide)` · `_fullTopics(touch, wide)`(가로 태블릿용 문구), 손가락 기기에서는 풍선말의 단축키 표시를 뺀다(`ToolBtn._keyHint`), 플레이스토어판 왼쪽 목록에서 "그림" 숨김, 파일 도구의 같은 화면 두 칸을 하나로
 - **확인 못 한 것**: PC 전체화면(창 넓히기)과 실제 손가락 조작(밀기 · 두 손가락)은 CI 에서 눌러 볼 수 없다. PDF 의 눌러 넘기기는 화면 캡처 테스트가 처리기를 직접 불러 확인한다(`CHECK pdf`)
+
+## 17. 이름 정리 (11-21 밤): 옛 이름을 모두 ARARIFlex 로
+- 처음 만들 때의 이름이 패키지 · 폴더 · 채널에 남아 사용자에게도 보였다(안드로이드 `Android/data/…` 폴더, Windows 실행 파일 · `%APPDATA%` 폴더). 전부 바꿨다:
+  Dart 패키지 `arariflex`, `flutter create --org com.arariflex --project-name arariflex`, 채널 `arariflex/…`, OPDS id `urn:arariflex:…`, 설치 스크립트 `installer/arariflex.iss`
+- **안드로이드 전체판** 패키지 `com.arariflex.full`(`patch_android.py FULL_ID`. 코드 자리 namespace 는 `com.arariflex.arariflex`). 패키지가 다르면 다른 앱이라 예전 것(0.6 이하)을 덮어 깔지 않고 따로 깔린다.
+  앱 안쪽 데이터는 건너 옮길 수 없다 → 예전 앱에서 설정 › 정보 › 백업, 새 앱에서 복원, 그 뒤 예전 앱 삭제. 플레이스토어판(`com.arariflex.app`)은 그대로
+- **Windows**: `patch_windows.py` 가 실행 파일 이름(`BINARY_NAME` → `ARARIFlex.exe`)과 파일 정보(CompanyName · ProductName = ARARIFlex)를 정한다. path_provider 는 이 둘로 데이터 폴더를 만든다 → `%APPDATA%\ARARIFlex\ARARIFlex`.
+  예전 폴더(`%APPDATA%\com.mediashelf\ARARIFlex`, 더 예전 `…\media_shelf`)는 `LegacyData.migrate`(main 에서 설정 · DB 를 열기 전)가 통째로 옮긴다. 새 자리에 이미 서재가 있으면 건드리지 않는다(`test/legacy_data_test.dart`).
+  설치 프로그램은 AppId 가 같아 그대로 덮어 깔리고, 예전 실행 파일 `media_shelf.exe` 는 `[InstallDelete]` 로 지운다
+- **그대로 둔 것 하나**: 서명 키의 별칭(`ANDROID_KEY_ALIAS` = mediashelf). 키 파일 안에 든 키의 이름표라 사용자에게 보이지 않고, 바꾸려면 키 파일과 Secrets 를 새로 만들어야 한다(서명 자체는 달라지지 않는다)
+- 고칠 때 볼 곳: 생성된 틀에 기대는 치환은 못 찾으면 빌드를 멈추게 했다(`sub1`, `assert`) — flutter 가 틀을 바꾸면 조용히 옛 이름으로 돌아가지 않게
 

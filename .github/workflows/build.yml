@@ -28,7 +28,7 @@ jobs:
           cache: true
 
       - name: Generate platform folders
-        run: flutter create --platforms=windows --org com.mediashelf --project-name media_shelf .
+        run: flutter create --platforms=windows --org com.arariflex --project-name arariflex .
 
       - name: Windows window title / size
         run: python tool/patch_windows.py
@@ -126,7 +126,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$ver" installer\media_shelf.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$ver" installer\arariflex.iss
           # 포터블 zip: 옆에 arariflex_data 폴더가 있어 압축만 풀면 휴대용 모드 (USB 로 통째로 옮기기)
           $stage = "$env:RUNNER_TEMP\ARARIFlex"
           Copy-Item -Recurse build\windows\x64\runner\Release $stage
@@ -159,7 +159,7 @@ jobs:
           cache: true
 
       - name: Generate platform folders
-        run: flutter create --platforms=windows --org com.mediashelf --project-name media_shelf .
+        run: flutter create --platforms=windows --org com.arariflex --project-name arariflex .
 
       - name: Windows window title / size
         run: python tool/patch_windows.py
@@ -279,7 +279,7 @@ jobs:
           cache: true
 
       - name: Generate platform folders
-        run: flutter create --platforms=android --org com.mediashelf --project-name media_shelf .
+        run: flutter create --platforms=android --org com.arariflex --project-name arariflex .
 
       - name: Android permissions
         run: python3 tool/patch_android.py
@@ -298,6 +298,7 @@ jobs:
         run: |
           if [ -n "$KS" ]; then
             echo "$KS" | base64 -d > android/app/release.p12
+            # (기본 별칭 mediashelf 는 서명 키 파일 안에 든 키의 이름표다. 사용자에게 보이지 않으며, 바꾸려면 키 파일을 새로 만들어야 해서 그대로 둔다)
             printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=release.p12\n' "$PW" "$PW" "${ALIAS:-mediashelf}" > android/key.properties
             echo "정식 키로 서명합니다"
           else
@@ -347,7 +348,7 @@ jobs:
           cache: true
 
       - name: Generate platform folders
-        run: flutter create --platforms=android --org com.mediashelf --project-name media_shelf .
+        run: flutter create --platforms=android --org com.arariflex --project-name arariflex .
 
       # 실제 광고 ID 는 Secrets(ADMOB_APP_ID · ADMOB_BANNER_ID · ADMOB_APP_OPEN_ID). 없으면 구글 시험 광고
       - name: Store manifest (package · permissions · ads)
@@ -369,6 +370,7 @@ jobs:
         run: |
           if [ -n "$KS" ]; then
             echo "$KS" | base64 -d > android/app/release.p12
+            # (기본 별칭 mediashelf 는 서명 키 파일 안에 든 키의 이름표다. 사용자에게 보이지 않으며, 바꾸려면 키 파일을 새로 만들어야 해서 그대로 둔다)
             printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=release.p12\n' "$PW" "$PW" "${ALIAS:-mediashelf}" > android/key.properties
           else
             echo "::warning::서명 키 Secret 이 없어 debug 키로 서명합니다 (Play Console 에 올릴 수 없음)"
@@ -444,7 +446,7 @@ jobs:
           cache: true
 
       - name: Generate platform folders
-        run: flutter create --platforms=android --org com.mediashelf --project-name media_shelf .
+        run: flutter create --platforms=android --org com.arariflex --project-name arariflex .
 
       - name: Android patches
         run: python3 tool/patch_android.py
@@ -514,7 +516,7 @@ jobs:
       matrix:
         include:
           - { edition: store, patch: '--store', pkg: com.arariflex.app, define: '--dart-define=ARARI_STORE=true' }
-          - { edition: full, patch: '', pkg: com.mediashelf.media_shelf, define: '' }
+          - { edition: full, patch: '', pkg: com.arariflex.full, define: '' }
     steps:
       - uses: actions/checkout@v4
 
@@ -530,7 +532,7 @@ jobs:
           cache: true
 
       - name: Generate platform folders
-        run: flutter create --platforms=android --org com.mediashelf --project-name media_shelf .
+        run: flutter create --platforms=android --org com.arariflex --project-name arariflex .
 
       - name: Android manifest
         run: python3 tool/patch_android.py ${{ matrix.patch }}
@@ -596,7 +598,7 @@ jobs:
           cache: true
 
       - name: Generate platform folders
-        run: flutter create --platforms=macos --org com.mediashelf --project-name media_shelf .
+        run: flutter create --platforms=macos --org com.arariflex --project-name arariflex .
 
       - run: flutter pub get
 
@@ -667,7 +669,7 @@ jobs:
           cache: true
 
       - name: Generate platform folders
-        run: flutter create --platforms=ios --org com.mediashelf --project-name media_shelf .
+        run: flutter create --platforms=ios --org com.arariflex --project-name arariflex .
 
       - run: flutter pub get
 

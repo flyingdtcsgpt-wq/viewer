@@ -385,8 +385,8 @@ Int16List? pcmFromWav(Uint8List b, int rate) {
 /// 글 → 소리 파일, 소리 파일 → M4A (플랫폼마다)
 class AudioRender {
   AudioRender._();
-  static const _tts = MethodChannel('mediashelf/tts');
-  static const _audio = MethodChannel('mediashelf/audio');
+  static const _tts = MethodChannel('arariflex/tts');
+  static const _audio = MethodChannel('arariflex/audio');
   static _WinVoices? _win;
 
   static bool _isModel(String v) => NaturalTts.isNatural(v) || KokoroTts.isKokoro(v);

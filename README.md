@@ -38,7 +38,7 @@ GitHub 웹에서 Releases → 새 릴리스(`v0.6.0` 같은 태그)를 게시하
 
 ## 개발
 ```bash
-flutter create --platforms=windows,android --org com.mediashelf --project-name media_shelf .
+flutter create --platforms=windows,android --org com.arariflex --project-name arariflex .
 flutter pub get
 flutter run -d windows
 ```
