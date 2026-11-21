@@ -1178,10 +1178,12 @@ class _TextReaderPageState extends State<TextReaderPage> {
             ToolGroup([
               ToolBtn(
                 icon: marked ? Icons.bookmark : Icons.bookmark_border,
-                tooltip: '책갈피 (B)',
+                tooltip: '책갈피 (B): 지금 읽는 곳을 표시 · 다시 누르면 지움',
                 active: marked,
                 onTap: () => s.toggleBookmark(item.id!, _current),
               ),
+              // 책갈피한 곳으로 바로 가기
+              BookmarkListBtn(count: s.bookmarks(item.id!).length, onTap: () => _showBookmarks(s)),
             ]),
             ToolGroup([ToolBtn(icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen, tooltip: '전체화면 (F)', onTap: _toggleFullscreen)]),
             ToolGroup([
@@ -1203,7 +1205,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
                   ('위아래로 밀기', '스크롤해서 읽기'),
                   ('가운데 누르기', '위 메뉴 보이기 · 숨기기'),
                   ('글자 선택 단추', '글자를 끌어 고른 뒤 형광펜 · 복사 · 검색'),
-                  ('책갈피 단추', '지금 읽는 곳을 표시 · 다시 누르면 지움. 목록은 ☰(목차) › 하이라이트'),
+                  ('책갈피 단추', '지금 읽는 곳을 표시 · 다시 누르면 지움'),
+                  ('책갈피 목록 단추 (옆)', '책갈피한 곳 목록 → 누르면 그 자리로'),
                   ('다크 · 눈 보호 단추', '어두운 화면 / 푸른빛 줄이기'),
                   ('아래 이동 막대', '끌어서 책의 아무 곳으로 (왼쪽 숫자가 지금 위치 %)'),
                   ('⚙ 뷰어 설정', '테마 · 글꼴 · 글자 크기 · 줄 간격 · 문단 간격 · 눈 보호 세기'),
@@ -1417,6 +1420,26 @@ class _TextReaderPageState extends State<TextReaderPage> {
   }
 
   // ---------- 아래 장(章) 줄 ----------
+  /// 책갈피 목록: 그 자리의 글 앞머리와 위치(%)를 보여 주고, 누르면 그 자리로 간다
+  void _showBookmarks(Settings s) {
+    final blocks = _doc?.blocks ?? const <TextBlock>[];
+    final n = _count;
+    String label(int m) {
+      final text = (m < blocks.length ? blocks[m].text : null)?.trim() ?? '';
+      final pct = n > 1 ? '${(m / (n - 1) * 100).round()}%' : '';
+      final head = text.isEmpty ? '(그림)' : (text.length > 60 ? '${text.substring(0, 60)}…' : text);
+      return pct.isEmpty ? head : '$pct · $head';
+    }
+
+    showBookmarkSheet(
+      context,
+      marks: s.bookmarks(item.id!),
+      label: label,
+      onGo: _jumpTo,
+      onRemove: (m) => s.toggleBookmark(item.id!, m),
+    );
+  }
+
   double? _seek; // 이동 막대를 끄는 동안의 값 (0 ~ 1)
   DateTime _seekAt = DateTime(0);
 

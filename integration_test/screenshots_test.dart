@@ -336,6 +336,26 @@ void main() {
       await tester.sendEventToBinding(mouse.scroll(const Offset(0, -120)));
       await wait(500);
       debugPrint('CHECK comic wheel start=$p0 down=$p1 up=${comic!.position} zoom100=${find.text('100%').evaluate().isNotEmpty} fit=${settings.viewerFit}');
+      // 책갈피: 둘째 쪽에 표시 → 처음으로 → 목록에서 골라 바로 가기
+      await tester.sendKeyEvent(LogicalKeyboardKey.home);
+      await wait(300);
+      await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+      await wait(400);
+      final markedAt = comic!.position;
+      settings.toggleBookmark(comic!.id!, int.parse(markedAt ?? '0'));
+      await tester.sendKeyEvent(LogicalKeyboardKey.home);
+      await wait(400);
+      final backAtStart = comic!.position;
+      press('책갈피 목록 — 책갈피한 곳으로 바로 가기');
+      await shot('08d_만화뷰어_책갈피목록', 600);
+      final row = find.widgetWithText(ListTile, '${int.parse(markedAt ?? '0') + 1}쪽');
+      if (row.evaluate().isNotEmpty) tester.widget<ListTile>(row.first).onTap!();
+      await wait(600);
+      debugPrint('CHECK bookmark marked=$markedAt start=$backAtStart listed=${row.evaluate().isNotEmpty} jumpedTo=${comic!.position}');
+      settings.toggleBookmark(comic!.id!, int.parse(markedAt ?? '0'));
+      await popAll();
+      await push(ComicReaderPage(item: comic!));
+      await wait(1200);
       // 눈 보호 단추: 켜지고, 뷰어가 다시 만들어지지 않는다 (쪽이 그대로)
       final pageBefore = comic!.position;
       press('눈 보호');

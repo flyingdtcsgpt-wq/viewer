@@ -276,3 +276,60 @@ class EyeCarePanel extends StatelessWidget {
     ]);
   }
 }
+
+/// 책갈피 목록: 누르면 그 자리로 가고, × 로 지운다
+/// [marks] 책갈피한 자리(쪽 번호 등), [label] 목록에 보일 글, [onGo] 그 자리로 이동, [onRemove] 지우기
+void showBookmarkSheet(
+  BuildContext context, {
+  required List<int> marks,
+  required String Function(int mark) label,
+  required void Function(int mark) onGo,
+  required void Function(int mark) onRemove,
+}) {
+  final sorted = [...marks]..sort();
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) => SafeArea(
+      child: ListView(shrinkWrap: true, children: [
+        ListTile(
+          leading: const Icon(Icons.bookmarks_outlined),
+          title: Text(sorted.isEmpty ? '책갈피' : '책갈피 ${sorted.length}개 — 누르면 그 자리로 갑니다'),
+        ),
+        if (sorted.isEmpty)
+          const ListTile(title: Text('아직 책갈피가 없습니다. 바로 왼쪽의 책갈피 단추를 누르면 지금 보는 곳이 표시됩니다.')),
+        for (final m in sorted)
+          ListTile(
+            leading: const Icon(Icons.bookmark, color: Colors.redAccent),
+            title: Text(label(m), maxLines: 2, overflow: TextOverflow.ellipsis),
+            onTap: () {
+              Navigator.pop(ctx);
+              onGo(m);
+            },
+            trailing: IconButton(
+              tooltip: '책갈피 지우기',
+              icon: const Icon(Icons.close),
+              onPressed: () {
+                Navigator.pop(ctx);
+                onRemove(m);
+              },
+            ),
+          ),
+      ]),
+    ),
+  );
+}
+
+/// 위 도구줄의 "책갈피 목록" 단추 (책갈피 단추 옆). 개수를 보여 주고, 누르면 목록이 뜬다
+class BookmarkListBtn extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const BookmarkListBtn({super.key, required this.count, required this.onTap});
+  @override
+  Widget build(BuildContext context) => ToolBtn(
+        icon: Icons.bookmarks_outlined,
+        label: count > 0 ? '$count' : null,
+        tooltip: '책갈피 목록 — 책갈피한 곳으로 바로 가기',
+        onTap: onTap,
+      );
+}

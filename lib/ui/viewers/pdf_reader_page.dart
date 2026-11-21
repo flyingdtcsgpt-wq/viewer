@@ -78,32 +78,13 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   }
 
   /// 책갈피 목록 (눌러서 그 쪽으로, × 로 지우기)
-  void _showBookmarks(Settings s) {
-    final marks = s.bookmarks(item.id!)..sort();
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => ListView(shrinkWrap: true, children: [
-        const ListTile(title: Text('책갈피')),
-        if (marks.isEmpty) const ListTile(title: Text('책갈피가 없습니다. 위쪽 책갈피 단추를 누르면 지금 쪽이 표시됩니다.')),
-        for (final m in marks)
-          ListTile(
-            leading: const Icon(Icons.bookmark),
-            title: Text('$m쪽'),
-            onTap: () {
-              Navigator.pop(ctx);
-              _go(m);
-            },
-            trailing: IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () {
-                s.toggleBookmark(item.id!, m);
-                Navigator.pop(ctx);
-              },
-            ),
-          ),
-      ]),
-    );
-  }
+  void _showBookmarks(Settings s) => showBookmarkSheet(
+        context,
+        marks: s.bookmarks(item.id!),
+        label: (m) => '$m쪽',
+        onGo: _go,
+        onRemove: (m) => s.toggleBookmark(item.id!, m),
+      );
 
   void _toggleFullscreen() {
     setState(() {
@@ -211,10 +192,12 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                           child: ToolGroup([
                             ToolBtn(
                               icon: marked ? Icons.bookmark : Icons.bookmark_border,
-                              tooltip: '책갈피 (B) · 길게 누르면 목록',
+                              tooltip: '책갈피 (B): 지금 쪽을 표시 · 다시 누르면 지움',
                               active: marked,
                               onTap: () => s.toggleBookmark(item.id!, _page),
                             ),
+                            // 책갈피한 곳으로 바로 가기
+                            BookmarkListBtn(count: s.bookmarks(item.id!).length, onTap: () => _showBookmarks(s)),
                           ]),
                         ),
                         if (!kStore)
@@ -247,10 +230,11 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                               ('Home / End', '처음 / 끝'),
                               ('Ctrl+휠', '확대 / 축소'),
                               ('F', '전체화면'),
-                              ('B', '책갈피: 지금 쪽 표시 (단추를 길게 누르면 목록)'),
+                              ('B', '책갈피: 지금 쪽 표시 (옆의 목록 단추로 책갈피한 쪽에 바로 가기)'),
                               ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
                             ], touch: const [
-                              ('책갈피 단추', '지금 쪽을 표시 · 다시 누르면 지움 · 길게 누르면 목록'),
+                              ('책갈피 단추', '지금 쪽을 표시 · 다시 누르면 지움'),
+                              ('책갈피 목록 단추 (옆)', '책갈피한 쪽 목록 → 누르면 그 쪽으로'),
                               ('위아래로 밀기', '쪽 넘기기'),
                               ('두 손가락 벌리기 · 두 번 누르기', '확대 · 축소'),
                               ('아래 썸네일 줄', '원하는 쪽으로 바로 가기'),
