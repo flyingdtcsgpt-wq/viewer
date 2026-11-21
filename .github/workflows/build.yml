@@ -306,7 +306,7 @@ jobs:
 
       # 기종별로 나눠 빌드 (하나에 다 넣으면 128MB)
       - name: Build APK
-        run: flutter build apk --release --split-per-abi
+        run: bash tool/retry.sh flutter build apk --release --split-per-abi
 
       - name: Collect
         run: |
@@ -384,9 +384,9 @@ jobs:
           [ -n "$APPOPEN" ] && defs="$defs --dart-define=ADMOB_APP_OPEN_ID=$APPOPEN"
           # 버전 코드는 올릴 때마다 커져야 한다 → 실행 번호
           num=$((1000 + ${{ github.run_number }}))
-          flutter build appbundle --release $defs --build-number=$num
+          bash tool/retry.sh flutter build appbundle --release $defs --build-number=$num
           # 시험용 APK: 64비트 + 32비트 (G99 같은 64비트 칩이어도 안드로이드를 32비트로 깐 태블릿이 있다)
-          flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64 $defs --build-number=$num
+          bash tool/retry.sh flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64 $defs --build-number=$num
 
       - name: Check (targetSdk · permissions · 16KB pages)
         run: |
@@ -538,7 +538,7 @@ jobs:
       - run: flutter pub get
 
       - name: Build APK (x86_64, release)
-        run: flutter build apk --release --target-platform android-x64 ${{ matrix.define }}
+        run: bash tool/retry.sh flutter build apk --release --target-platform android-x64 ${{ matrix.define }}
 
       - name: Enable KVM
         run: |
