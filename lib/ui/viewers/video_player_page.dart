@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../models/media_item.dart';
+import '../../services/linked.dart';
 import '../../services/settings.dart';
 import '../detail_page.dart';
 import 'viewer_chrome.dart';
@@ -74,7 +75,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       _a = _b = null;
       _resumed = false;
     });
-    await _player.open(Media(_item.path));
+    // 연결한 폴더의 영상은 경로로 열 수 없어 content:// 주소로 넘긴다 (플레이어가 그 주소를 직접 연다)
+    await _player.open(Media(await Linked.uri(_item.path) ?? _item.path));
     await _player.setRate(_settings.videoRate);
   }
 

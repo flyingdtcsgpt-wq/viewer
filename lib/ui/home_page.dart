@@ -275,6 +275,34 @@ class _Sidebar extends StatelessWidget {
         item(Icons.add_circle_outline, '파일 · 폴더 가져오기', act(() => openStoreImport(rootContext))),
         // USB 로 넣는 방법 · 폴더 위치 (넣은 파일은 앱을 열 때 저절로 서재에 올라온다)
         item(Icons.folder_special_outlined, 'ARARIFlex 폴더 (USB 로 넣기)', act(() => showStoreFolderHelp(rootContext))),
+        // 연결한 폴더 (내 폴더 · SD 카드를 복사 없이 그대로): 누르면 그 폴더의 것만, 오른쪽 ⋮ 에서 다시 훑기 · 연결 끊기
+        for (final f in state.linkedFolders)
+          ListTile(
+            dense: true,
+            visualDensity: VisualDensity.compact,
+            contentPadding: const EdgeInsets.only(left: 16, right: 0),
+            selected: state.libraryPath == f.path,
+            selectedTileColor: scheme.secondaryContainer,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            leading: Icon(
+              state.offlineLinked.contains(f.path) ? Icons.link_off : (f.removable ? Icons.sd_card_outlined : Icons.folder_outlined),
+              size: 20,
+              color: state.offlineLinked.contains(f.path) ? scheme.error : null,
+            ),
+            title: Text(f.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: state.offlineLinked.contains(f.path) ? Text(f.removable ? 'SD 카드를 읽을 수 없음' : '읽을 수 없음', style: TextStyle(color: scheme.error, fontSize: 11)) : null,
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('${state.linkedCount(f)}', style: text.bodySmall),
+              IconButton(
+                tooltip: '다시 훑기 · 연결 끊기',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.more_vert, size: 18),
+                onPressed: act(() => showLinkedFolder(rootContext, f)),
+              ),
+            ]),
+            onTap: act(() => state.setLibrary(f.path)),
+          ),
+        item(Icons.add_link, '폴더 연결 (내 폴더 · SD 카드)', act(() => linkFolderFlow(rootContext))),
       ],
 
       // 라이브러리 폴더 (설정에서 정한 순서 · 그룹 · 별칭)

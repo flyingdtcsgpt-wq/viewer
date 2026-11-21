@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../models/media_item.dart';
+import '../services/linked.dart';
 import '../services/saf.dart';
 import 'browser.dart' show fileSize;
 import 'guide.dart';
@@ -21,15 +22,22 @@ Future<void> openStoreImport(BuildContext context) async {
     builder: (ctx) => SafeArea(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         ListTile(
+          leading: const Icon(Icons.add_link),
+          title: const Text('폴더 연결'),
+          subtitle: const Text('내 폴더 · SD 카드를 복사 없이 그대로 서재로 (앱을 지워도 파일이 남습니다)'),
+          onTap: () => Navigator.pop(ctx, 3),
+        ),
+        const Divider(height: 1),
+        ListTile(
           leading: const Icon(Icons.note_add_outlined),
           title: const Text('파일 고르기'),
-          subtitle: const Text('만화(CBZ · ZIP) · 책(EPUB · PDF · TXT) · 영상'),
+          subtitle: const Text('만화(CBZ · ZIP) · 책(EPUB · PDF · TXT) · 영상을 앱 폴더로 복사 · 옮기기'),
           onTap: () => Navigator.pop(ctx, 0),
         ),
         ListTile(
           leading: const Icon(Icons.drive_folder_upload_outlined),
-          title: const Text('폴더 통째로'),
-          subtitle: const Text('폴더 안의 파일을 하위 폴더까지 한 번에'),
+          title: const Text('폴더 통째로 가져오기'),
+          subtitle: const Text('폴더 안의 파일을 하위 폴더까지 앱 폴더로 복사 · 옮기기'),
           onTap: () => Navigator.pop(ctx, 1),
         ),
         ListTile(
@@ -44,6 +52,7 @@ Future<void> openStoreImport(BuildContext context) async {
   );
   if (v == null || !context.mounted) return;
   if (v == 2) return showStoreFolderHelp(context);
+  if (v == 3) return linkFolderFlow(context);
   List<SafEntry> files;
   String? tree;
   if (v == 0) {
@@ -58,6 +67,84 @@ Future<void> openStoreImport(BuildContext context) async {
   } finally {
     // 다 가져왔으면 그 폴더를 읽을 권한을 돌려준다 (계속 쥐고 있을 이유가 없다)
     if (tree != null) Saf.releaseFolder(tree).catchError((_) {});
+  }
+}
+
+/// 폴더 연결: 시스템 폴더 선택 창에서 고른 폴더를 복사하지 않고 그대로 서재로 쓴다 (기기 저장공간 · SD 카드)
+Future<void> linkFolderFlow(BuildContext context) async {
+  final state = context.read<AppState>();
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      icon: const Icon(Icons.add_link),
+      title: const Text('폴더 연결'),
+      content: const SingleChildScrollView(
+        child: Text('기기 저장공간이나 SD 카드에 있는 폴더를 고르면, 파일을 복사하지 않고 그 자리에서 바로 봅니다.\n\n'
+            '• 그 폴더에 파일을 넣거나 지우면 서재에도 그대로 나타납니다.\n'
+            '• 파일은 내가 정한 폴더에 그대로 있어서 파일 앱 · PC 에서 보이고, 앱을 지워도 남습니다.\n'
+            '• 안드로이드 규칙으로 저장공간 맨 위, Download 폴더 자체, Android 폴더는 고를 수 없습니다. 그 안에 만든 폴더는 됩니다.\n\n'
+            '다음 화면에서 폴더를 열고 아래쪽 "이 폴더 사용" → "허용" 을 누르세요.'),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('폴더 고르기')),
+      ],
+    ),
+  );
+  if (go != true) return;
+  final tree = await Saf.pickFolder();
+  if (tree == null || !context.mounted) return;
+  final err = await _withSpinner(context, '폴더를 연결하는 중…', state.linkFolder(tree));
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(err ?? '폴더를 연결했습니다. 안의 파일을 서재에 올리는 중입니다…')));
+}
+
+/// 연결한 폴더 하나: 다시 훑기 · 연결 끊기
+Future<void> showLinkedFolder(BuildContext context, LinkedFolder f) async {
+  final state = context.read<AppState>();
+  final offline = state.offlineLinked.contains(f.path);
+  final v = await showDialog<int>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      icon: Icon(f.removable ? Icons.sd_card_outlined : Icons.folder_outlined),
+      title: Text(f.label),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SelectableText(_friendly(f.path), style: const TextStyle(fontSize: 12)),
+        const SizedBox(height: 10),
+        Text(offline
+            ? (f.removable
+                ? '지금은 이 폴더를 읽을 수 없습니다. SD 카드(또는 USB)를 꽂고 "다시 훑기" 를 누르세요. 목록과 읽던 위치는 그대로 남아 있습니다.'
+                : '지금은 이 폴더를 읽을 수 없습니다. 폴더를 옮겼거나 지웠다면 연결을 끊고 다시 연결해 주세요.')
+            : '서재에 ${state.linkedCount(f)}개가 올라와 있습니다. 이 폴더에 파일을 넣거나 지우면 앱을 열 때 저절로 반영됩니다.'),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, 2), child: const Text('연결 끊기')),
+        TextButton(onPressed: () => Navigator.pop(ctx, 1), child: const Text('다시 훑기')),
+        FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
+      ],
+    ),
+  );
+  if (!context.mounted) return;
+  if (v == 1) {
+    await state.rescanWhenFree();
+    if (context.mounted && state.offlineLinked.contains(f.path)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('아직 폴더를 읽을 수 없습니다')));
+    }
+  } else if (v == 2) {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('연결을 끊을까요?'),
+        content: Text('"${f.label}" 의 ${state.linkedCount(f)}개가 서재 목록에서 빠집니다.\n\n'
+            '파일은 지워지지 않고 그 폴더에 그대로 남습니다. 다만 읽던 위치와 책갈피는 사라집니다.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('연결 끊기')),
+        ],
+      ),
+    );
+    if (ok == true) await state.unlinkFolder(f);
   }
 }
 
@@ -316,8 +403,11 @@ Future<void> showStoreFolderHelp(BuildContext context) {
 /// /storage/emulated/0/Android/data/... → 내장 저장공간 › Android › data › ...
 String _friendly(String dir) {
   const root = '/storage/emulated/0/';
-  if (!dir.startsWith(root)) return dir;
-  return '내장 저장공간 › ${dir.substring(root.length).split('/').join(' › ')}';
+  if (dir.startsWith(root)) return '내장 저장공간 › ${dir.substring(root.length).split('/').join(' › ')}';
+  // /storage/1234-5678/만화 → SD 카드 › 만화
+  final m = RegExp(r'^/storage/[^/]+/(.*)$').firstMatch(dir);
+  if (m != null) return 'SD 카드 › ${m.group(1)!.split('/').join(' › ')}';
+  return dir;
 }
 
 /// 서재가 비었을 때: 무엇을 어떻게 넣는지 안내
@@ -338,7 +428,7 @@ class StoreEmptyGuide extends StatelessWidget {
             const SizedBox(height: 16),
             Text('내 만화 · 책 · 영상을 넣어 보세요', style: text.titleLarge?.copyWith(fontWeight: FontWeight.w800), textAlign: TextAlign.center),
             const SizedBox(height: 8),
-            Text('가져온 파일은 ARARIFlex 폴더에 모이고, 시리즈별로 자동으로 묶입니다.',
+            Text('"가져오기" 는 파일을 앱 폴더에 모으고, "폴더 연결" 은 내 폴더를 그 자리에서 그대로 봅니다. 시리즈별로 자동으로 묶입니다.',
                 style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant), textAlign: TextAlign.center),
             const SizedBox(height: 24),
             SizedBox(
@@ -348,6 +438,16 @@ class StoreEmptyGuide extends StatelessWidget {
                 onPressed: () => openStoreImport(context),
                 icon: const Icon(Icons.add),
                 label: const Text('가져오기'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                onPressed: () => linkFolderFlow(context),
+                icon: const Icon(Icons.add_link),
+                label: const Text('내 폴더 · SD 카드 연결 (복사 없이)'),
               ),
             ),
             const SizedBox(height: 8),

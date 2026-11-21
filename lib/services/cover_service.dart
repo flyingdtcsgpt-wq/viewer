@@ -16,6 +16,8 @@ import 'package:xml/xml.dart';
 
 import '../models/media_item.dart';
 import 'ext_archive.dart';
+import 'fd_file.dart';
+import 'linked.dart';
 
 /// EPUB 내부 메타데이터 (파일 자체에서 뽑아낸 정보)
 class EmbeddedInfo {
@@ -53,12 +55,14 @@ class CoverService {
       switch (item.kind) {
         case MediaKind.image:
           // 큰 사진을 목록마다 다시 풀지 않게 작은 표지를 따로 만든다 (못 읽는 형식이면 원본)
-          final small = await _thumbFile(item.path, () async => await File(item.path).readAsBytes());
+          final small = await _thumbFile(item.path, () => Linked.use(item.path, (r) => Isolate.run(r.readAllSync)));
           return small ?? item.path;
         case MediaKind.video:
           final out = _target(item.path, '.jpg');
+          // 연결한 폴더의 영상은 경로로 열 수 없어 content:// 주소로 넘긴다
+          final uri = await Linked.uri(item.path);
           final ok = await _video.saveThumbnailToFile(
-              srcFile: item.path, destFile: out, width: 480, height: 480, format: 'jpeg', quality: 85);
+              srcFile: uri ?? item.path, srcFileUri: uri == null ? null : true, destFile: out, width: 480, height: 480, format: 'jpeg', quality: 85);
           return ok ? out : null;
         case MediaKind.book:
         case MediaKind.comic:
@@ -80,17 +84,11 @@ class CoverService {
     try {
       switch (item.extension) {
         case '.cbz' || '.zip':
-          final path = item.path;
-          return (await Isolate.run(() => _zipProbe(path, cover: false))).pages;
+          return (await Linked.use(item.path, (r) => Isolate.run(() => _zipProbe(r, cover: false)))).pages;
         case '.cbr' || '.rar' || '.cb7' || '.7z' when ExtArchive.supported:
           return (await ExtArchive.listImages(item.path)).length;
         case '.pdf':
-          final doc = await PdfDocument.openFile(item.path);
-          try {
-            return doc.pages.length;
-          } finally {
-            doc.dispose();
-          }
+          return await _withPdf(item.path, (doc) async => doc.pages.length);
       }
     } catch (_) {}
     return null;
@@ -120,14 +118,39 @@ class CoverService {
   }
 
   // ---------- EPUB ----------
-  Future<String?> _epubCover(String path) => _thumbFile(path, () => Isolate.run(() => _epubCoverBytes(path)));
+  Future<String?> _epubCover(String path) => _thumbFile(path, () => Linked.use(path, (r) => Isolate.run(() => _epubCoverBytes(r))));
 
   /// EPUB 의 OPF 에서 제목/저자 등 읽기 (화면이 멈추지 않게 따로)
-  Future<EmbeddedInfo?> readEpubInfo(String path) => Isolate.run(() => _readEpubInfoSync(path));
+  Future<EmbeddedInfo?> readEpubInfo(String path) => Linked.use(path, (r) => Isolate.run(() => _readEpubInfoSync(r)));
 }
 
-EmbeddedInfo? _readEpubInfoSync(String path) {
-    final input = InputFileStream(path);
+/// PDF 를 열어 [body] 를 하고 닫는다. 연결한 폴더의 파일이면 시스템이 열어 준 파일 번호로 읽는다
+Future<T> _withPdf<T>(String path, Future<T> Function(PdfDocument doc) body) async {
+  if (!Linked.has(path)) {
+    final doc = await PdfDocument.openFile(path);
+    try {
+      return await body(doc);
+    } finally {
+      doc.dispose();
+    }
+  }
+  return Linked.use(path, (r) async {
+    final rd = r.reader();
+    try {
+      final doc = await PdfDocument.openCustom(read: (buf, pos, size) => rd.readAt(pos, buf, size), fileSize: r.size, sourceName: path);
+      try {
+        return await body(doc);
+      } finally {
+        await doc.dispose(); // 다 닫힌 뒤에 파일 번호를 닫는다
+      }
+    } finally {
+      rd.close();
+    }
+  });
+}
+
+EmbeddedInfo? _readEpubInfoSync(FileRef ref) {
+    final input = ref.input();
     try {
       final zip = ZipDecoder().decodeStream(input);
       final opfPath = _opfPath(zip);
@@ -161,8 +184,8 @@ String? _opfPath(Archive zip) {
 }
 
 /// EPUB 표지 그림 데이터 (별도 isolate 에서)
-Uint8List? _epubCoverBytes(String path) {
-  final input = InputFileStream(path);
+Uint8List? _epubCoverBytes(FileRef ref) {
+  final input = ref.input();
   try {
     final zip = ZipDecoder().decodeStream(input);
     final opfPath = _opfPath(zip);
@@ -194,8 +217,8 @@ Uint8List? _epubCoverBytes(String path) {
 }
 
 /// 압축 만화 한 번 열어서: 그림 수 + 첫 그림 (별도 isolate 에서)
-({int pages, Uint8List? first}) _zipProbe(String path, {bool cover = true}) {
-  final input = InputFileStream(path);
+({int pages, Uint8List? first}) _zipProbe(FileRef ref, {bool cover = true}) {
+  final input = ref.input();
   try {
     final zip = ZipDecoder().decodeStream(input);
     final images = zip.files.where((f) => f.isFile && imageExts.contains(p.extension(f.name).toLowerCase())).toList()
@@ -229,7 +252,7 @@ extension _CoverMore on CoverService {
   // ---------- CBZ / ZIP: 한 번 열어 쪽수와 표지를 같이 ----------
   Future<String?> _zipCover(MediaItem item) async {
     final path = item.path;
-    final r = await Isolate.run(() => _zipProbe(path));
+    final r = await Linked.use(path, (f) => Isolate.run(() => _zipProbe(f)));
     item.pages ??= r.pages;
     final first = r.first;
     if (first == null) return null;
@@ -244,9 +267,7 @@ extension _CoverMore on CoverService {
   }
 
   // ---------- PDF ----------
-  Future<String?> _pdfFirstPage(String path) async {
-    final doc = await PdfDocument.openFile(path);
-    try {
+  Future<String?> _pdfFirstPage(String path) => _withPdf(path, (doc) async {
       if (doc.pages.isEmpty) return null;
       final page = doc.pages.first;
       const targetW = 480.0;
@@ -265,10 +286,7 @@ extension _CoverMore on CoverService {
       final out = _target(path, '.png');
       await File(out).writeAsBytes(png.buffer.asUint8List());
       return out;
-    } finally {
-      doc.dispose();
-    }
-  }
+    });
 }
 
 /// "page2.jpg" < "page10.jpg" 처럼 숫자를 숫자로 비교

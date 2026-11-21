@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import '../models/media_item.dart';
+import 'linked.dart';
 import 'portable.dart';
 
 class Settings extends ChangeNotifier {
@@ -35,6 +36,10 @@ class Settings extends ChangeNotifier {
   }
 
   set libraryFolders(List<LibraryFolder> v) => _set(() => _p.setString('libraryFolders', jsonEncode(v.map((e) => e.toJson()).toList())));
+
+  /// 플레이스토어판: 연결한 폴더들 (복사하지 않고 그 자리에서 읽는다 — services/linked.dart)
+  List<LinkedFolder> get linkedFolders => LinkedFolder.decode(_p.getString('linkedFolders'));
+  set linkedFolders(List<LinkedFolder> v) => _set(() => _p.setString('linkedFolders', LinkedFolder.encode(v)));
 
   List<String> get watchFolders => libraryFolders.map((e) => e.path).toList();
   set watchFolders(List<String> v) {

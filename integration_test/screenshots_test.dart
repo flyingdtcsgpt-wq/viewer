@@ -27,6 +27,7 @@ import 'package:arariflex/services/auth.dart';
 import 'package:arariflex/services/backup.dart';
 import 'package:arariflex/services/cover_service.dart';
 import 'package:arariflex/services/epub_writer.dart';
+import 'package:arariflex/services/fd_file.dart';
 import 'package:arariflex/services/file_tools.dart';
 import 'package:arariflex/services/image_pdf.dart';
 import 'package:arariflex/services/kokoro_tts.dart';
@@ -34,6 +35,7 @@ import 'package:arariflex/services/natural_tts.dart';
 import 'package:arariflex/services/ocr_service.dart';
 import 'package:arariflex/services/paddle_ocr.dart';
 import 'package:arariflex/services/pdf_text.dart';
+import 'package:arariflex/services/saf.dart';
 import 'package:arariflex/services/settings.dart';
 import 'package:arariflex/services/tts_service.dart';
 import 'package:arariflex/services/share_cert.dart';
@@ -259,6 +261,12 @@ void main() {
     await step('home', () async {
       state.showLanding();
       await shot('03_홈');
+      // 표지 · 쪽수 · EPUB 정보가 만들어졌는가 (파일을 읽는 길을 바꿨으므로 — services/linked.dart)
+      final comics = state.allItems.where((e) => e.kind == MediaKind.comic).toList();
+      final epubs = state.allItems.where((e) => e.extension == '.epub').toList();
+      debugPrint('CHECK covers comic=${comics.where((e) => e.coverPath != null).length}/${comics.length} '
+          'pages=${comics.where((e) => e.pages == 4).length}/${comics.length} '
+          'epub=${epubs.where((e) => e.coverPath != null).length}/${epubs.length} epubAuthor=${epubs.map((e) => e.author).toList()}');
     });
 
     MediaItem? comic, book;
@@ -1463,6 +1471,46 @@ void main() {
       }
       debugPrint('CHECK pdf open=[$opened] zoom=$zoom tap=$tap fullscreen=$fs');
       await popAll();
+
+      // 파일 번호(fd)로 읽기 = 연결한 폴더의 파일을 읽는 길 (안드로이드). 경로로 읽은 것과 같은지: 통째 읽기 · 압축 풀기 · PDF
+      if (Platform.isAndroid) {
+        var info = 'failed';
+        try {
+          final zipPath = p.join(dir.path, 'fd.cbz');
+          final a = Archive()
+            ..addFile(ArchiveFile.bytes('001.jpg', _page('FD 1')))
+            ..addFile(ArchiveFile.bytes('002.jpg', _page('FD 2')));
+          File(zipPath).writeAsBytesSync(ZipEncoder().encodeBytes(a));
+          final o = (await tester.runAsync(() => Saf.openFd(path: zipPath)))!;
+          final ref = FileRef(zipPath, o.fd, o.size);
+          final whole = ref.readAllSync();
+          final want = File(zipPath).readAsBytesSync();
+          var same = whole.length == want.length;
+          for (var i = 0; same && i < want.length; i++) {
+            same = whole[i] == want[i];
+          }
+          final input = ref.input();
+          final names = ZipDecoder().decodeStream(input).files.map((f) => '${f.name}:${f.content.length}').toList();
+          input.closeSync();
+          ref.close();
+
+          final po = (await tester.runAsync(() => Saf.openFd(path: path)))!;
+          final pref = FileRef(path, po.fd, po.size);
+          final rd = pref.reader();
+          final pages = await tester.runAsync(() async {
+            final d = await PdfDocument.openCustom(read: (b, pos, n) => rd.readAt(pos, b, n), fileSize: pref.size, sourceName: 'fd:$path');
+            final n = d.pages.length;
+            await d.dispose();
+            return n;
+          });
+          rd.close();
+          pref.close();
+          info = 'size=${o.size} sameBytes=$same zip=$names pdfPages=$pages';
+        } catch (e) {
+          info = 'error: $e';
+        }
+        debugPrint('CHECK fd $info');
+      }
     });
 
     binding.reportData = {'files': files};

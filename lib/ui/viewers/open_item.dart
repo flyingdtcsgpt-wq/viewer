@@ -9,6 +9,7 @@ import '../../app_state.dart';
 
 import '../../models/media_item.dart';
 import '../../services/ext_archive.dart';
+import '../../services/linked.dart';
 import '../../services/background_reading.dart';
 import '../../services/settings.dart';
 import '../cover_tile.dart';
@@ -23,9 +24,15 @@ import 'video_player_page.dart';
 /// 항목 종류에 맞는 내장 뷰어로 연다. 지원하지 않는 형식은 시스템 기본 앱으로.
 /// [siblings]: 현재 목록 (그림/영상은 앞뒤로 넘겨 볼 수 있게)
 Future<void> openItem(BuildContext context, MediaItem item, {List<MediaItem>? siblings}) async {
-  if (!await File(item.path).exists()) {
+  if (!await Linked.exists(item.path)) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('원본 파일을 찾을 수 없습니다: ${item.path}')));
+      final f = Linked.of(item.path);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(f == null
+              ? '원본 파일을 찾을 수 없습니다: ${item.path}'
+              : f.removable
+                  ? '파일을 열 수 없습니다. SD 카드(또는 USB)가 꽂혀 있는지 확인하세요'
+                  : '파일을 열 수 없습니다. 폴더를 옮겼거나 지웠다면 다시 연결해 주세요')));
     }
     return;
   }

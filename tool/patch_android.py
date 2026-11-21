@@ -372,6 +372,51 @@ class MainActivity : FlutterActivity() {{
                     }} catch (e: Exception) {{}}
                     result.success(null)
                 }}
+                // ---- 폴더 연결: 고른 폴더를 복사하지 않고 그 자리에서 읽는다 (권한은 pickFolder 가 받아 둔다) ----
+                "treeInfo" -> {{
+                    val tree = Uri.parse(call.argument<String>("tree") ?: "")
+                    Thread {{
+                        val out = treeInfo(tree)
+                        runOnUiThread {{ result.success(out) }}
+                    }}.start()
+                }}
+                "scanTree" -> {{
+                    val tree = Uri.parse(call.argument<String>("tree") ?: "")
+                    Thread {{
+                        val fail = BooleanArray(1)
+                        val files = try {{ listTree(tree, fail) }} catch (e: Exception) {{ fail[0] = true; emptyList() }}
+                        runOnUiThread {{ result.success(mapOf("ok" to !fail[0], "files" to files)) }}
+                    }}.start()
+                }}
+                // 읽기용으로 열어 파일 번호(fd)를 넘긴다. 저장소 권한 없이 읽는 유일한 길 (닫기는 받은 쪽이 한다)
+                "openFd" -> {{
+                    val tree = call.argument<String>("tree")
+                    val rel = call.argument<String>("rel") ?: ""
+                    val path = call.argument<String>("path")
+                    Thread {{
+                        val out: Map<String, Any>? = try {{
+                            val pfd = if (tree != null) contentResolver.openFileDescriptor(docUri(Uri.parse(tree), rel), "r")
+                            else android.os.ParcelFileDescriptor.open(java.io.File(path ?: ""), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                            if (pfd == null) null else {{
+                                val size = pfd.statSize
+                                mapOf("fd" to pfd.detachFd(), "size" to size)
+                            }}
+                        }} catch (e: Exception) {{ null }}
+                        runOnUiThread {{ result.success(out) }}
+                    }}.start()
+                }}
+                "docUri" -> {{
+                    val out = try {{ docUri(Uri.parse(call.argument<String>("tree") ?: ""), call.argument<String>("rel") ?: "").toString() }} catch (e: Exception) {{ null }}
+                    result.success(out)
+                }}
+                "deleteIn" -> {{
+                    val tree = Uri.parse(call.argument<String>("tree") ?: "")
+                    val rel = call.argument<String>("rel") ?: ""
+                    Thread {{
+                        val ok = try {{ rel.isNotEmpty() && android.provider.DocumentsContract.deleteDocument(contentResolver, docUri(tree, rel)) }} catch (e: Exception) {{ false }}
+                        runOnUiThread {{ result.success(ok) }}
+                    }}.start()
+                }}
                 // 앱을 "공유 → ARARIFlex" 로 열었을 때 받은 파일 (한 번만)
                 "takeShared" -> {{
                     val i = intent
@@ -586,7 +631,8 @@ class MainActivity : FlutterActivity() {{
     }}
 
     /// 폴더 아래 모든 파일 (하위 폴더 포함). rel = 고른 폴더 기준 상대 폴더
-    private fun listTree(tree: Uri): List<Map<String, Any>> {{
+    /// [fail]: 넘기면, 다 보지 못했을 때(읽다 실패 · 너무 많음) fail[0] 을 true 로 한다
+    private fun listTree(tree: Uri, fail: BooleanArray? = null): List<Map<String, Any>> {{
         val out = mutableListOf<Map<String, Any>>()
         val rootId = android.provider.DocumentsContract.getTreeDocumentId(tree)
         val todo = ArrayDeque<Pair<String, String>>()
@@ -601,7 +647,9 @@ class MainActivity : FlutterActivity() {{
             val (id, rel) = todo.removeFirst()
             val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, id)
             try {{
-                contentResolver.query(children, cols, null, null, null)?.use {{ c ->
+                val cur = contentResolver.query(children, cols, null, null, null)
+                if (cur == null) fail?.set(0, true)
+                cur?.use {{ c ->
                     while (c.moveToNext()) {{
                         val cid = c.getString(0) ?: continue
                         val name = c.getString(1) ?: ""
@@ -615,9 +663,37 @@ class MainActivity : FlutterActivity() {{
                         }}
                     }}
                 }}
-            }} catch (e: Exception) {{}}
+            }} catch (e: Exception) {{ fail?.set(0, true) }}
         }}
+        if (todo.isNotEmpty()) fail?.set(0, true)
         return out
+    }}
+
+    /// 연결한 폴더(tree) 아래 상대 경로의 문서 주소. 기기 저장공간 · SD 카드의 문서 이름은 "저장소:경로" 꼴이다
+    private fun docUri(tree: Uri, rel: String): Uri {{
+        val rootId = android.provider.DocumentsContract.getTreeDocumentId(tree)
+        val id = if (rel.isEmpty()) rootId else if (rootId.endsWith(":")) rootId + rel else rootId + "/" + rel
+        return android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id)
+    }}
+
+    /// 연결한 폴더의 실제 위치와 상태. path 는 기기 저장공간 · SD 카드 · USB 일 때만 (그 밖의 곳은 경로를 알 수 없다)
+    private fun treeInfo(tree: Uri): Map<String, Any?> {{
+        var path: String? = null
+        var alive = false
+        var held = false
+        try {{
+            val id = android.provider.DocumentsContract.getTreeDocumentId(tree)
+            if (tree.authority == "com.android.externalstorage.documents" && id.contains(':')) {{
+                val vol = id.substringBefore(':')
+                val rel = id.substringAfter(':')
+                val base = if (vol.equals("primary", true)) Environment.getExternalStorageDirectory().absolutePath else "/storage/" + vol
+                path = if (rel.isEmpty()) base else base + "/" + rel
+            }}
+            held = contentResolver.persistedUriPermissions.any {{ it.uri == tree && it.isReadPermission }}
+            val root = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id)
+            contentResolver.query(root, arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID), null, null, null)?.use {{ alive = it.moveToFirst() }}
+        }} catch (e: Exception) {{}}
+        return mapOf("path" to path, "held" to held, "alive" to alive)
     }}
 
     private fun copyTo(uri: Uri, dest: String): Boolean {{

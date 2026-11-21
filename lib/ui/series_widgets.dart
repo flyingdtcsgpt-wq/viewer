@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../models/series.dart';
+import '../services/linked.dart';
 import 'brand.dart';
 import 'browser.dart' show fileSize;
 import 'detail_page.dart';
@@ -708,8 +709,9 @@ Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = 
         ]),
       );
 
-  // 플레이스토어판: 서재가 곧 ARARIFlex 폴더라서 "목록에서만 빼기" 가 없다 (폴더에 남으면 다시 나타남)
+  // 플레이스토어판: 서재가 곧 폴더(ARARIFlex 폴더 · 연결한 폴더)라서 "목록에서만 빼기" 가 없다 (폴더에 남으면 다시 나타남)
   if (kStore) {
+    final linked = list.where((e) => Linked.has(e.path)).length; // 연결한 폴더(내 폴더 · SD 카드)의 실제 파일
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -717,14 +719,22 @@ Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = 
         title: Text('$what 삭제'),
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('ARARIFlex 폴더 안에 있는 파일을 지웁니다. 되돌릴 수 없습니다.'),
+            Text(linked == 0
+                ? 'ARARIFlex 폴더 안에 있는 파일을 지웁니다. 되돌릴 수 없습니다.'
+                : linked == list.length
+                    ? '연결한 폴더(내 폴더 · SD 카드)에 있는 실제 파일을 지웁니다. 되돌릴 수 없습니다.'
+                    : '파일을 지웁니다(연결한 폴더의 실제 파일 $linked개 포함). 되돌릴 수 없습니다.'),
             if (isSeries) const Padding(padding: EdgeInsets.only(top: 6), child: Text('묶음 안의 모든 권이 함께 지워집니다.')),
             const SizedBox(height: 10),
-            Text(
-              '• 가져올 때 "복사"로 넣은 파일: 원래 있던 곳(다운로드 폴더 등)의 파일은 그대로 남아 있습니다.\n'
-              '• "옮기기"로 넣었거나 PC 에서 넣은 파일: 이 파일이 하나뿐이니 지우면 없어집니다.',
-              style: Theme.of(ctx).textTheme.bodySmall,
-            ),
+            if (linked > 0)
+              Text('• 연결한 폴더의 파일은 복사본이 아니라 그 파일 자체입니다. 지우면 그 폴더에서도 없어집니다.',
+                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(color: Theme.of(ctx).colorScheme.error, fontWeight: FontWeight.w700)),
+            if (linked < list.length)
+              Text(
+                '• 가져올 때 "복사"로 넣은 파일: 원래 있던 곳(다운로드 폴더 등)의 파일은 그대로 남아 있습니다.\n'
+                '• "옮기기"로 넣었거나 PC 에서 넣은 파일: 이 파일이 하나뿐이니 지우면 없어집니다.',
+                style: Theme.of(ctx).textTheme.bodySmall,
+              ),
             if (list.isNotEmpty) files(ctx),
           ]),
         ),
@@ -796,6 +806,9 @@ String friendlyPath(String path) {
   if (kStore && i >= 0) return 'ARARIFlex 폴더 › ${path.substring(i + mark.length).split('/').join(' › ')}';
   const root = '/storage/emulated/0/';
   if (path.startsWith(root)) return '내장 저장공간 › ${path.substring(root.length).split('/').join(' › ')}';
+  // /storage/1234-5678/만화/a.cbz → SD 카드 › 만화 › a.cbz
+  final m = RegExp(r'^/storage/[^/]+/(.*)$').firstMatch(path);
+  if (m != null && Platform.isAndroid) return 'SD 카드 › ${m.group(1)!.split('/').join(' › ')}';
   return path;
 }
 

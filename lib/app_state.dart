@@ -18,8 +18,10 @@ import 'services/ai_service.dart';
 import 'services/archive_tools.dart';
 import 'services/auth.dart';
 import 'services/cover_service.dart';
+import 'services/linked.dart';
 import 'services/metadata_service.dart';
 import 'services/organizer.dart';
+import 'services/saf.dart';
 import 'services/series_parser.dart';
 import 'services/settings.dart';
 import 'services/share_server.dart';
@@ -312,6 +314,7 @@ class AppState extends ChangeNotifier {
       await Directory(p.join(dir, sub)).create(recursive: true);
     }
     storeDir = dir;
+    Linked.folders = settings.linkedFolders; // 연결한 폴더 (복사하지 않고 그 자리에서 읽는다)
     unawaited(_cleanParts(dir)); // 가져오다 멈춘 조각(.part)이 남아 있으면 지운다
     settings.libraryRoot = dir;
     if (settings.libraryFolders.length != 1 || !p.equals(settings.libraryFolders.first.path, dir)) {
@@ -324,6 +327,93 @@ class AppState extends ChangeNotifier {
       users = await db.users();
     }
     await _enter(users.first);
+  }
+
+  // ---- 플레이스토어판: 연결한 폴더 (기기 저장공간 · SD 카드의 폴더를 복사 없이 그대로 서재로) ----
+  List<LinkedFolder> get linkedFolders => Linked.folders;
+
+  /// 지금 읽을 수 없는 연결 폴더의 경로 (SD 카드를 뺐거나, 폴더를 지웠거나, 권한이 풀림)
+  final Set<String> offlineLinked = {};
+
+  int linkedCount(LinkedFolder f) => _items.where((e) => Linked.of(e.path)?.tree == f.tree).length;
+
+  /// 시스템 폴더 선택 창에서 고른 폴더([tree])를 연결한다. 못 하면 까닭을 돌려준다 (null = 연결됨)
+  Future<String?> linkFolder(String tree) async {
+    final info = await Saf.treeInfo(tree);
+    final path = info.path;
+    final cur = Linked.folders;
+    if (cur.any((f) => f.tree == tree)) return '이미 연결한 폴더입니다';
+    if (path == null || !info.alive) {
+      await Saf.releaseFolder(tree).catchError((_) {});
+      return path == null ? '이 위치는 연결할 수 없습니다. 기기 저장공간이나 SD 카드 안의 폴더를 골라 주세요' : '폴더를 읽을 수 없습니다';
+    }
+    for (final f in cur) {
+      if (f.path == path || path.startsWith('${f.path}/')) {
+        await Saf.releaseFolder(tree).catchError((_) {});
+        return f.path == path ? '이미 연결한 폴더입니다' : '이미 연결한 "${f.label}" 폴더 안에 있습니다';
+      }
+    }
+    // 새로 고른 폴더가 예전에 연결한 폴더를 품고 있으면 하나로 합친다 (그 안의 파일 경로는 그대로라 읽던 위치도 남는다)
+    final inside = cur.where((f) => f.path.startsWith('$path/')).toList();
+    for (final f in inside) {
+      await Saf.releaseFolder(f.tree).catchError((_) {});
+    }
+    final next = [...cur.where((f) => !inside.contains(f)), LinkedFolder(tree: tree, path: path)];
+    settings.linkedFolders = next;
+    Linked.folders = next;
+    notifyListeners();
+    unawaited(rescanWhenFree());
+    return null;
+  }
+
+  /// 연결을 끊는다: 목록에서만 빠지고 파일은 그대로 남는다 (읽던 위치 · 책갈피는 사라진다)
+  Future<void> unlinkFolder(LinkedFolder f) async {
+    final gone = _items.where((e) => Linked.of(e.path)?.tree == f.tree).toList();
+    final next = Linked.folders.where((x) => x.tree != f.tree).toList();
+    if (gone.isNotEmpty) await removeMany(items: gone);
+    settings.linkedFolders = next;
+    Linked.folders = next;
+    offlineLinked.remove(f.path);
+    if (libraryPath == f.path) libraryPath = null; // 그 폴더만 보던 중이었으면 전체로
+    await Saf.releaseFolder(f.tree).catchError((_) {});
+    notifyListeners();
+  }
+
+  /// 연결한 폴더 하나를 훑는다: 새 파일은 서재에 넣고, 폴더에서 사라진 파일은 목록에서 뺀다.
+  /// 폴더를 읽을 수 없거나 다 보지 못했으면 아무것도 빼지 않는다 — SD 카드를 잠깐 뺐다고 읽던 위치를 잃으면 안 된다.
+  Future<({int added, int gone, int failed})> _scanLinked(LinkedFolder f) async {
+    final info = await Saf.treeInfo(f.tree);
+    if (!info.alive) {
+      offlineLinked.add(f.path);
+      return (added: 0, gone: 0, failed: 0);
+    }
+    offlineLinked.remove(f.path);
+    final r = await Saf.scanTree(f.tree);
+    var added = 0, failed = 0;
+    final seen = <String>{};
+    for (final e in r.files) {
+      final path = e.rel.isEmpty ? '${f.path}/${e.name}' : '${f.path}/${e.rel}/${e.name}';
+      if (kindForPath(path) == null) continue;
+      seen.add(path);
+      try {
+        if (await _addFile(path, ImportMode.reference, size: e.size < 0 ? 0 : e.size) != null) {
+          added++;
+          scanStatus = '새 파일을 서재에 넣는 중 ($added): ${e.name}';
+          _progress();
+        }
+      } catch (_) {
+        failed++; // 한 파일이 이상해도 나머지는 계속
+      }
+    }
+    var gone = 0;
+    if (r.ok) {
+      final lost = _items.where((e) => Linked.of(e.path)?.tree == f.tree && !seen.contains(e.path)).toList();
+      if (lost.isNotEmpty) {
+        await removeMany(items: lost);
+        gone = lost.length;
+      }
+    }
+    return (added: added, gone: gone, failed: failed);
   }
 
   Future<void> _cleanParts(String dir) async {
@@ -1458,6 +1548,16 @@ class AppState extends ChangeNotifier {
       await checkMissing(within: dirs);
       // 플레이스토어판: 서재는 ARARIFlex 폴더 그 자체다 → 폴더에서 사라진 파일(PC 에서 지웠거나 옮긴 것)은 목록에서도 뺀다
       var gone = 0;
+      // 연결한 폴더 (기기 저장공간 · SD 카드): 시스템을 거쳐 훑는다
+      final wasOffline = {...offlineLinked};
+      if (kStore) {
+        for (final f in [...Linked.folders]) {
+          final r = await _scanLinked(f);
+          added += r.added;
+          failed += r.failed;
+          gone += r.gone;
+        }
+      }
       if (kStore && dirErrors == 0 && missingDirs == 0) {
         final lost = _items.where((e) => e.missing).toList();
         if (lost.isNotEmpty) {
@@ -1471,6 +1571,10 @@ class AppState extends ChangeNotifier {
           if (added > 0) '새 파일 $added개를 서재에 넣었습니다',
           if (grouped > 0) '$grouped개를 시리즈로 묶었습니다',
           if (gone > 0) '폴더에서 사라진 $gone개를 목록에서 뺐습니다',
+          // 방금 못 읽게 된 연결 폴더만 한 번 알린다 (켤 때마다 되풀이하지 않는다)
+          for (final f in Linked.folders)
+            if (offlineLinked.contains(f.path) && !wasOffline.contains(f.path))
+              '"${f.label}" 폴더를 읽을 수 없습니다${f.removable ? ' (SD 카드를 확인하세요)' : ''}',
         ].join(' · ');
         if (scanStatus.isNotEmpty) _clearStatusLater();
         return;
@@ -1531,16 +1635,16 @@ class AppState extends ChangeNotifier {
   Set<String> get _knownPaths => _memo('paths', () => {for (final e in _items) _pathKey(e.path)});
   static String _pathKey(String path) => Platform.isWindows || Platform.isMacOS ? path.toLowerCase() : path;
 
-  Future<MediaItem?> _addFile(String path, ImportMode mode, {String? root, bool hidden = false}) async {
+  /// [size]: 크기를 이미 알 때 (연결한 폴더의 파일은 경로로 물어볼 수 없다)
+  Future<MediaItem?> _addFile(String path, ImportMode mode, {String? root, bool hidden = false, int? size}) async {
     if (_knownPaths.contains(_pathKey(path))) return null;
     final kind = kindForPath(path)!;
-    final stat = await File(path).stat();
     final item = MediaItem(
       path: path,
       kind: kind,
       storage: StorageMode.reference,
       title: _titleFromFileName(path),
-      size: stat.size,
+      size: size ?? (await File(path).stat()).size,
     )..hidden = hidden; // 숨김으로 추가: 목록에 들어가는 순간부터 숨김
     if (item.extension == '.epub') {
       final info = await covers.readEpubInfo(path);
@@ -1924,9 +2028,14 @@ class AppState extends ChangeNotifier {
     for (final e in targets) {
       if (deleteFile) {
         try {
-          final f = File(e.path);
-          if (Platform.isWindows) await Process.run('attrib.exe', ['-h', '-r', e.path]); // 숨김/읽기전용 풀고 삭제
-          if (await f.exists()) await f.delete();
+          if (Linked.has(e.path)) {
+            // 연결한 폴더의 파일: 시스템을 거쳐 지운다 (못 지우면 목록에도 남긴다)
+            if (!await Linked.delete(e.path) && await Linked.exists(e.path)) throw const FileSystemException('지우지 못했습니다');
+          } else {
+            final f = File(e.path);
+            if (Platform.isWindows) await Process.run('attrib.exe', ['-h', '-r', e.path]); // 숨김/읽기전용 풀고 삭제
+            if (await f.exists()) await f.delete();
+          }
         } catch (_) {
           failed++;
           continue; // 파일을 못 지웠으면 목록에도 남겨둔다
@@ -2029,6 +2138,7 @@ class AppState extends ChangeNotifier {
     }
     bool inside(String path, String root) => p.equals(path, root) || p.isWithin(root, path);
     final targets = _items.where((e) {
+      if (Linked.has(e.path)) return false; // 연결한 폴더의 파일은 경로로 확인할 수 없다 (훑을 때 따로 본다)
       if (within != null && !within.any((r) => inside(e.path, r))) return false;
       return !offline.any((r) => inside(e.path, r));
     }).toList();

@@ -370,3 +370,21 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - **그대로 둔 것 하나**: 서명 키의 별칭(`ANDROID_KEY_ALIAS` = mediashelf). 키 파일 안에 든 키의 이름표라 사용자에게 보이지 않고, 바꾸려면 키 파일과 Secrets 를 새로 만들어야 한다(서명 자체는 달라지지 않는다)
 - 고칠 때 볼 곳: 생성된 틀에 기대는 치환은 못 찾으면 빌드를 멈추게 했다(`sub1`, `assert`) — flutter 가 틀을 바꾸면 조용히 옛 이름으로 돌아가지 않게
 
+## 18. 플레이스토어판 폴더 연결 (11-22): 내 폴더 · SD 카드를 복사 없이
+- **왜**: 앱 전용 폴더(`Android/data/…`)는 기기의 파일 앱에서 보이지 않고 앱을 지우면 함께 지워진다. "모든 파일 접근" 은 뷰어 앱에 허용되지 않는다 →
+  시스템 폴더 선택 창(`ACTION_OPEN_DOCUMENT_TREE`)으로 고른 폴더의 지속 권한을 쥐고 그 자리에서 읽는다
+- **경로는 그대로 실제 경로**: 고른 폴더의 문서 이름 `primary:Comics` · `1234-5678:만화` 에서 `/storage/emulated/0/Comics` · `/storage/1234-5678/만화` 를 얻어(`treeInfo`) DB · 목록에는 이 경로를 쓴다
+  → 제목 · 확장자 · 시리즈 묶기 · 폴더별 보기가 손대지 않고 동작. 기기 저장공간 · SD · USB(`com.android.externalstorage.documents`)만 연결할 수 있다
+- **읽기**: 그 경로를 `File` 로 열 수는 없다(권한 없음). `Linked.ref(path)` → 네이티브 `openFd`(tree + 상대 경로 → 문서 주소 → `ParcelFileDescriptor.detachFd`) → `FileRef(path, fd, size)`.
+  `fd_file.dart`: `FdReader`(FFI `pread64`), archive 용 `ReaderHandle`(`InputFileStream.withFileHandle`), `FileRef.input() · readAllSync() · reader()`. isolate 로 넘길 수 있다.
+  **파일 번호는 만든 쪽이 한 번만 닫는다**(`Linked.use` 또는 `ZipPages.close` · PDF 뷰어 dispose). `/proc/self/fd/N` 으로 다시 여는 꼼수는 권한에 걸려 안 된다
+  - 표지 · 쪽수 · EPUB 정보(`cover_service.dart`), 만화 쪽(`zip_pages.dart`), TXT · EPUB(`text_document.dart`): `FileRef`
+  - PDF: 표지는 `PdfDocument.openCustom`, 뷰어는 `PdfViewer.custom`(읽기 함수가 요청한 만큼 꼭 채워야 한다 → `FdReader.readAt` 이 끝까지 읽는다). 뷰어를 닫고 3초 뒤 파일 번호를 닫는다
+  - 영상: `Media(content://…)`(media_kit 이 직접 연다), 썸네일은 `srcFileUri: true`
+- **훑기** `_scanLinked`: `scanTree`(ok = 끝까지 다 봤는가) → 새 파일 등록, 사라진 파일은 **ok 일 때만** 목록에서 뺀다. 폴더를 읽을 수 없으면(`treeInfo.alive` 가 false: SD 카드를 뺌 · 권한 풀림)
+  `offlineLinked` 에 넣고 아무것도 빼지 않는다 — 읽던 위치를 잃지 않게. `checkMissing` 은 연결한 폴더의 파일을 보지 않는다(경로로는 늘 "없음" 으로 나온다)
+- **삭제**: `Linked.delete`(`DocumentsContract.deleteDocument`). 복사본이 아니라 실제 파일이므로 삭제 창에 따로 경고
+- 연결 목록은 `Settings.linkedFolders`(tree · path · name), 실행 중에는 `Linked.folders`. 새 폴더가 예전 연결 폴더를 품으면 합친다
+- **확인한 것 / 못 한 것**: 파일 번호로 읽기(통째 · 압축 · PDF)는 에뮬레이터 점검 `CHECK fd`, 경로 계산 · 압축 다리는 `test/linked_test.dart`.
+  폴더 선택 창 · 지속 권한 · SD 카드 · 영상 재생은 자동으로 못 본다 → 실제 기기에서 확인
+

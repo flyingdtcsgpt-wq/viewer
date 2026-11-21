@@ -8,6 +8,9 @@ import 'package:cp949_codec/cp949_codec.dart';
 import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 
+import 'fd_file.dart';
+import 'linked.dart';
+
 /// 텍스트 뷰어가 그리는 최소 단위 (문단 하나 / 제목 하나 / 그림 하나)
 class TextBlock {
   final String? text;
@@ -63,7 +66,8 @@ class TextDocument {
   /// 무거운 작업이라 별도 isolate 에서 읽는다 (UI 멈춤 방지)
   static Future<TextDocument> load(String path) {
     final ext = p.extension(path).toLowerCase();
-    return Isolate.run(() => ext == '.epub' ? _loadEpub(path) : _loadTxt(path));
+    // (연결한 폴더의 파일이면 시스템이 열어 준 파일 번호로 읽는다)
+    return Linked.use(path, (ref) => Isolate.run(() => ext == '.epub' ? _loadEpub(ref) : _loadTxt(ref)));
   }
 }
 
@@ -144,8 +148,8 @@ bool isChapterTitle(String line) {
   return _chapterStart.hasMatch(core) && !_proseEnd.hasMatch(core);
 }
 
-TextDocument _loadTxt(String path) {
-  final (text, enc) = decodeText(File(path).readAsBytesSync());
+TextDocument _loadTxt(FileRef ref) {
+  final (text, enc) = decodeText(ref.readAllSync());
   final blocks = <TextBlock>[];
   final toc = <TocEntry>[];
   for (var line in const LineSplitter().convert(text)) {
@@ -169,8 +173,8 @@ TextDocument _loadTxt(String path) {
 
 // ======================= EPUB =======================
 
-TextDocument _loadEpub(String path) {
-  final input = InputFileStream(path);
+TextDocument _loadEpub(FileRef ref) {
+  final input = ref.input();
   try {
     final zip = ZipDecoder().decodeStream(input);
     String read(String name) => utf8.decode(zip.findFile(name)?.content ?? Uint8List(0), allowMalformed: true);

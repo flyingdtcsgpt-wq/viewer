@@ -10,6 +10,8 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
 import '../../services/background_reading.dart';
+import '../../services/fd_file.dart';
+import '../../services/linked.dart';
 import '../../services/pdf_text.dart';
 import 'open_item.dart';
 import 'read_aloud.dart';
@@ -56,9 +58,29 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
       _awake = true;
       ScreenAwake.hold();
     }
+    if (_linked) _openLinked();
   }
 
   bool _awake = false; // 화면 켜 두기를 걸었는가
+
+  // 연결한 폴더의 파일: 열어 둔 파일 번호로 읽는다
+  late final bool _linked = Linked.has(item.path);
+  FileRef? _ref;
+  RandomReader? _reader;
+  Object? _openError;
+
+  Future<void> _openLinked() async {
+    try {
+      final r = await Linked.ref(item.path);
+      if (!mounted) return r.close();
+      setState(() {
+        _ref = r;
+        _reader = r.reader();
+      });
+    } catch (e) {
+      if (mounted) setState(() => _openError = e is FileSystemException ? e.message : e);
+    }
+  }
 
   @override
   void dispose() {
@@ -66,6 +88,14 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
     if (_awake) ScreenAwake.release();
     if (_fullscreen) setViewerFullscreen(false);
     _strip.dispose();
+    // 화면이 닫힌 뒤 PDF 엔진이 마저 읽고 닫을 틈을 준 다음 파일 번호를 닫는다
+    final ref = _ref, rd = _reader;
+    if (ref != null) {
+      Future<void>.delayed(const Duration(seconds: 3), () {
+        rd?.close();
+        ref.close();
+      });
+    }
     super.dispose();
   }
 
@@ -105,6 +135,51 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
     final pos = _strip.position;
     _strip.animateTo(((_page - 1) * w - pos.viewportDimension / 2 + w / 2).clamp(0.0, pos.maxScrollExtent),
         duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+  }
+
+  /// PDF 화면. 보통 파일은 경로로, 연결한 폴더의 파일은 시스템이 열어 준 파일 번호로 읽는다
+  Widget _viewer(Settings s) {
+    final params = PdfViewerParams(
+      // 색을 뒤집을 때는 바탕도 함께 뒤집히므로 미리 밝은 회색을 준다 (뒤집히면 원래의 어두운 바탕)
+      backgroundColor: s.pdfInvert ? const Color(0xFFE4E4E4) : viewerBg,
+      // 터치 기기: 좌우 가장자리를 누르면 쪽 넘김, 가운데를 누르면 위아래 메뉴 보이기 · 숨기기 (만화 · 책과 같게)
+      onGeneralTap: !_touch
+          ? null
+          : (ctx, ctrl, d) {
+              if (d.type != PdfViewerGeneralTapType.tap || d.tapOn == PdfViewerPart.selectedText) return false;
+              final x = d.localPosition.dx / MediaQuery.sizeOf(context).width;
+              if (s.tapToTurn && (x < 0.25 || x > 0.75)) {
+                _go(_page + ((x < 0.25) == s.tapLeftIsNext ? 1 : -1));
+              } else {
+                setState(() => _chrome = !_chrome);
+              }
+              return false; // (글자 선택 풀기 같은 기본 동작은 그대로)
+            },
+      onViewerReady: (doc, ctrl) => setState(() {
+        _doc = doc;
+        _pages = doc.pages.length;
+      }),
+      onPageChanged: (p) {
+        if (p == null) return;
+        setState(() => _page = p);
+        _app.saveProgress(item, '$p', _progress);
+        _scrollStrip();
+      },
+    );
+    if (!_linked) return PdfViewer.file(item.path, controller: _ctrl, initialPageNumber: _page, params: params);
+    final rd = _reader;
+    if (_openError != null) {
+      return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('$_openError', style: const TextStyle(color: Colors.white70), textAlign: TextAlign.center)));
+    }
+    if (rd == null) return const Center(child: CircularProgressIndicator());
+    return PdfViewer.custom(
+      fileSize: rd.length,
+      read: (buf, pos, size) => rd.readAt(pos, buf, size),
+      sourceName: item.path,
+      controller: _ctrl,
+      initialPageNumber: _page,
+      params: params,
+    );
   }
 
   @override
@@ -272,38 +347,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                         child: StableFilter(
                       // 어두운 화면: 색상은 두고 밝기만 뒤집는다 (흰 종이 → 검은 바탕, 검은 글 → 밝은 글)
                       filter: s.pdfInvert ? invertKeepHue : null,
-                      child: PdfViewer.file(
-                  item.path,
-                  controller: _ctrl,
-                  initialPageNumber: _page,
-                  params: PdfViewerParams(
-                    // 색을 뒤집을 때는 바탕도 함께 뒤집히므로 미리 밝은 회색을 준다 (뒤집히면 원래의 어두운 바탕)
-                    backgroundColor: s.pdfInvert ? const Color(0xFFE4E4E4) : viewerBg,
-                    // 터치 기기: 좌우 가장자리를 누르면 쪽 넘김, 가운데를 누르면 위아래 메뉴 보이기 · 숨기기 (만화 · 책과 같게)
-                    onGeneralTap: !_touch
-                        ? null
-                        : (ctx, ctrl, d) {
-                            if (d.type != PdfViewerGeneralTapType.tap || d.tapOn == PdfViewerPart.selectedText) return false;
-                            final x = d.localPosition.dx / MediaQuery.sizeOf(context).width;
-                            if (s.tapToTurn && (x < 0.25 || x > 0.75)) {
-                              _go(_page + ((x < 0.25) == s.tapLeftIsNext ? 1 : -1));
-                            } else {
-                              setState(() => _chrome = !_chrome);
-                            }
-                            return false; // (글자 선택 풀기 같은 기본 동작은 그대로)
-                          },
-                    onViewerReady: (doc, ctrl) => setState(() {
-                      _doc = doc;
-                      _pages = doc.pages.length;
-                    }),
-                    onPageChanged: (p) {
-                      if (p == null) return;
-                      setState(() => _page = p);
-                      _app.saveProgress(item, '$p', _progress);
-                      _scrollStrip();
-                    },
-                  ),
-                ),
+                      child: _viewer(s),
                     )),
                   ),
                   // 마지막 쪽에 오면 아래에 작게 안내 (넘기지 않고도 다음 권으로)

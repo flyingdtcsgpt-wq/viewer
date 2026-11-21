@@ -7,11 +7,16 @@ import 'package:path/path.dart' as p;
 
 import '../models/media_item.dart';
 import 'archive_tools.dart';
+import 'fd_file.dart';
+import 'linked.dart';
 
 /// 압축 만화(CBZ · ZIP)의 쪽을 화면 쪽이 아니라 따로 도는 일꾼(isolate)에서 꺼낸다.
 /// 압축 파일은 한 번만 열어 두고, 쪽을 달라는 대로 풀어서 보낸다 (큰 파일 · 느린 드라이브에서도 화면이 멈추지 않음).
 class ZipPages {
-  ZipPages._(this.names, this._send, this._iso, this._replies);
+  ZipPages._(this.names, this._send, this._iso, this._replies, this._ref);
+
+  /// 읽는 파일 (연결한 폴더의 파일이면 열어 둔 파일 번호를 쥐고 있다 → close 에서 닫는다)
+  final FileRef _ref;
 
   /// 그림 이름들 (자연 정렬, 쪽 순서)
   final List<String> names;
@@ -23,9 +28,17 @@ class ZipPages {
   bool _closed = false;
 
   static Future<ZipPages> open(String path) async {
+    final ref = await Linked.ref(path); // 연결한 폴더의 파일이면 시스템이 열어 준 파일 번호로 읽는다
     final replies = ReceivePort();
     final first = Completer<(SendPort, List<String>)>();
-    final iso = await Isolate.spawn(_worker, (path, replies.sendPort));
+    final Isolate iso;
+    try {
+      iso = await Isolate.spawn(_worker, (ref, replies.sendPort));
+    } catch (_) {
+      ref.close();
+      replies.close();
+      rethrow;
+    }
     ZipPages? self;
     replies.listen((msg) {
       if (msg is (SendPort, List<String>)) {
@@ -39,10 +52,11 @@ class ZipPages {
     });
     try {
       final (send, names) = await first.future;
-      return self = ZipPages._(names, send, iso, replies);
+      return self = ZipPages._(names, send, iso, replies, ref);
     } catch (e) {
       iso.kill();
       replies.close();
+      ref.close();
       rethrow;
     }
   }
@@ -65,14 +79,15 @@ class ZipPages {
     _wait.clear();
     _iso.kill(priority: Isolate.immediate);
     _replies.close();
+    _ref.close();
   }
 }
 
-void _worker((String, SendPort) args) {
-  final (path, reply) = args;
+void _worker((FileRef, SendPort) args) {
+  final (ref, reply) = args;
   InputFileStream? input;
   try {
-    input = InputFileStream(path);
+    input = ref.input();
     final zip = ZipDecoder().decodeStream(input);
     final files = zip.files.where((f) => f.isFile && imageExts.contains(p.extension(f.name).toLowerCase())).toList()
       ..sort((a, b) => ArchiveTools.natural(a.name, b.name));
