@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../edition.dart';
+import '../services/ads.dart';
 import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../services/settings.dart';
@@ -20,6 +22,7 @@ import 'landing_view.dart';
 import 'series_widgets.dart';
 import 'settings_page.dart';
 import 'viewers/open_item.dart';
+import 'store_import.dart';
 import 'webdav_import.dart';
 
 const _kinds = <MediaKind?>[null, MediaKind.book, MediaKind.comic, MediaKind.image, MediaKind.video];
@@ -82,7 +85,12 @@ class HomePage extends StatelessWidget {
                 const SizedBox(width: 270, child: Material(child: _Sidebar())),
                 const VerticalDivider(width: 1),
                 Expanded(
-                  child: showLanding
+                  child: kStore
+                      ? Column(children: [
+                          Expanded(child: showLanding ? const LandingView(topBar: _LandingTopBar(wide: true)) : const _WideList()),
+                          if (state.rawItems.isNotEmpty) const AdBanner(),
+                        ])
+                      : showLanding
                       ? const LandingView(topBar: _LandingTopBar(wide: true))
                       : Column(children: [
                           const _Toolbar(phone: false),
@@ -110,10 +118,12 @@ class HomePage extends StatelessWidget {
         body: showLanding ? const LandingView(topBar: _LandingTopBar(wide: false)) : body,
         // 휴대폰 하단 탭: 홈 + 이 계정에 허용된 종류만 (막힌 종류는 탭에서도 빠짐)
         bottomNavigationBar: Builder(builder: (_) {
-          final tabs = <int>[0, for (var i = 1; i < _kinds.length; i++) if (state.kindAllowed(_kinds[i]!)) i];
-          if (tabs.length < 2) return const SizedBox.shrink(); // 탭이 홈 하나뿐이면 막대를 감춘다
+          // 플레이스토어판: 아래 탭 위에 광고 한 줄 (서재가 비었으면 없음)
+          final banner = kStore && state.rawItems.isNotEmpty ? const AdBanner() : null;
+          final tabs = <int>[0, for (var i = 1; i < _kinds.length; i++) if (state.kindAllowed(_kinds[i]!) && !(kStore && _kinds[i] == MediaKind.image)) i];
+          if (tabs.length < 2) return banner ?? const SizedBox.shrink(); // 탭이 홈 하나뿐이면 막대를 감춘다
           final cur = showLanding || state.kindFilter == null ? 0 : tabs.indexOf(_kinds.indexOf(state.kindFilter));
-          return NavigationBar(
+          final nav = NavigationBar(
             selectedIndex: cur < 0 ? 0 : cur,
             onDestinationSelected: (t) => tabs[t] == 0 ? state.showLanding() : state.setFilter(kind: _kinds[tabs[t]]),
             destinations: [
@@ -123,6 +133,7 @@ class HomePage extends StatelessWidget {
                     : NavigationDestination(icon: Icon(_kindIcons[i]), label: _kindName(_kinds[i])),
             ],
           );
+          return banner == null ? nav : Column(mainAxisSize: MainAxisSize.min, children: [banner, nav]);
         }),
       );
     }
@@ -219,6 +230,7 @@ class _Sidebar extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(12, 4, 4, 4),
           child: Logo(size: 26),
         ),
+      if (!kStore)
       Card(
         margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: ListTile(
@@ -249,8 +261,16 @@ class _Sidebar extends StatelessWidget {
         ),
       item(Icons.history, '내 열람 기록', act(() => push(const HistoryPage()))),
 
+      // 플레이스토어판: 서재 폴더는 하나 (ARARIFlex 폴더) — 가져오기만
+      if (kStore) ...[
+        section('서재'),
+        item(Icons.add_circle_outline, '파일 · 폴더 가져오기', act(() => openStoreImport(rootContext))),
+        item(Icons.refresh, '다시 찾기', state.scanning ? null : act(state.rescanAll)),
+        item(Icons.help_outline, 'ARARIFlex 폴더 안내', act(() => showStoreFolderHelp(rootContext))),
+      ],
+
       // 라이브러리 폴더 (설정에서 정한 순서 · 그룹 · 별칭)
-      if (state.visibleLibraryFolders.isNotEmpty) ...[
+      if (!kStore && state.visibleLibraryFolders.isNotEmpty) ...[
         section('라이브러리'),
         for (final (i, f) in state.visibleLibraryFolders.indexed) ...[
           if (f.group.isNotEmpty && (i == 0 || state.visibleLibraryFolders[i - 1].group != f.group))
@@ -313,7 +333,7 @@ class _Sidebar extends StatelessWidget {
           })),
       ],
 
-      if (admin && inDrawer) ...[
+      if (admin && inDrawer && !kStore) ...[
         section('라이브러리 관리'),
         item(Icons.create_new_folder, '폴더 추가', act(() => addFolderFlow(rootContext))),
         item(Icons.note_add, '파일 추가', act(() => addFilesFlow(rootContext))),
@@ -337,9 +357,9 @@ class _Sidebar extends StatelessWidget {
       ],
 
       section('도구'),
-      item(Icons.auto_awesome, 'AI 도우미', act(() => showAiChat(context))),
+      if (!kStore) item(Icons.auto_awesome, 'AI 도우미', act(() => showAiChat(context))),
       item(Icons.settings, '설정', act(() => showSettings(rootContext))),
-      if (admin) item(Icons.manage_accounts, '관리자 (사용자·권한·숨김)', act(() => push(const AdminPage()))),
+      if (admin && !kStore) item(Icons.manage_accounts, '관리자 (사용자·권한·숨김)', act(() => push(const AdminPage()))),
       if (state.hiddenUnlocked) item(Icons.lock, '숨김 목록 다시 잠그기', act(state.lockHidden)),
 
       if (tags.isNotEmpty) ...[
@@ -443,6 +463,7 @@ class _TopActionBar extends StatelessWidget {
           final c = await pickSeries(context, title: '어느 묶음으로 옮길까요?');
           if (c != null) await state.moveSelected(c.id);
         }),
+        if (!kStore) ...[
         btn(Icons.edit_note, '메타데이터', () {
           final items = state.selectedItemsDeep;
           if (items.isNotEmpty) push(BatchEditorPage(items: items));
@@ -453,6 +474,7 @@ class _TopActionBar extends StatelessWidget {
         }),
         if (state.hiddenUnlocked) btn(Icons.visibility, '숨김 해제', () => state.hideSelected(false)),
         btn(Icons.lock_person, '사용자 접근', () => showAccessForSelection(context)),
+        ],
       ],
     ];
 
@@ -462,7 +484,19 @@ class _TopActionBar extends StatelessWidget {
       child: Row(children: [
         const Logo(size: 22),
         const SizedBox(width: 20),
-        if (admin && !has) ...[
+        if (kStore && !has) ...[
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            ),
+            onPressed: () => openStoreImport(context),
+            icon: const Icon(Icons.add, size: 20),
+            label: const Text('가져오기'),
+          ),
+          const SizedBox(width: 8),
+        ],
+        if (admin && !has && !kStore) ...[
           PopupMenuButton<int>(
             tooltip: '라이브러리에 추가',
             position: PopupMenuPosition.under,
@@ -516,6 +550,7 @@ class _TopActionBar extends StatelessWidget {
             itemBuilder: (_) => [
               const PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.select_all), title: Text('전체 선택 / 해제'), trailing: Text('Ctrl+A'))),
               const PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.auto_fix_high), title: Text('시리즈 자동 묶기'))),
+              if (!kStore) ...[
               const PopupMenuDivider(),
               const PopupMenuItem(value: 2, child: ListTile(leading: Icon(Icons.construction), title: Text('파일 도구'))),
               PopupMenuItem(
@@ -526,6 +561,7 @@ class _TopActionBar extends StatelessWidget {
                   title: Text(state.share.running ? '공유 서버 (켜짐)' : '공유 서버'),
                 ),
               ),
+              ],
             ],
           ),
         if (admin && state.share.running)
@@ -535,8 +571,8 @@ class _TopActionBar extends StatelessWidget {
             onPressed: () => push(const SharePage()),
           ),
         IconButton(tooltip: '내 열람 기록', icon: const Icon(Icons.history), onPressed: () => push(const HistoryPage())),
-        IconButton(tooltip: 'AI 도우미', icon: const Icon(Icons.auto_awesome), onPressed: () => showAiChat(context)),
-        if (admin) IconButton(tooltip: '관리자', icon: const Icon(Icons.manage_accounts), onPressed: () => push(const AdminPage())),
+        if (!kStore) IconButton(tooltip: 'AI 도우미', icon: const Icon(Icons.auto_awesome), onPressed: () => showAiChat(context)),
+        if (admin && !kStore) IconButton(tooltip: '관리자', icon: const Icon(Icons.manage_accounts), onPressed: () => push(const AdminPage())),
         IconButton(tooltip: '설정', icon: const Icon(Icons.settings), onPressed: () => showSettings(context)),
       ]),
     );
@@ -758,5 +794,23 @@ class _ExternalOpenerState extends State<_ExternalOpener> {
       });
     }
     return widget.child;
+  }
+}
+
+
+/// 넓은 화면의 목록 부분 (플레이스토어판은 아래에 광고를 붙이려고 따로 뺐다)
+class _WideList extends StatelessWidget {
+  const _WideList();
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    return Column(children: [
+      const _Toolbar(phone: false),
+      const PathBar(),
+      if (state.hiddenUnlocked) const _HiddenBanner(),
+      const Expanded(child: EntryBrowser(desktop: true)),
+      const DetailPanel(),
+      const StatusBar(),
+    ]);
   }
 }

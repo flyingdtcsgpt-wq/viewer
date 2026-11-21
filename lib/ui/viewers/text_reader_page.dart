@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../edition.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
@@ -89,7 +90,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
 
   // 소리 내어 읽기
   final _tts = TtsService();
-  late bool _ttsPanel = widget.readAloud;
+  late bool _ttsPanel = widget.readAloud && !kStore;
   bool _speaking = false;
   int? _ttsBlock;
   List<String> _voices = [];
@@ -148,7 +149,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _updateCurrent();
       });
-      _prepareCast();
+      if (!kStore) _prepareCast();
       if (widget.autoPlay) {
         // 다 읽은 책이면 처음부터, 아니면 읽던 곳부터
         _ttsPlay(from: _wasFinished ? 0 : _current);
@@ -1099,7 +1100,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
           ),
           NextVolumeButton(item: item),
           // 휴대폰: 도구줄이 화면 밖으로 넘쳐도 읽어주기는 바로 누를 수 있게
-          if (!wide) ...[
+          if (!wide && !kStore) ...[
             IconButton(
               tooltip: '소리 내어 읽기',
               icon: Icon(Icons.record_voice_over, color: _ttsPanel || _speaking ? toolActive : Colors.white),
@@ -1134,6 +1135,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
                 onTap: () => setState(() => _selectMode = !_selectMode),
               ),
             ]),
+            if (!kStore)
             ToolGroup([
               ToolBtn(label: 'TTS', tooltip: '소리 내어 읽기', active: _ttsPanel || _speaking, onTap: () => setState(() => _ttsPanel = !_ttsPanel)),
             ]),
@@ -1686,7 +1688,7 @@ class _SelectionMenu extends StatelessWidget {
             Row(mainAxisSize: MainAxisSize.min, children: [
               _btn(Icons.content_copy, '복사', () => onPick('copy', 0)),
               _btn(Icons.search, '검색', () => onPick('search', 0)),
-              _btn(Icons.translate, 'AI 뜻풀이', () => onPick('ai', 0)),
+              if (!kStore) _btn(Icons.translate, 'AI 뜻풀이', () => onPick('ai', 0)),
             ]),
           ]),
         ),

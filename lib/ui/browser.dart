@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../edition.dart';
 import '../app_state.dart';
 import '../models/entry.dart';
 import '../models/media_item.dart';
@@ -933,12 +934,12 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
       const PopupMenuDivider(),
     ],
     if (admin) ...[
-      item('batch', Icons.edit_note, multi || e is SeriesEntry ? '메타데이터 일괄 관리' : '메타데이터 관리 (편집기)'),
+      if (!kStore) item('batch', Icons.edit_note, multi || e is SeriesEntry ? '메타데이터 일괄 관리' : '메타데이터 관리 (편집기)'),
       item('move', Icons.drive_file_move, multi ? '선택한 ${state.selected.length}개 다른 묶음으로' : '다른 묶음으로 이동'),
-      item('hide', Icons.visibility_off, '숨기기'),
-      item('access', Icons.lock_person, '사용자 접근'),
+      if (!kStore) item('hide', Icons.visibility_off, '숨기기'),
+      if (!kStore) item('access', Icons.lock_person, '사용자 접근'),
     ],
-    if (e is ItemEntry && !multi && (e.item.extension == '.txt' || e.item.extension == '.epub'))
+    if (!kStore && e is ItemEntry && !multi && (e.item.extension == '.txt' || e.item.extension == '.epub'))
       item('listen', Icons.record_voice_over, '소리 내어 읽기로 열기'),
     if (e is ItemEntry && !multi && Platform.isWindows) item('explorer', Icons.folder_open, '탐색기에서 열기'),
     if (admin) ...[

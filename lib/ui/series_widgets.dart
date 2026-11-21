@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../edition.dart';
 import '../app_state.dart';
 import '../models/entry.dart';
 import '../models/series.dart';
@@ -228,7 +229,7 @@ class SeriesHeader extends StatelessWidget {
                   icon: const Icon(Icons.edit),
                   label: const Text('묶음 정보'),
                 ),
-              if (state.ai.enabled && state.isAdmin)
+              if (state.ai.enabled && state.isAdmin && !kStore)
                 OutlinedButton.icon(
                   onPressed: () => _aiFill(context, s),
                   icon: const Icon(Icons.auto_awesome),
@@ -311,6 +312,7 @@ class SelectionBar extends StatelessWidget {
             label: const Text('묶음에서 빼기'),
           ),
         const SizedBox(width: 8),
+        if (!kStore) ...[
         TextButton.icon(
           onPressed: () async {
             if (!state.hasHiddenPassword) {
@@ -340,6 +342,7 @@ class SelectionBar extends StatelessWidget {
           icon: const Icon(Icons.lock_person),
           label: const Text('사용자 접근'),
         ),
+        ],
         TextButton.icon(
           style: TextButton.styleFrom(foregroundColor: scheme.error),
           onPressed: () async {
@@ -609,7 +612,7 @@ class _SeriesEditorState extends State<_SeriesEditor> {
           },
           child: const Text('삭제'),
         ),
-        if (state.ai.enabled)
+        if (state.ai.enabled && !kStore)
           TextButton(
             onPressed: () async {
               setState(() => _busy = true);

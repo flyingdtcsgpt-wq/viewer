@@ -1,6 +1,14 @@
 """flutter create 로 만든 AndroidManifest.xml 에 권한/앱 이름을 넣는다 (CI 에서 실행)."""
+import os
 import re
+import sys
 from pathlib import Path
+
+# --store: 플레이스토어판 (패키지 com.arariflex.app, 저장소 · 알림 · 백그라운드 권한 없음, 광고)
+STORE = "--store" in sys.argv
+STORE_ID = "com.arariflex.app"
+# AdMob 앱 ID: Secrets(ADMOB_APP_ID) 가 없으면 구글 시험용 ID (시험 광고만 나온다)
+ADMOB_APP_ID = os.environ.get("ADMOB_APP_ID") or "ca-app-pub-3940256099942544~3347511713"
 
 path = Path("android/app/src/main/AndroidManifest.xml")
 xml = path.read_text(encoding="utf-8")
@@ -15,6 +23,9 @@ perms = [
     ("android.permission.WAKE_LOCK", ""),
     ("android.permission.POST_NOTIFICATIONS", ""),                        # "읽는 중" 알림
 ]
+if STORE:
+    # 플레이스토어판: 인터넷(광고)만. 파일은 사용자가 고른 것만 읽어 앱 폴더로 가져온다(SAF)
+    perms = [("android.permission.INTERNET", ""), ("android.permission.ACCESS_NETWORK_STATE", "")]
 lines = "".join(f'    <uses-permission android:name="{p}"{extra}/>\n' for p, extra in perms if p not in xml)
 xml = re.sub(r"(<manifest[^>]*>\n)", r"\1" + lines, xml, count=1)
 xml = xml.replace('android:label="media_shelf"', 'android:label="ARARIFlex"')
@@ -43,8 +54,47 @@ if "android.intent.action.TTS_SERVICE" not in xml:
         xml = xml.replace("<queries>\n", "<queries>\n" + tts_q, 1)
     else:
         xml = xml.replace("</manifest>", "    <queries>\n" + tts_q + "    </queries>\n</manifest>", 1)
+# ---- 광고 SDK(google_mobile_ads): 앱 ID 가 없으면 앱이 켜지자마자 죽는다 → 두 판 모두 넣는다 ----
+if 'xmlns:tools=' not in xml:
+    xml = xml.replace("<manifest ", '<manifest xmlns:tools="http://schemas.android.com/tools" ', 1)
+if "com.google.android.gms.ads.APPLICATION_ID" not in xml:
+    xml = xml.replace("</application>", f'        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="{ADMOB_APP_ID if STORE else "ca-app-pub-3940256099942544~3347511713"}"/>\n    </application>', 1)
+# 플러그인이 덧붙이는 권한 중 쓰지 않는 것은 빼 버린다
+drop = ["android.permission.REQUEST_INSTALL_PACKAGES"]
+if STORE:
+    drop += ["android.permission.READ_EXTERNAL_STORAGE", "android.permission.WRITE_EXTERNAL_STORAGE",
+             "android.permission.MANAGE_EXTERNAL_STORAGE", "android.permission.READ_MEDIA_IMAGES",
+             "android.permission.READ_MEDIA_VIDEO", "android.permission.READ_MEDIA_AUDIO",
+             "android.permission.READ_MEDIA_VISUAL_USER_SELECTED", "android.permission.FOREGROUND_SERVICE",
+             "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK", "android.permission.POST_NOTIFICATIONS",
+             "android.permission.RECORD_AUDIO", "android.permission.CAMERA"]  # WAKE_LOCK 은 광고 SDK(WorkManager)가 써서 둔다
+else:
+    drop += ["com.google.android.gms.permission.AD_ID"]  # 전체판은 광고가 없다
+xml = re.sub(r'\s*<uses-permission android:name="(' + "|".join(re.escape(d) for d in drop) + r')"[^>]*/>', "", xml)
+xml = re.sub(r"(<manifest[^>]*>\n)", r"\1" + "".join(f'    <uses-permission android:name="{d}" tools:node="remove"/>\n' for d in drop), xml, count=1)
+if STORE:
+    # 읽어주기 서비스 · 음성 엔진 찾기 빼기
+    xml = re.sub(r'\s*<service android:name="\.ReadAloudService"[^>]*/>', "", xml)
+    xml = re.sub(r'\s*<intent>\s*<action android:name="android.intent.action.TTS_SERVICE"/>\s*</intent>', "", xml)
+    xml = re.sub(r"\s*<queries>\s*</queries>", "", xml)
+    # file:// 은 안드로이드 7+ 에서 쓰이지 않는다
+    xml = xml.replace('                <data android:scheme="file"/>\n', "")
+    # "공유 → ARARIFlex" 로 파일 받기
+    if "android.intent.action.SEND" not in xml:
+        mimes = ["application/epub+zip", "application/pdf", "text/plain", "application/zip", "application/x-cbz",
+                 "application/vnd.comicbook+zip", "application/octet-stream", "video/*"]
+        datas = "".join(f'                <data android:mimeType="{m}"/>\n' for m in mimes)
+        send = "".join('            <intent-filter>\n'
+                       f'                <action android:name="android.intent.action.{a}"/>\n'
+                       '                <category android:name="android.intent.category.DEFAULT"/>\n' + datas +
+                       '            </intent-filter>\n' for a in ("SEND", "SEND_MULTIPLE"))
+        i = xml.index("</intent-filter>") + len("</intent-filter>\n")
+        xml = xml[:i] + send + xml[i:]
+    # 지울 때 "앱 데이터 보관" 을 물어본다 (ARARIFlex 폴더의 파일을 실수로 잃지 않게)
+    if "hasFragileUserData" not in xml:
+        xml = xml.replace("<application", '<application android:hasFragileUserData="true"', 1)
 path.write_text(xml, encoding="utf-8")
-print(xml[:1500])
+print(xml[:2500])
 
 # ---- MainActivity: "모든 파일 관리" 권한 확인/요청 채널 ----
 import glob
@@ -125,6 +175,14 @@ class MainActivity : FlutterActivity() {{
     override fun onNewIntent(newIntent: Intent) {{
         super.onNewIntent(newIntent)
         setIntent(newIntent)
+        val shared = takeShared(newIntent)
+        if (shared.isNotEmpty()) {{
+            newIntent.action = Intent.ACTION_MAIN
+            Thread {{
+                val out = shared.map {{ describe(it, "") }}
+                runOnUiThread {{ safChannel?.invokeMethod("shared", out) }}
+            }}.start()
+        }}
         if (newIntent.action == Intent.ACTION_VIEW) {{
             fileFromIntentAsync(newIntent) {{ path -> if (path != null) openChannel?.invokeMethod("opened", path) }}
             newIntent.action = Intent.ACTION_MAIN
@@ -261,6 +319,62 @@ class MainActivity : FlutterActivity() {{
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
         super.configureFlutterEngine(flutterEngine)
+        safChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/saf")
+        safChannel?.setMethodCallHandler {{ call, result ->
+            when (call.method) {{
+                "pickFiles" -> {{
+                    safPending?.success(null)
+                    safPending = result
+                    val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {{
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }}
+                    try {{ startActivityForResult(i, 4720) }} catch (e: Exception) {{ safPending = null; result.success(null) }}
+                }}
+                "pickFolder" -> {{
+                    safPending?.success(null)
+                    safPending = result
+                    try {{ startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), 4721) }} catch (e: Exception) {{ safPending = null; result.success(null) }}
+                }}
+                "listTree" -> {{
+                    val tree = Uri.parse(call.argument<String>("tree") ?: "")
+                    Thread {{
+                        val out = try {{ listTree(tree) }} catch (e: Exception) {{ emptyList() }}
+                        runOnUiThread {{ result.success(out) }}
+                    }}.start()
+                }}
+                "copy" -> {{
+                    val uri = Uri.parse(call.argument<String>("uri") ?: "")
+                    val dest = call.argument<String>("dest") ?: ""
+                    Thread {{
+                        val ok = copyTo(uri, dest)
+                        runOnUiThread {{ result.success(ok) }}
+                    }}.start()
+                }}
+                "delete" -> {{
+                    val ok = try {{ android.provider.DocumentsContract.deleteDocument(contentResolver, Uri.parse(call.argument<String>("uri") ?: "")) }} catch (e: Exception) {{ false }}
+                    result.success(ok)
+                }}
+                "releaseFolder" -> {{
+                    try {{
+                        contentResolver.releasePersistableUriPermission(Uri.parse(call.argument<String>("tree") ?: ""),
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    }} catch (e: Exception) {{}}
+                    result.success(null)
+                }}
+                // 앱을 "공유 → ARARIFlex" 로 열었을 때 받은 파일 (한 번만)
+                "takeShared" -> {{
+                    val list = takeShared(intent)
+                    if (list.isNotEmpty()) intent.action = Intent.ACTION_MAIN
+                    Thread {{
+                        val out = list.map {{ describe(it, "") }}
+                        runOnUiThread {{ result.success(out) }}
+                    }}.start()
+                }}
+                else -> result.notImplemented()
+            }}
+        }}
         openChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "mediashelf/open")
         openChannel?.setMethodCallHandler {{ call, result ->
             when (call.method) {{
@@ -399,6 +513,109 @@ class MainActivity : FlutterActivity() {{
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {{
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 4711) {{ pending?.success(hasAccess()); pending = null }}
+        if (requestCode == 4720 || requestCode == 4721) {{
+            val r = safPending
+            safPending = null
+            if (r == null) return
+            if (resultCode != RESULT_OK || data == null) {{ r.success(null); return }}
+            if (requestCode == 4721) {{
+                val tree = data.data ?: run {{ r.success(null); return }}
+                // 나중에 원본을 지울 수 있게 (옮기기) 읽기 · 쓰기 권한을 잡아 둔다
+                try {{ contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }} catch (e: Exception) {{}}
+                r.success(tree.toString())
+            }} else {{
+                val uris = mutableListOf<Uri>()
+                data.clipData?.let {{ c -> for (k in 0 until c.itemCount) uris.add(c.getItemAt(k).uri) }}
+                if (uris.isEmpty()) data.data?.let {{ uris.add(it) }}
+                Thread {{
+                    val out = uris.map {{ describe(it, "") }}
+                    runOnUiThread {{ r.success(out) }}
+                }}.start()
+            }}
+        }}
+    }}
+
+    // ---- 플레이스토어판 가져오기: 사용자가 고른 파일 · 폴더(Storage Access Framework)를 앱 폴더로 ----
+    private var safPending: MethodChannel.Result? = null
+    private var safChannel: MethodChannel? = null
+    private val sharedUris = mutableListOf<Uri>()
+
+    private fun describe(uri: Uri, rel: String): Map<String, Any> {{
+        var name = ""
+        var size = -1L
+        try {{
+            contentResolver.query(uri, null, null, null, null)?.use {{ c ->
+                if (c.moveToFirst()) {{
+                    val ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    val si = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (ni >= 0) name = c.getString(ni) ?: ""
+                    if (si >= 0 && !c.isNull(si)) size = c.getLong(si)
+                }}
+            }}
+        }} catch (e: Exception) {{}}
+        return mapOf("uri" to uri.toString(), "name" to name, "size" to size, "rel" to rel)
+    }}
+
+    /// 폴더 아래 모든 파일 (하위 폴더 포함). rel = 고른 폴더 기준 상대 폴더
+    private fun listTree(tree: Uri): List<Map<String, Any>> {{
+        val out = mutableListOf<Map<String, Any>>()
+        val rootId = android.provider.DocumentsContract.getTreeDocumentId(tree)
+        val todo = ArrayDeque<Pair<String, String>>()
+        todo.add(rootId to "")
+        val cols = arrayOf(
+            android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE,
+            android.provider.DocumentsContract.Document.COLUMN_SIZE,
+        )
+        while (todo.isNotEmpty() && out.size < 20000) {{
+            val (id, rel) = todo.removeFirst()
+            val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, id)
+            try {{
+                contentResolver.query(children, cols, null, null, null)?.use {{ c ->
+                    while (c.moveToNext()) {{
+                        val cid = c.getString(0) ?: continue
+                        val name = c.getString(1) ?: ""
+                        val mime = c.getString(2) ?: ""
+                        if (mime == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {{
+                            todo.add(cid to (if (rel.isEmpty()) name else "$rel/$name"))
+                        }} else {{
+                            val size = if (c.isNull(3)) -1L else c.getLong(3)
+                            val doc = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, cid)
+                            out.add(mapOf("uri" to doc.toString(), "name" to name, "size" to size, "rel" to rel))
+                        }}
+                    }}
+                }}
+            }} catch (e: Exception) {{}}
+        }}
+        return out
+    }}
+
+    private fun copyTo(uri: Uri, dest: String): Boolean {{
+        val out = java.io.File(dest)
+        out.parentFile?.mkdirs()
+        val tmp = java.io.File("$dest.part")
+        return try {{
+            contentResolver.openInputStream(uri)?.use {{ input -> tmp.outputStream().use {{ input.copyTo(it, 1 shl 16) }} }} ?: return false
+            if (out.exists()) out.delete()
+            tmp.renameTo(out)
+        }} catch (e: Exception) {{
+            tmp.delete()
+            false
+        }}
+    }}
+
+    private fun takeShared(i: Intent?): List<Uri> {{
+        if (i == null) return emptyList()
+        val list = mutableListOf<Uri>()
+        if (i.action == Intent.ACTION_SEND) {{
+            @Suppress("DEPRECATION")
+            (i.getParcelableExtra<android.os.Parcelable>(Intent.EXTRA_STREAM) as? Uri)?.let {{ list.add(it) }}
+        }} else if (i.action == Intent.ACTION_SEND_MULTIPLE) {{
+            @Suppress("DEPRECATION")
+            i.getParcelableArrayListExtra<android.os.Parcelable>(Intent.EXTRA_STREAM)?.forEach {{ p -> (p as? Uri)?.let {{ list.add(it) }} }}
+        }}
+        return list
     }}
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {{
@@ -537,3 +754,11 @@ class ReadAloudService : Service() {{
 }}
 """, encoding="utf-8")
 print("service written", svc)
+
+# ---- 플레이스토어판: 패키지 이름 바꾸기 · 버전 번호 ----
+if STORE:
+    g = gradle.read_text(encoding="utf-8")
+    g, n = re.subn(r'applicationId\s*=\s*"[^"]+"', f'applicationId = "{STORE_ID}"', g, count=1)
+    assert n == 1, "applicationId not found"
+    gradle.write_text(g, encoding="utf-8")
+    print("store: applicationId", STORE_ID)

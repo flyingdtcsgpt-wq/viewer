@@ -93,7 +93,7 @@ class _LoginPageState extends State<LoginPage> {
                       onSubmitted: (_) => _setup(state),
                     ),
                   ] else ...[
-                    // 넷플릭스풍 프로필 선택
+                    // 프로필 선택
                     Wrap(spacing: 20, runSpacing: 20, alignment: WrapAlignment.center, children: [
                       for (final (i, u) in state.users.indexed)
                         _Profile(

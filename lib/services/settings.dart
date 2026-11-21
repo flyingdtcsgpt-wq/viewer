@@ -84,7 +84,7 @@ class Settings extends ChangeNotifier {
   double get coverSize => _p.getDouble('coverSize') ?? 210;
   set coverSize(double v) => _set(() => _p.setDouble('coverSize', v));
 
-  /// 기본은 어두운(넷플릭스풍) 화면. 켜면 밝은 화면
+  /// 기본은 어두운 화면. 켜면 밝은 화면
   bool get lightMode => _p.getBool('lightMode') ?? false;
   set lightMode(bool v) => _set(() => _p.setBool('lightMode', v));
 
@@ -191,6 +191,12 @@ class Settings extends ChangeNotifier {
   /// 소리 내어 읽다가 책이 끝나면 다음 권을 이어서 읽는다
   bool get ttsContinueNext => _p.getBool('ttsContinueNext') ?? true;
   set ttsContinueNext(bool v) => _set(() => _p.setBool('ttsContinueNext', v));
+
+  /// 플레이스토어판 광고: 처음 실행한 때 · 앱 열기 광고를 마지막으로 보여 준 때 (ms)
+  int get firstRunAt => _p.getInt('firstRunAt') ?? 0;
+  set firstRunAt(int v) => _set(() => _p.setInt('firstRunAt', v));
+  int get adOpenShownAt => _p.getInt('adOpenShownAt') ?? 0;
+  set adOpenShownAt(int v) => _set(() => _p.setInt('adOpenShownAt', v));
 
   /// 마지막 백업 (때 · 파일)
   String get lastBackup => _p.getString('lastBackup') ?? '';

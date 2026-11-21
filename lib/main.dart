@@ -8,7 +8,11 @@ import 'package:provider/provider.dart';
 
 import 'app_state.dart';
 import 'db/library_db.dart';
+import 'edition.dart';
+import 'services/ads.dart';
 import 'services/backup.dart';
+import 'services/saf.dart';
+import 'ui/store_import.dart';
 import 'services/cover_service.dart';
 import 'services/portable.dart';
 import 'services/settings.dart';
@@ -51,6 +55,30 @@ Future<void> main() async {
     });
   }
 
+  // 플레이스토어판 광고 (동의 창 → 초기화). 첫 화면을 그린 뒤에
+  if (kStore) WidgetsBinding.instance.addPostFrameCallback((_) => Ads.start(settings));
+
+  // 플레이스토어판: USB 로 넣은 파일을 켤 때 · 돌아올 때 찾고, "공유 → ARARIFlex" 로 받은 파일을 가져온다
+  if (kStore) {
+    state.rescanAll();
+    var lastScan = DateTime.now();
+    AppLifecycleListener(onResume: () {
+      if (!state.scanning && DateTime.now().difference(lastScan) > const Duration(minutes: 2)) {
+        lastScan = DateTime.now();
+        state.rescanAll();
+      }
+    });
+    if (Saf.supported) {
+      void take(List<SafEntry> list) {
+        final ctx = appNavigatorKey.currentContext;
+        if (list.isNotEmpty && ctx != null && ctx.mounted) importSafEntries(ctx, list, shared: true);
+      }
+
+      Saf.onShared(take);
+      WidgetsBinding.instance.addPostFrameCallback((_) => Saf.takeShared().then(take).catchError((_) {}));
+    }
+  }
+
   // 안드로이드: 파일 관리자에서 "ARARIFlex 로 열기" 한 파일 (복사가 오래 걸릴 수 있어 화면을 먼저 띄운 뒤)
   if (Platform.isAndroid) {
     const ch = MethodChannel('mediashelf/open');
@@ -63,6 +91,9 @@ Future<void> main() async {
   }
 }
 
+/// 화면 어디서든 창을 띄울 때 (공유받은 파일 가져오기 등)
+final appNavigatorKey = GlobalKey<NavigatorState>();
+
 class MediaShelfApp extends StatelessWidget {
   const MediaShelfApp({super.key});
 
@@ -70,11 +101,12 @@ class MediaShelfApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final light = context.select<Settings, bool>((s) => s.lightMode);
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'ARARIFlex',
       debugShowCheckedModeBanner: false,
       theme: appTheme(Brightness.light),
       darkTheme: appTheme(Brightness.dark),
-      themeMode: light ? ThemeMode.light : ThemeMode.dark, // 기본은 넷플릭스풍 어두운 화면
+      themeMode: light ? ThemeMode.light : ThemeMode.dark, // 기본은 어두운 화면
       // 로그인 전에는 아무 목록도 보이지 않는다
       home: context.select<AppState, bool>((s) => s.user != null) ? const HomePage() : const LoginPage(),
     );

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../edition.dart';
 import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../models/series.dart';
@@ -11,10 +12,11 @@ import 'brand.dart';
 import 'browser.dart' show removeFromContinueWithUndo;
 import 'cover_tile.dart';
 import 'detail_page.dart';
+import 'store_import.dart' show StoreEmptyGuide;
 import 'series_widgets.dart';
 import 'viewers/open_item.dart';
 
-/// 넷플릭스풍 첫 화면: 큰 배너 + 가로로 넘기는 줄들
+/// 첫 화면: 큰 배너 + 가로로 넘기는 줄들
 class LandingView extends StatelessWidget {
   final Widget? topBar; // 휴대폰에서 배너 위에 겹쳐 놓을 메뉴/검색 줄
   const LandingView({super.key, this.topBar});
@@ -30,12 +32,13 @@ class LandingView extends StatelessWidget {
       if (cont.isNotEmpty)
         _Row(title: '${state.user?.name ?? ''} 님이 보던 작품', entries: cont.map<Entry>(ItemEntry.new).toList(), wideCards: true, removable: true),
       _Row(title: '최근 추가된 작품', entries: state.rootEntries(), onMore: () => state.setFilter(clearKind: true)),
-      for (final k in [MediaKind.comic, MediaKind.book, MediaKind.video, MediaKind.image])
+      for (final k in [MediaKind.comic, MediaKind.book, MediaKind.video, if (!kStore) MediaKind.image])
         _Row(title: kindLabel(k), entries: state.rootEntries(kind: k), onMore: () => state.setFilter(kind: k)),
       if (favorites.isNotEmpty) _Row(title: '즐겨찾기', entries: favorites, onMore: () => state.setFilter(favorites: true)),
     ];
 
     if (featured == null) {
+      if (kStore) return Stack(children: [const StoreEmptyGuide(), ?topBar]);
       return Stack(children: [
         Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [

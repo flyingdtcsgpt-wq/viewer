@@ -166,4 +166,6 @@ else:
     plist_set(plist, "NSLocalNetworkUsageDescription", "<string>같은 Wi-Fi 의 다른 기기에서 라이브러리를 보는 공유 서버에 씁니다.</string>")
     plist_set(plist, "UIBackgroundModes", "<array>\n\t\t<string>audio</string>\n\t</array>")
     plist_set(plist, "ITSAppUsesNonExemptEncryption", "<false/>")
+    # 광고 SDK(google_mobile_ads)는 앱 ID 가 없으면 켜자마자 멈춘다. 전체판은 광고를 쓰지 않으므로 구글 시험용 ID
+    plist_set(plist, "GADApplicationIdentifier", "<string>ca-app-pub-3940256099942544~1458002511</string>")
     print("ios patched")

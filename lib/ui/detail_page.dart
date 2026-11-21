@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:provider/provider.dart';
 
+import '../edition.dart';
 import '../app_state.dart';
 import '../models/media_item.dart';
 import 'cover_tile.dart';
@@ -178,7 +179,7 @@ class _DetailPageState extends State<DetailPage> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 800;
-    final aiOn = context.watch<AppState>().ai.enabled;
+    final aiOn = !kStore && (context.watch<AppState>().ai.enabled);
 
     final cover = Column(children: [
       AspectRatio(
@@ -267,7 +268,7 @@ class _DetailPageState extends State<DetailPage> {
     final form = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Wrap(spacing: 8, runSpacing: 8, children: [
         if (item.kind == MediaKind.book || item.kind == MediaKind.comic)
-          FilledButton.tonalIcon(onPressed: _searchOnline, icon: const Icon(Icons.travel_explore), label: const Text('인터넷에서 정보 가져오기')),
+          if (!kStore) FilledButton.tonalIcon(onPressed: _searchOnline, icon: const Icon(Icons.travel_explore), label: const Text('인터넷에서 정보 가져오기')),
         if (aiOn) ...[
           FilledButton.tonalIcon(onPressed: _aiParse, icon: const Icon(Icons.auto_awesome), label: const Text('AI 파일명 분석')),
           FilledButton.tonalIcon(onPressed: _aiTags, icon: const Icon(Icons.sell), label: const Text('AI 태그 추천')),
@@ -331,6 +332,7 @@ class _DetailPageState extends State<DetailPage> {
             },
           ),
           if (state.isAdmin) ...[
+            if (!kStore)
             IconButton(
               tooltip: item.hidden ? '숨김 해제' : '숨기기',
               icon: Icon(item.hidden ? Icons.visibility : Icons.visibility_off),
@@ -348,7 +350,7 @@ class _DetailPageState extends State<DetailPage> {
                 }
               },
             ),
-            IconButton(tooltip: '라이브러리 폴더로 정리', icon: const Icon(Icons.drive_file_move), onPressed: _organize),
+            if (!kStore) IconButton(tooltip: '라이브러리 폴더로 정리', icon: const Icon(Icons.drive_file_move), onPressed: _organize),
             IconButton(tooltip: '삭제', icon: const Icon(Icons.delete_outline), onPressed: _delete),
           ],
           IconButton(tooltip: '저장', icon: const Icon(Icons.save), onPressed: _save),

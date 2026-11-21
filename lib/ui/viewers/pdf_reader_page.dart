@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:provider/provider.dart';
 
+import '../../edition.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/settings.dart';
@@ -151,7 +152,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                       const SizedBox(width: 8),
                       Text('$_page / $_pages · ${(_progress * 100).round()}%', style: const TextStyle(color: Colors.white60, fontSize: 12)),
                       NextVolumeButton(item: item),
-                      if (MediaQuery.sizeOf(context).width < 900) ...[
+                      if (MediaQuery.sizeOf(context).width < 900 && !kStore) ...[
                         IconButton(
                           tooltip: '소리 내어 읽기',
                           icon: Icon(Icons.record_voice_over, color: _readAloud ? toolActive : Colors.white),
@@ -193,6 +194,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                             onTap: () => s.toggleBookmark(item.id!, _page),
                           ),
                         ]),
+                        if (!kStore)
                         ToolGroup([
                           ToolBtn(
                             icon: Icons.record_voice_over,

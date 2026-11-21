@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'db/library_db.dart';
+import 'edition.dart';
 import 'models/entry.dart';
 import 'models/media_item.dart';
 import 'models/series.dart';
@@ -58,7 +59,7 @@ class AppState extends ChangeNotifier {
   /// 지금 들어와 있는 묶음 (null = 맨 위)
   int? currentSeriesId;
 
-  /// 첫 화면(넷플릭스풍 배너 + 가로 줄) 보기 중인지. 종류를 고르거나 검색하면 격자 보기로.
+  /// 첫 화면(배너 + 가로 줄) 보기 중인지. 종류를 고르거나 검색하면 격자 보기로.
   bool landing = true;
 
   /// 모아보기 (즐겨찾기 / 최근 읽음 …)
@@ -293,9 +294,38 @@ class AppState extends ChangeNotifier {
     _series
       ..clear()
       ..addEntries((await db.allSeries()).map((s) => MapEntry(s.id!, s)));
-    if (Platform.isIOS) await _setupIosLibrary();
+    if (Platform.isIOS && !kStore) await _setupIosLibrary();
+    if (kStore) await _setupStoreLibrary();
     notifyListeners();
   }
+
+  // ---- 플레이스토어판: 앱 전용 "ARARIFlex" 폴더 하나가 서재, 계정 없이 바로 ----
+  /// 서재 폴더 (안드로이드: Android/data/<앱>/files/ARARIFlex — 저장소 권한 없이 읽고 쓸 수 있다)
+  String? storeDir;
+
+  Future<void> _setupStoreLibrary() async {
+    final base = Platform.isAndroid ? (await getExternalStorageDirectory())?.path : null;
+    final dir = p.join(base ?? (await getApplicationDocumentsDirectory()).path, 'ARARIFlex');
+    for (final sub in ['', '만화', '책', '영상']) {
+      await Directory(p.join(dir, sub)).create(recursive: true);
+    }
+    storeDir = dir;
+    settings.libraryRoot = dir;
+    if (settings.libraryFolders.length != 1 || !p.equals(settings.libraryFolders.first.path, dir)) {
+      settings.libraryFolders = [LibraryFolder(dir, alias: 'ARARIFlex 폴더')];
+    }
+    // 계정 없이: 처음이면 하나 만들고 바로 들어간다
+    if (users.isEmpty) {
+      final u = AppUser(name: '나', role: UserRole.admin);
+      u.id = await db.insertUser(u);
+      users = await db.users();
+    }
+    await _enter(users.first);
+  }
+
+  /// 플레이스토어판: 종류별 하위 폴더 (가져올 때 여기로)
+  String storeFolderFor(MediaKind k) =>
+      p.join(storeDir ?? settings.libraryRoot ?? '', switch (k) { MediaKind.comic => '만화', MediaKind.video => '영상', _ => '책' });
 
   // ---- iPhone · iPad: 파일 앱의 "ARARIFlex" 폴더(앱 Documents)가 라이브러리 ----
   String? iosDocs;

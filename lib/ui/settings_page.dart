@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../edition.dart';
 import '../app_state.dart';
 import '../models/media_item.dart';
+import '../services/ads.dart';
 import '../services/backup.dart';
 import '../services/kokoro_tts.dart';
 import '../services/natural_tts.dart';
@@ -74,7 +77,8 @@ class _SettingsViewState extends State<_SettingsView> {
   @override
   Widget build(BuildContext context) {
     final admin = context.watch<AppState>().isAdmin;
-    final cats = [for (var i = 0; i < _cats.length; i++) if (admin || !_cats[i].adminOnly) i];
+    // 플레이스토어판: 일반 · 뷰어 · 정보만
+    final cats = [for (var i = 0; i < _cats.length; i++) if ((admin || !_cats[i].adminOnly) && (!kStore || const {0, 3, 8}.contains(i))) i];
     if (!cats.contains(_cat)) _cat = cats.first;
     final narrow = MediaQuery.sizeOf(context).width < 700;
     final scheme = Theme.of(context).colorScheme;
@@ -256,7 +260,7 @@ class _General extends StatelessWidget {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('밝은 화면'),
-          subtitle: const Text('끄면 넷플릭스풍 어두운 화면'),
+          subtitle: const Text('끄면 어두운 화면'),
           value: s.lightMode,
           onChanged: (v) => s.lightMode = v,
         ),
@@ -653,15 +657,49 @@ class _About extends StatelessWidget {
             label: const Text('오픈소스 라이선스'),
           ),
           const SizedBox(height: 12),
+          if (kStore)
+            Text('ARARIFlex 폴더: ${context.read<AppState>().storeDir ?? '…'}', style: Theme.of(context).textTheme.bodySmall)
+          else
           FutureBuilder<Directory>(
             future: getApplicationSupportDirectory(),
             builder: (_, snap) => Text('데이터 위치 (라이브러리 DB · 설정 · 표지 · 음성/글자 인식 모델): ${snap.data?.path ?? '…'}',
                 style: Theme.of(context).textTheme.bodySmall),
           ),
         ])),
-        if (context.watch<AppState>().isAdmin) const _BackupCard(),
-        if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) const _PortableCard(),
+        if (kStore) const _StorePrivacyCard(),
+        if (context.watch<AppState>().isAdmin && !kStore) const _BackupCard(),
+        if (!kStore && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) const _PortableCard(),
       ]);
+}
+
+/// 플레이스토어판: 개인정보 처리방침 · 광고 개인정보 선택
+class _StorePrivacyCard extends StatelessWidget {
+  const _StorePrivacyCard();
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('개인정보와 광고', style: text.titleMedium),
+      const SizedBox(height: 8),
+      const Text('ARARIFlex 는 회원 가입이 없고, 넣은 파일과 읽은 기록은 이 기기 안에만 저장됩니다. '
+          '무료로 제공하기 위해 목록 화면 아래와 앱을 켤 때 광고(Google AdMob)가 나오며, '
+          '광고를 위해 광고 ID 와 기기 정보가 Google 에 전달될 수 있습니다.'),
+      const SizedBox(height: 12),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        OutlinedButton.icon(
+          onPressed: () => launchUrl(Uri.parse(privacyPolicyUrl), mode: LaunchMode.externalApplication),
+          icon: const Icon(Icons.privacy_tip_outlined),
+          label: const Text('개인정보 처리방침'),
+        ),
+        FutureBuilder<bool>(
+          future: Ads.privacyOptionsRequired(),
+          builder: (_, snap) => snap.data == true
+              ? OutlinedButton.icon(onPressed: Ads.showPrivacyOptions, icon: const Icon(Icons.tune), label: const Text('광고 개인정보 선택'))
+              : const SizedBox.shrink(),
+        ),
+      ]),
+    ]));
+  }
 }
 
 /// 서재 백업 · 복원 (앱을 지웠다 다시 깔거나 PC 를 바꿀 때)

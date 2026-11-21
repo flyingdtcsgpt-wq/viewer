@@ -1,3 +1,4 @@
+import '../edition.dart';
 import 'package:path/path.dart' as p;
 
 enum MediaKind { book, comic, image, video }
@@ -12,9 +13,16 @@ const videoExts = {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.m4v', '.ts
 
 MediaKind? kindForPath(String path) {
   final ext = p.extension(path).toLowerCase();
+  // 플레이스토어판: 앱 안에서 바로 열 수 있는 형식만 (RAR · 7Z · MOBI 등은 안드로이드에서 열 수 없어 뺀다)
+  if (kStore) {
+    if (const {'.epub', '.pdf', '.txt'}.contains(ext)) return MediaKind.book;
+    if (const {'.cbz', '.zip'}.contains(ext)) return MediaKind.comic;
+    if (videoExts.contains(ext)) return MediaKind.video;
+    return null;
+  }
   if (bookExts.contains(ext)) return MediaKind.book;
   if (comicExts.contains(ext)) return MediaKind.comic;
-  if (imageExts.contains(ext)) return MediaKind.image;
+  if (imageExts.contains(ext)) return kStore ? null : MediaKind.image; // 플레이스토어판은 그림을 다루지 않는다
   if (videoExts.contains(ext)) return MediaKind.video;
   return null;
 }
