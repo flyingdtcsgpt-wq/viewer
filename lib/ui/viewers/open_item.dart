@@ -31,6 +31,25 @@ Future<void> openItem(BuildContext context, MediaItem item, {List<MediaItem>? si
   }
   if (!context.mounted) return;
 
+  // RAR · 7Z 만화는 PC 에서만 앱 안에서 열린다. 휴대폰 · 태블릿에서는 말없이 다른 앱으로 넘기지 않고 까닭을 알려 준다
+  // (예전에는 아무 안내 없이 다른 앱을 찾다가 "열 수 있는 앱이 없습니다" 로 끝났다)
+  if (item.kind == MediaKind.comic && ExtArchive.handles(item.path) && !ExtArchive.supported) {
+    final other = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('RAR · 7Z 만화'),
+        content: const Text('이 기기에서는 RAR · 7Z (CBR · CB7) 로 묶은 만화를 앱 안에서 열 수 없습니다. PC 판에서는 열립니다.\n\n'
+            'ZIP · CBZ 로 다시 묶으면 여기서도 볼 수 있습니다.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('다른 앱으로 열기')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('닫기')),
+        ],
+      ),
+    );
+    if (other == true) await openWithSystem(item.path);
+    return;
+  }
+
   final page = viewerFor(item, siblings);
   if (page == null) {
     await openWithSystem(item.path);

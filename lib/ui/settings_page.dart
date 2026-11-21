@@ -25,6 +25,9 @@ import 'guide.dart';
 import 'brand.dart';
 
 /// 환경 설정 — 왼쪽 분류 / 오른쪽 내용 (BookManager 스타일)
+/// 손가락으로 쓰는 기기 (휴대폰 · 태블릿): 마우스 · 키보드 설명을 빼고 보여 준다
+final _mobile = Platform.isAndroid || Platform.isIOS;
+
 /// PC 는 큰 창(대화상자), 휴대폰은 전체 화면
 Future<void> showSettings(BuildContext context) {
   final wide = MediaQuery.sizeOf(context).width >= 900;
@@ -273,7 +276,9 @@ class _General extends StatelessWidget {
           onChanged: (v) => s.autoGroup = v,
         ),
       ])),
-      _Card(_seg<int>('기본 목록 보기', s.viewMode, const [(0, '표'), (1, '격자'), (2, '카드 목록')], (v) => s.viewMode = v)),
+      // 표 · 카드 목록은 넓은 화면(PC · 가로 태블릿)에서만 쓴다. 좁은 화면은 늘 격자라 이 줄이 듣지 않는다
+      if (MediaQuery.sizeOf(context).width >= 840)
+        _Card(_seg<int>('기본 목록 보기', s.viewMode, const [(0, '표'), (1, '격자'), (2, '카드 목록')], (v) => s.viewMode = v)),
       _Card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('보던 작품 · 읽는 중', style: TextStyle(fontWeight: FontWeight.w700)),
         SwitchListTile(
@@ -296,7 +301,8 @@ class _General extends StatelessWidget {
             context.read<AppState>().refresh();
           },
         ),
-        const Text('카드의 × 또는 오른쪽 클릭(길게 누르기) › "보던 목록에서 빼기" 로 하나씩 뺄 수도 있습니다.', style: TextStyle(fontSize: 12)),
+        Text(_mobile ? '카드의 × 를 누르면 하나씩 뺄 수도 있습니다.' : '카드의 × 또는 오른쪽 클릭 › "보던 목록에서 빼기" 로 하나씩 뺄 수도 있습니다.',
+            style: const TextStyle(fontSize: 12)),
       ])),
     ]);
   }
@@ -511,6 +517,9 @@ class _Viewer extends StatelessWidget {
         _seg<bool>('커버 표시 (두장보기)', s.comicCoverAlone, const [(false, '두장보기에 포함'), (true, '단독 표시')], (v) => s.comicCoverAlone = v),
         _seg<int>('넘김효과', s.viewerEffect, const [(0, '없음'), (1, '슬라이드'), (2, '페이드'), (3, '책 넘김')], (v) => s.viewerEffect = v),
         _seg<bool>('배경', s.viewerImmersive, const [(false, '단색'), (true, '몰입형')], (v) => s.viewerImmersive = v),
+        SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('아래 썸네일 줄 · 이동 막대'), value: s.viewerSlider, onChanged: (v) => s.viewerSlider = v),
+        if (!kStore)
+          _seg<int>('그림 슬라이드쇼 간격', s.slideshowSeconds, const [(2, '2초'), (4, '4초'), (6, '6초'), (10, '10초'), (20, '20초')], (v) => s.slideshowSeconds = v),
         if (!kStore)
           _seg<int>('그림 보기 방식', s.imageViewMode, const [(0, '좌우 넘기기'), (1, '위아래 한 장씩'), (2, '위아래 이어 보기')], (v) => s.imageViewMode = v),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('화면 좌우 눌러 넘기기'), value: s.tapToTurn, onChanged: (v) => s.tapToTurn = v),
@@ -580,9 +589,8 @@ class _Viewer extends StatelessWidget {
         ]),
         const Text('코덱: H.264 · H.265(HEVC) · AV1 · VP9 · MPEG · DivX/Xvid · WMV, 오디오 AAC · AC3 · DTS · FLAC 등 대부분을 앱 안의 FFmpeg 로 재생합니다 (별도 코덱 설치 필요 없음).',
             style: TextStyle(fontSize: 12, color: Colors.grey)),
-        SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('아래 썸네일 / 장 탐색 바'), value: s.viewerSlider, onChanged: (v) => s.viewerSlider = v),
         const SizedBox(height: 8),
-        OutlinedButton(onPressed: s.resetViewer, child: const Text('뷰어 설정 초기화')),
+        OutlinedButton(onPressed: () => s.resetViewer(all: true), child: const Text('뷰어 설정 초기화')),
       ])),
     ]);
   }
@@ -1049,7 +1057,7 @@ class _VoiceState extends State<_Voice> {
       _useAsDefault(s);
       _status = '설치했습니다. 이제 책 읽어주기에서 자연 음성을 고를 수 있습니다.';
     } catch (e) {
-      _status = '받지 못했습니다: $e\n인터넷이 없으면 다른 PC 에서 받은 폴더를 "폴더에서 가져오기"로 넣을 수 있습니다.';
+      _status = '받지 못했습니다: $e\n인터넷이 없으면 다른 곳에서 받은 폴더를 "폴더에서 가져오기"로 넣을 수 있습니다.';
     }
     if (!mounted) return;
     setState(() {
@@ -1118,7 +1126,7 @@ class _VoiceState extends State<_Voice> {
         ]),
         const SizedBox(height: 6),
         Text(
-          'Supertone 이 공개한 Supertonic 3 모델로 PC 안에서 직접 사람 같은 목소리를 만듭니다. '
+          'Supertone 이 공개한 Supertonic 3 모델로 이 기기 안에서 직접 사람 같은 목소리를 만듭니다. '
           '인터넷 · 사용료가 필요 없고, 남녀 목소리 10가지가 있습니다. 처음 한 번 모델 파일(수백 MB)을 받아야 합니다.',
           style: text.bodySmall,
         ),
@@ -1142,7 +1150,7 @@ class _VoiceState extends State<_Voice> {
           OutlinedButton.icon(
             onPressed: _busy || !NaturalTts.supported ? null : () => _import(s),
             icon: const Icon(Icons.folder_open),
-            label: const Text('폴더에서 가져오기 (오프라인 PC)'),
+            label: const Text('폴더에서 가져오기 (인터넷 없이)'),
           ),
           if (installed == true && admin)
             TextButton.icon(
@@ -1161,8 +1169,8 @@ class _VoiceState extends State<_Voice> {
         ]),
         const SizedBox(height: 8),
         Text(
-          '오프라인 PC: 인터넷 되는 곳에서 huggingface.co/${NaturalTts.repo} 의 onnx 폴더와 voice_styles 폴더를 받아 '
-          'USB 로 옮긴 뒤 "폴더에서 가져오기"로 그 폴더를 고르세요.',
+          '인터넷이 안 되는 기기: 인터넷 되는 곳에서 huggingface.co/${NaturalTts.repo} 의 onnx 폴더와 voice_styles 폴더를 받아 '
+          '옮겨 온 뒤 "폴더에서 가져오기"로 그 폴더를 고르세요.',
           style: text.bodySmall?.copyWith(color: Colors.grey),
         ),
       ])),
@@ -1196,7 +1204,7 @@ class _VoiceState extends State<_Voice> {
           ),
         ]),
         const SizedBox(height: 6),
-        Text('기본 음성: ${s.ttsVoice.isEmpty ? 'Windows 기본' : TtsService.label(s.ttsVoice)}', style: text.bodySmall),
+        Text('기본 음성: ${s.ttsVoice.isEmpty ? (Platform.isWindows ? 'Windows 기본' : '기기 기본') : TtsService.label(s.ttsVoice)}', style: text.bodySmall),
         Text('대사 · 속마음 음성과 속도는 책을 읽을 때 아래쪽 읽어주기 막대에서 고릅니다.', style: text.bodySmall?.copyWith(color: Colors.grey)),
       ])),
       if (KokoroTts.platformOk) const _KokoroCard(),
@@ -1293,7 +1301,7 @@ class _OcrModelCardState extends State<_OcrModelCard> {
                   });
                 },
           icon: const Icon(Icons.folder_open),
-          label: const Text('폴더에서 가져오기 (오프라인 PC)'),
+          label: const Text('폴더에서 가져오기 (인터넷 없이)'),
         ),
         if (_installed == true)
           TextButton.icon(

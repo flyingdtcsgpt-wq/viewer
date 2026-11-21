@@ -71,6 +71,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   // 손가락 추적 (탭 · 밀기를 직접 판단해 확대 제스처와 다투지 않게)
   final _touches = <int>{};
   Offset? _downAt;
+  double _downTx = 0; // 손가락을 댔을 때 화면이 옆으로 밀려 있던 정도 (높이 맞춤에서 끝에 닿았는지 본다)
   Duration _downTime = Duration.zero;
   bool _multi = false; // 이번 손짓에 손가락이 둘 이상이었다 → 확대/축소만
   Timer? _tapTimer;
@@ -86,6 +87,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
 
   /// 터치 기기의 가로/높이 맞춤: 안쪽 스크롤 없이 확대 화면이 이동까지 맡는다
   bool _freePan(Settings s) => _touch && (s.viewerFit == 0 || s.viewerFit == 1);
+
+  static const _scrollMaxWidth = 900.0; // 스크롤 보기: "화면 폭에 꽉 채우기" 를 끄면 그림을 이 폭까지만 넓힌다
 
   // 스크롤(웹툰) 보기: 처음에 맨 위에 둘 쪽(_vAnchor)을 기준으로 위 · 아래에 이어 붙인다.
   // 쪽 높이를 아직 몰라도 그 쪽에서 정확히 시작하고(이어 보기), 위쪽 그림이 늦게 불려 와도 보던 자리가 밀리지 않는다.
@@ -170,7 +173,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   void dispose() {
     if (_n > 0) _app.saveProgress(item, '$_page', _progress).then((_) => _app.refresh());
     if (_awake) ScreenAwake.release();
-    if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (_fullscreen) setViewerFullscreen(false);
     _zip?.close();
     _loader?.close();
     _tapTimer?.cancel();
@@ -279,14 +282,14 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     // 마지막 쪽에서 더 넘기면: 다음 권으로 갈지 묻는다 (없으면 "마지막 권입니다")
     if (d > 0 && _s.comicMode != 2 && _spread >= _spreads.length - 1) {
       _app.saveProgress(item, '$_page', _progress);
-      askNextVolume(context, item, rightIsNext: !(_s.viewerArrowNatural && _s.comicRtl));
+      askNextVolume(context, item, rightIsNext: !(_s.viewerArrowNatural && _rtl));
       return;
     }
     if (_s.comicMode == 2) {
       if (!_scroll.hasClients) return;
       final pos = _scroll.position;
       if (d > 0 && pos.pixels >= pos.maxScrollExtent - 2) {
-        askNextVolume(context, item, rightIsNext: !(_s.viewerArrowNatural && _s.comicRtl));
+        askNextVolume(context, item, rightIsNext: !(_s.viewerArrowNatural && _rtl));
         return;
       }
       // (시작 쪽보다 위는 음수 위치다 → 0 이 아니라 맨 위 한계까지)
@@ -297,8 +300,12 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
     _goSpread(_spread + d);
   }
 
+  /// 읽기방향이 오른쪽→왼쪽인가. 스크롤 보기는 위에서 아래로만 읽으므로 따지지 않는다
+  /// (예전에는 스크롤 보기에서도 방향키 · 아래 탐색 줄이 뒤집혀 있었다)
+  bool get _rtl => _s.comicRtl && _s.comicMode != 2;
+
   /// 화면에서 왼쪽/오른쪽 (읽기방향이 오른쪽→왼쪽이면 왼쪽이 다음)
-  void _visual(bool left) => _turn((left ? -1 : 1) * (_s.comicRtl ? -1 : 1));
+  void _visual(bool left) => _turn((left ? -1 : 1) * (_rtl ? -1 : 1));
 
   void _jumpPage(int page) {
     if (_s.comicMode == 2) {
@@ -345,7 +352,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       _fullscreen = !_fullscreen;
       _chrome = !_fullscreen;
     });
-    SystemChrome.setEnabledSystemUIMode(_fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+    setViewerFullscreen(_fullscreen);
   }
 
   // ---------------- 화면 ----------------
@@ -361,7 +368,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       );
     }
     final wide = MediaQuery.sizeOf(context).width >= 900;
-    final rtl = s.comicRtl;
+    final rtl = _rtl;
     final natural = s.viewerArrowNatural;
 
     return CallbackShortcuts(
@@ -448,18 +455,25 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               ToolBtn(icon: Icons.keyboard_double_arrow_left, tooltip: '처음 (Home)', onTap: () => _goSpread(0)),
               ToolBtn(icon: Icons.keyboard_double_arrow_right, tooltip: '끝 (End)', onTap: () => _goSpread(sp.length - 1)),
             ]),
-            ToolGroup([
-              ToolBtn(icon: Icons.chevron_left, tooltip: '왼쪽 쪽', onTap: () => _visual(true)),
-              ToolBtn(icon: Icons.chevron_right, tooltip: '오른쪽 쪽', onTap: () => _visual(false)),
-            ]),
-            // 스크롤 보기: 맞춤은 "화면 폭에 꽉 채우기" 하나만 뜻이 있다 (확대 · 높이/전체/원본 맞춤은 한 장씩 볼 때만)
             if (s.comicMode == 2)
+              ToolGroup([
+                ToolBtn(icon: Icons.keyboard_arrow_up, tooltip: '위로 한 화면 (PgUp)', onTap: () => _turn(-1)),
+                ToolBtn(icon: Icons.keyboard_arrow_down, tooltip: '아래로 한 화면 (PgDn)', onTap: () => _turn(1)),
+              ])
+            else
+              ToolGroup([
+                ToolBtn(icon: Icons.chevron_left, tooltip: '왼쪽 쪽', onTap: () => _visual(true)),
+                ToolBtn(icon: Icons.chevron_right, tooltip: '오른쪽 쪽', onTap: () => _visual(false)),
+              ]),
+            // 스크롤 보기: 맞춤은 "화면 폭에 꽉 채우기" 하나만 뜻이 있다 (확대 · 높이/전체/원본 맞춤은 한 장씩 볼 때만).
+            // 그림은 본래 900 폭까지만 넓히므로, 그보다 좁은 화면(휴대폰 · 세로 태블릿)에서는 눌러도 달라질 것이 없어 숨긴다
+            if (s.comicMode == 2 && MediaQuery.sizeOf(context).width > _scrollMaxWidth)
               ToolGroup([
                 ToolBtn(
                   icon: Icons.swap_horiz,
                   tooltip: '화면 폭에 꽉 채우기 (끄면 가운데에 알맞은 폭으로)',
-                  active: s.viewerFit == 0,
-                  onTap: () => s.viewerFit = s.viewerFit == 0 ? 2 : 0,
+                  active: s.scrollWide,
+                  onTap: () => s.scrollWide = !s.scrollWide,
                 ),
               ]),
             if (s.comicMode != 2)
@@ -469,7 +483,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               ToolBtn(icon: Icons.fit_screen, tooltip: '전체 맞춤', active: s.viewerFit == 2, onTap: () => s.viewerFit = 2),
               ToolBtn(icon: Icons.crop_free, tooltip: '원본 크기', active: s.viewerFit == 3, onTap: () => s.viewerFit = 3),
             ]),
-            if (s.comicMode != 2)
+            // (원본 크기는 안쪽 화면이 두 손가락 · 휠 확대를 따로 맡아 이 배율 메뉴가 듣지 않는다 → 숨김)
+            if (s.comicMode != 2 && s.viewerFit != 3)
             ToolGroup([
               PopupMenuButton<double>(
                 tooltip: '확대',
@@ -522,7 +537,27 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               ToolBtn(
                 icon: Icons.help_outline,
                 tooltip: '조작법 · 단축키',
-                onTap: () => showViewerHelp(context, const [
+                onTap: () => s.comicMode == 2
+                    ? showViewerHelp(context, const [
+                        ('휠 · ↑ ↓ · PgUp PgDn · Space', '위아래로 넘기기'),
+                        ('Home / End', '처음 / 끝'),
+                        ('F', '전체화면'),
+                        ('B', '책갈피'),
+                        ('Esc', '설정 닫기 · 나가기'),
+                        ('화면 누르기', '위아래 메뉴 보이기 · 숨기기'),
+                        ('끝까지 내리면', '다음 권 안내가 이어서 나옵니다'),
+                      ], touch: const [
+                        ('위아래로 밀기', '이어서 읽기 (스크롤 보기는 확대 · 옆으로 넘기기가 없습니다)'),
+                        ('화면 누르기', '위아래 메뉴 보이기 · 숨기기'),
+                        ('아래 탐색 줄 · 쪽 번호 단추', '원하는 쪽으로 바로 가기'),
+                        ('책갈피 단추', '지금 쪽을 표시 · 다시 누르면 지움'),
+                        ('책갈피 목록 단추 (옆)', '책갈피한 쪽 목록 → 누르면 그 쪽으로'),
+                        ('눈 보호 단추', '푸른빛 줄이기 (세기는 ⚙ 뷰어 설정)'),
+                        ('끝까지 내리면', '다음 권 안내가 이어서 나옵니다'),
+                        ('볼륨 버튼', '한 화면씩 넘기기 (설정 › 뷰어에서 켜기)'),
+                        ('확대해서 보려면', '보기 방식을 한장보기로 바꾸세요'),
+                      ])
+                    : showViewerHelp(context, const [
                   ('← →', '쪽 넘기기 (읽기방향 설정을 따름)'),
                   ('↑ ↓ / PgUp PgDn', '이전 / 다음'),
                   ('Space', '다음'),
@@ -534,7 +569,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   ('Ctrl+휠 · 끌기', '확대 · 축소 / 확대 중 이동'),
                   ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
                 ], touch: const [
-                  ('가장자리 누르기 · 옆으로 밀기', '쪽 넘기기'),
+                  ('가장자리 누르기 · 옆으로 밀기', '쪽 넘기기 (높이 맞춤 · 원본 크기에서 밀기는 옆으로 움직이기)'),
                   ('⚙ › 누를 때 다음 쪽', '오른손잡이(오른쪽 = 다음) · 왼손잡이(왼쪽 = 다음) 고르기'),
                   ('쪽 번호 단추', '눌러서 쪽 번호로 바로 이동'),
                   ('가운데 누르기', '위아래 메뉴 보이기 · 숨기기'),
@@ -762,6 +797,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
           _stopTap = DateTime.now().difference(_lastMove) < const Duration(milliseconds: 120);
           _downAt = e.localPosition;
           _downTime = e.timeStamp;
+          _downTx = _zoom.value.getTranslation().x;
           _multi = false;
         } else {
           _multi = true; // 두 손가락: 확대/축소만 (탭 · 쪽 넘김으로 보지 않는다)
@@ -791,7 +827,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         final ms = (e.timeStamp - _downTime).inMilliseconds;
         if (d.distance < 18 && ms < 500) {
           _onTap(e.localPosition, c, s);
-        } else if (!_zoomed && s.viewerFit != 1 && s.viewerFit != 3 && ms < 700 && d.dx.abs() > 48 && d.dx.abs() > d.dy.abs() * 1.4) {
+        } else if (_swipeTurns(s, d.dx) && ms < 700 && d.dx.abs() > 48 && d.dx.abs() > d.dy.abs() * 1.4) {
           _visual(d.dx > 0); // 오른쪽으로 밀면 왼쪽 쪽이 나온다
         }
       },
@@ -812,6 +848,18 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   }
 
   static final _touch = Platform.isAndroid || Platform.isIOS;
+
+  /// 옆으로 민 것을 쪽 넘김으로 볼 것인가.
+  /// 높이 맞춤(터치)에서는 쪽이 화면보다 넓으면 미는 것이 "옆으로 움직이기" 다 → 이미 그쪽 끝에 닿아 있을 때만 넘긴다.
+  /// (예전에는 높이 맞춤이면 아예 넘기지 않아, 화면에 다 들어오는 쪽에서도 밀기가 먹지 않았다)
+  bool _swipeTurns(Settings s, double dx) {
+    if (_zoomed || s.viewerFit == 3) return false; // 확대 중 · 원본 크기: 끌기는 움직이기
+    if (s.viewerFit != 1) return true;
+    if (!_touch) return false; // PC 의 높이 맞춤은 안쪽 가로 스크롤이 맡는다
+    final room = _content.width - _view.width;
+    if (room <= 1) return true;
+    return dx > 0 ? _downTx >= -1 : _downTx <= -room + 1;
+  }
 
   /// 한 번 탭: 가장자리 = 쪽 넘김, 가운데 = 메뉴 보이기/숨기기. 두 번 탭 = 그 자리 확대 ↔ 원래 크기
   /// 확대 중에는 한 번 탭으로 아무것도 하지 않는다 (메뉴가 사라지며 화면이 밀리거나 쪽이 넘어가지 않게)
@@ -956,7 +1004,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
   }
 
   Widget _vertical(BoxConstraints c, Settings s) {
-    final maxW = s.viewerFit == 0 ? c.maxWidth : math.min(c.maxWidth, 900.0);
+    final maxW = s.scrollWide ? c.maxWidth : math.min(c.maxWidth, _scrollMaxWidth);
     final dpr = MediaQuery.devicePixelRatioOf(context);
 
     // 아직 못 읽었거나 그리는 중인 쪽의 자리. 한 번 본 쪽은 알아 둔 비율 그대로 → 불러오는 동안 자리가 흔들리지 않는다
@@ -1084,6 +1132,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         onClose: () => setState(() => _panel = false),
         children: [
           const PanelSection('기본 보기'),
+          // (스크롤 보기에서는 맞춤 · 커버 · 읽기방향 · 넘김효과 · 눌러 넘기기가 뜻이 없어 보이지 않는다)
+          if (s.comicMode != 2)
           SegmentRow<int>(
             title: '페이지 맞춤',
             value: s.viewerFit,
@@ -1101,12 +1151,21 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             onChanged: (v) => s.comicMode = v,
             options: const [(0, Icons.crop_portrait, '한장보기'), (1, Icons.menu_book, '두장보기'), (2, Icons.view_day, '스크롤')],
           ),
+          if (s.comicMode == 2 && MediaQuery.sizeOf(context).width > _scrollMaxWidth)
+            SegmentRow<bool>(
+              title: '그림 폭',
+              value: s.scrollWide,
+              onChanged: (v) => s.scrollWide = v,
+              options: const [(false, null, '알맞은 폭 (가운데)'), (true, Icons.swap_horiz, '화면 폭에 꽉 채우기')],
+            ),
+          if (s.comicMode == 1)
           SegmentRow<bool>(
             title: '커버 표시',
             value: s.comicCoverAlone,
             onChanged: (v) => s.comicCoverAlone = v,
             options: const [(false, Icons.menu_book, '두장보기에 포함'), (true, Icons.crop_portrait, '단독 표시')],
           ),
+          if (s.comicMode != 2)
           SegmentRow<bool>(
             title: '읽기방향',
             value: s.comicRtl,
@@ -1127,6 +1186,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             options: const [(false, null, '단색'), (true, null, '몰입형')],
           ),
           const Divider(color: Colors.white12, height: 28),
+          if (s.comicMode != 2) ...[
           const PanelSection('표시'),
           SegmentRow<bool>(
             title: '좌/우 방향키',
@@ -1148,6 +1208,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             options: const [(0, null, '효과없음'), (1, null, '슬라이드'), (2, null, '페이드'), (3, null, '책 넘김')],
           ),
           const Divider(color: Colors.white12, height: 28),
+          ],
           const EyeCarePanel(),
           const SizedBox(height: 8),
           OutlinedButton(

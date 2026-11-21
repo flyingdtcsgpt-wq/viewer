@@ -137,7 +137,13 @@ class _TextReaderPageState extends State<TextReaderPage> {
     try {
       final doc = await TextDocument.load(item.path);
       if (!mounted) return;
-      final saved = int.tryParse(item.position ?? '') ?? 0;
+      // "원본 스타일" 로 읽던 EPUB 은 자리가 e장:비율 로 저장돼 있다 → 그 자리의 문단으로
+      final pos = item.position ?? '';
+      var saved = int.tryParse(pos) ?? 0;
+      if (pos.startsWith('e')) {
+        final at = pos.substring(1).split(':');
+        saved = doc.blockOfSpine(int.tryParse(at.first) ?? 0, double.tryParse(at.length > 1 ? at[1] : '') ?? 0);
+      }
       setState(() {
         _doc = doc;
         _anchor = saved.clamp(0, doc.blocks.isEmpty ? 0 : doc.blocks.length - 1);
@@ -165,7 +171,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
     if (_doc != null && _count > 0) {
       _app.saveProgress(item, '$_current', _progress).then((_) => _app.refresh());
     }
-    if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (_fullscreen) setViewerFullscreen(false);
     if (_awake) ScreenAwake.release();
     _speaking = false;
     _sleepTick?.cancel();
@@ -266,7 +272,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
       _fullscreen = !_fullscreen;
       _chrome = !_fullscreen;
     });
-    SystemChrome.setEnabledSystemUIMode(_fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+    setViewerFullscreen(_fullscreen);
   }
 
   void _search(String q) {
@@ -770,7 +776,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
     Ambient.stop();
     setState(() => _speaking = false);
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('음성을 만들지 못했습니다. 설정 › 읽어주기 음성에서 음성 파일을 확인하거나 다른 음성을 고르세요.')));
+        content: Text('음성을 만들지 못했습니다. 설정 › 읽어주기 · 글자 인식에서 음성 파일을 확인하거나 다른 음성을 고르세요.')));
   }
 
   Future<void> _ttsStop({bool reset = false}) async {
@@ -966,10 +972,13 @@ class _TextReaderPageState extends State<TextReaderPage> {
               const Text('영어 책입니다. 설정 › 읽어주기 · 글자 인식에서 Kokoro 영어 성우(28가지)를 받으면 더 자연스럽습니다',
                   style: TextStyle(color: Colors.white54, fontSize: 11)),
           if (_voices.isEmpty)
-            const Text('음성 목록을 읽는 중… (Windows 설정 → 시간 및 언어 → 음성 에서 한국어 음성을 추가할 수 있습니다)',
-                style: TextStyle(color: Colors.white38, fontSize: 11))
+            Text(
+                Platform.isWindows
+                    ? '음성 목록을 읽는 중… (Windows 설정 → 시간 및 언어 → 음성 에서 한국어 음성을 추가할 수 있습니다)'
+                    : '음성 목록을 읽는 중… (기기 설정 → 글자 읽어주기(TTS) 에서 한국어 음성을 추가할 수 있습니다)',
+                style: const TextStyle(color: Colors.white38, fontSize: 11))
           else if (!_voices.any(NaturalTts.isNatural))
-            const Text('사람 같은 자연스러운 음성(무료 · 오프라인)은 설정 › 읽어주기 음성에서 받을 수 있습니다',
+            const Text('사람 같은 자연스러운 음성(무료 · 오프라인)은 설정 › 읽어주기 · 글자 인식에서 받을 수 있습니다',
                 style: TextStyle(color: Colors.white54, fontSize: 11)),
         ]),
       ),
@@ -1009,6 +1018,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
           Expanded(
             child: Stack(children: [
               Positioned.fill(child: body),
+              // 글자 선택 모드에서는 화면을 눌러도 메뉴가 나오지 않는다 → 전체화면을 끝낼 단추를 따로 둔다
+              if (_fullscreen && !_chrome && _selectMode) FullscreenExitBtn(onTap: _toggleFullscreen),
               if (_ttsPanel) Positioned(top: 8, left: 8, right: 8, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 720), child: _ttsBar(s)))),
             ]),
           ),
@@ -1090,7 +1101,7 @@ class _TextReaderPageState extends State<TextReaderPage> {
           // 다른 뷰어와 같은 자리: 왼쪽 끝 = 닫기
           IconButton(
             style: IconButton.styleFrom(backgroundColor: toolActive),
-            tooltip: '닫기 (Esc)',
+            tooltip: '닫기',
             icon: const Icon(Icons.arrow_back, color: Colors.white),
             onPressed: () => Navigator.maybePop(context),
           ),
@@ -1136,13 +1147,13 @@ class _TextReaderPageState extends State<TextReaderPage> {
             ]),
             ToolGroup([
               ToolBtn(icon: Icons.text_decrease, tooltip: '글자 작게 (Ctrl -)', onTap: () => s.readerFontSize = (s.readerFontSize - 1).clamp(12, 40)),
-              ToolBtn(label: '${(s.readerFontSize / 18 * 100).round()}%', tooltip: '글자 크기'),
+              ToolBtn(label: '${(s.readerFontSize / 18 * 100).round()}%', tooltip: '글자 크기 — 누르면 기본 크기(100%)', onTap: () => s.readerFontSize = 18),
               ToolBtn(icon: Icons.text_increase, tooltip: '글자 크게 (Ctrl +)', onTap: () => s.readerFontSize = (s.readerFontSize + 1).clamp(12, 40)),
             ]),
             // 줄 간격 (자세한 조절 · 문단 간격 · 본문 폭은 ⚙ 뷰어 설정)
             ToolGroup([
               ToolBtn(icon: Icons.format_line_spacing, label: '−', tooltip: '줄 간격 좁게', onTap: () => s.readerLineHeight = (s.readerLineHeight - 0.1).clamp(1.2, 2.6)),
-              ToolBtn(label: s.readerLineHeight.toStringAsFixed(1), tooltip: '줄 간격'),
+              ToolBtn(label: s.readerLineHeight.toStringAsFixed(1), tooltip: '줄 간격 — 누르면 기본(1.8)', onTap: () => s.readerLineHeight = 1.8),
               ToolBtn(label: '+', tooltip: '줄 간격 넓게', onTap: () => s.readerLineHeight = (s.readerLineHeight + 0.1).clamp(1.2, 2.6)),
             ]),
             // 어두운 화면 ↔ 밝은 화면, 눈 보호 (다른 테마 · 세기는 ⚙ 뷰어 설정)
@@ -1697,6 +1708,9 @@ class _TextReaderPageState extends State<TextReaderPage> {
               onChanged: (v) {
                 if (!v) return;
                 s.epubOriginal = true;
+                // 읽던 자리를 "원본 스타일" 이 쓰는 장:비율 로 넘겨 준다 (안 그러면 예전에 원본 스타일로 보던 곳이 열린다)
+                final at = _doc?.spineOfBlock(_current);
+                if (at != null) s.setEpubPosition(item.id!, '${at.$1}:${at.$2.toStringAsFixed(3)}');
                 Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => EpubOriginalPage(item: item)));
               },
               options: const [(true, Icons.menu_book, '원본 스타일'), (false, Icons.tune, '읽기 최적화')],
@@ -1753,7 +1767,9 @@ class _TextReaderPageState extends State<TextReaderPage> {
           _slider('글자 크기', s.readerFontSize, 12, 40, (v) => s.readerFontSize = v, digits: 0),
           _slider('줄 간격', s.readerLineHeight, 1.2, 2.6, (v) => s.readerLineHeight = v),
           _slider('문단 간격', s.readerParagraphGap, 0, 1.5, (v) => s.readerParagraphGap = v),
-          _slider('본문 폭', s.readerMaxWidth, 420, 1600, (v) => s.readerMaxWidth = v, digits: 0),
+          // 본문 폭은 화면이 그보다 넓을 때만 듣는다 (휴대폰에서는 움직여도 달라질 것이 없어 숨김)
+          if (MediaQuery.sizeOf(context).width > 460)
+            _slider('본문 폭', s.readerMaxWidth, 420, 1600, (v) => s.readerMaxWidth = v, digits: 0),
           const Divider(color: Colors.white12, height: 28),
           const EyeCarePanel(),
           const Divider(color: Colors.white12, height: 28),

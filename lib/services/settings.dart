@@ -153,10 +153,22 @@ class Settings extends ChangeNotifier {
   int get viewerEffect => _p.getInt('viewerEffect') ?? 1;
   set viewerEffect(int v) => _set(() => _p.setInt('viewerEffect', v));
 
-  void resetViewer() {
-    for (final k in ['viewerFit', 'viewerSlider', 'viewerImmersive', 'viewerArrowNatural', 'viewerEffect', 'comicMode', 'comicCoverAlone', 'pageRtl']) {
+  /// 스크롤(웹툰) 보기: 그림을 화면 폭에 꽉 채울지 (끄면 가운데에 알맞은 폭으로). 넓은 화면에서만 뜻이 있다
+  bool get scrollWide => _p.getBool('scrollWide') ?? false;
+  set scrollWide(bool v) => _set(() => _p.setBool('scrollWide', v));
+
+  /// 뷰어 설정을 처음 값으로. 만화 ⚙ 의 "초기화" 는 그 패널에 보이는 것만,
+  /// 설정 › 뷰어의 "뷰어 설정 초기화" 는 [all] 로 그 화면에 있는 것 전부를 되돌린다.
+  /// (예전에는 눌러 넘기기 · 왼손/오른손 · 눈 보호 · 그림 보기 방식 · 영상 설정이 초기화에서 빠져 있었다)
+  void resetViewer({bool all = false}) {
+    for (final k in [
+      'viewerFit', 'viewerSlider', 'viewerImmersive', 'viewerArrowNatural', 'viewerEffect', 'comicMode', 'comicCoverAlone', 'pageRtl',
+      'scrollWide', 'tapToTurn', 'tapHand', 'eyeCare', 'eyeCareWarm', 'eyeCareDim',
+      if (all) ...['pdfInvert', 'imageViewMode', 'slideshowSeconds', 'keepScreenOn', 'volumeKeyTurn', 'videoHwdec', 'subtitleSize'],
+    ]) {
       _p.remove(k);
     }
+    if (all && readerIsDark) toggleReaderDark(); // 책 어두운 화면도 끈다
     notifyListeners();
   }
 

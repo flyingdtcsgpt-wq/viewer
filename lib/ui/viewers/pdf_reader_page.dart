@@ -1,3 +1,4 @@
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -48,7 +49,9 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   void initState() {
     super.initState();
     _app;
-    _page = int.tryParse(item.position ?? '') ?? 1;
+    // (진행률을 초기화한 책은 위치가 0 으로 남아 있다 → 첫 쪽)
+    final saved = int.tryParse(item.position ?? '') ?? 1;
+    _page = saved < 1 ? 1 : saved;
     if (context.read<Settings>().keepScreenOn) {
       _awake = true;
       ScreenAwake.hold();
@@ -61,7 +64,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   void dispose() {
     if (_pages > 0) _app.saveProgress(item, '$_page', _progress).then((_) => _app.refresh());
     if (_awake) ScreenAwake.release();
-    if (_fullscreen) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (_fullscreen) setViewerFullscreen(false);
     _strip.dispose();
     super.dispose();
   }
@@ -86,12 +89,14 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
         onRemove: (m) => s.toggleBookmark(item.id!, m),
       );
 
+  static final _touch = Platform.isAndroid || Platform.isIOS;
+
   void _toggleFullscreen() {
     setState(() {
       _fullscreen = !_fullscreen;
       _chrome = !_fullscreen;
     });
-    SystemChrome.setEnabledSystemUIMode(_fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
+    setViewerFullscreen(_fullscreen);
   }
 
   void _scrollStrip() {
@@ -106,7 +111,6 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
   Widget build(BuildContext context) {
     final s = context.watch<Settings>();
     final marked = s.bookmarks(item.id!).contains(_page);
-    final zoom = _pages == 0 ? 1.0 : _ctrl.currentZoom;
 
     return CallbackShortcuts(
       bindings: {
@@ -129,7 +133,13 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
       },
       child: Focus(
         autofocus: true,
-        child: Scaffold(
+        // 전체화면에서 "뒤로" 는 먼저 전체화면을 끝낸다 (PDF 는 화면을 눌러 메뉴를 되살릴 수 없다)
+        child: PopScope(
+          canPop: !_fullscreen,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop && _fullscreen) _toggleFullscreen();
+          },
+          child: Scaffold(
           backgroundColor: viewerBg,
           body: SafeArea(
             child: Column(children: [
@@ -175,9 +185,13 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                           ToolBtn(icon: Icons.chevron_right, tooltip: '다음 쪽', onTap: () => _go(_page + 1)),
                         ]),
                         ToolGroup([
-                          ToolBtn(icon: Icons.zoom_out, tooltip: '축소', onTap: () => _ctrl.zoomDown().then((_) => setState(() {}))),
-                          ToolBtn(label: '${(zoom * 100).round()}%', tooltip: '배율'),
-                          ToolBtn(icon: Icons.zoom_in, tooltip: '확대', onTap: () => _ctrl.zoomUp().then((_) => setState(() {}))),
+                          ToolBtn(icon: Icons.zoom_out, tooltip: '축소', onTap: () => _ctrl.zoomDown()),
+                          // 두 손가락 · Ctrl+휠로 바꾼 배율도 바로 따라간다
+                          ListenableBuilder(
+                            listenable: _ctrl,
+                            builder: (_, _) => ToolBtn(label: '${((_ctrl.isReady ? _ctrl.currentZoom : 1.0) * 100).round()}%', tooltip: '지금 배율'),
+                          ),
+                          ToolBtn(icon: Icons.zoom_in, tooltip: '확대', onTap: () => _ctrl.zoomUp()),
                         ]),
                         ToolGroup([
                           ToolBtn(
@@ -218,7 +232,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                             active: s.pdfInvert,
                             onTap: () => s.pdfInvert = !s.pdfInvert,
                           ),
-                          const EyeCareBtn(),
+                          const EyeCareBtn(panel: false),
                         ]),
                         ToolGroup([ToolBtn(icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen, tooltip: '전체화면 (F)', onTap: _toggleFullscreen)]),
                         ToolGroup([
@@ -229,10 +243,12 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                               ('← → / PgUp PgDn', '이전 / 다음 쪽'),
                               ('Home / End', '처음 / 끝'),
                               ('Ctrl+휠', '확대 / 축소'),
-                              ('F', '전체화면'),
+                              ('F', '전체화면 (끝낼 때: F · Esc · 오른쪽 위 단추)'),
                               ('B', '책갈피: 지금 쪽 표시 (옆의 목록 단추로 책갈피한 쪽에 바로 가기)'),
                               ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
                             ], touch: const [
+                              ('좌우 가장자리 누르기', '이전 / 다음 쪽 (설정 › 뷰어에서 끄기 · 왼손잡이용 고르기)'),
+                              ('가운데 누르기', '위아래 메뉴 보이기 · 숨기기'),
                               ('책갈피 단추', '지금 쪽을 표시 · 다시 누르면 지움'),
                               ('책갈피 목록 단추 (옆)', '책갈피한 쪽 목록 → 누르면 그 쪽으로'),
                               ('위아래로 밀기', '쪽 넘기기'),
@@ -263,6 +279,19 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                   params: PdfViewerParams(
                     // 색을 뒤집을 때는 바탕도 함께 뒤집히므로 미리 밝은 회색을 준다 (뒤집히면 원래의 어두운 바탕)
                     backgroundColor: s.pdfInvert ? const Color(0xFFE4E4E4) : viewerBg,
+                    // 터치 기기: 좌우 가장자리를 누르면 쪽 넘김, 가운데를 누르면 위아래 메뉴 보이기 · 숨기기 (만화 · 책과 같게)
+                    onGeneralTap: !_touch
+                        ? null
+                        : (ctx, ctrl, d) {
+                            if (d.type != PdfViewerGeneralTapType.tap || d.tapOn == PdfViewerPart.selectedText) return false;
+                            final x = d.localPosition.dx / MediaQuery.sizeOf(context).width;
+                            if (s.tapToTurn && (x < 0.25 || x > 0.75)) {
+                              _go(_page + ((x < 0.25) == s.tapLeftIsNext ? 1 : -1));
+                            } else {
+                              setState(() => _chrome = !_chrome);
+                            }
+                            return false; // (글자 선택 풀기 같은 기본 동작은 그대로)
+                          },
                     onViewerReady: (doc, ctrl) => setState(() {
                       _doc = doc;
                       _pages = doc.pages.length;
@@ -298,6 +327,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                         ),
                       ),
                     ),
+                  if (_fullscreen && !_chrome) FullscreenExitBtn(onTap: _toggleFullscreen),
                   if (_readAloud && _doc != null)
                     Positioned(
                       left: 12,
@@ -356,6 +386,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                 ),
             ]),
           ),
+        ),
         ),
       ),
     );

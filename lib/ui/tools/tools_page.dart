@@ -36,10 +36,9 @@ class ToolsPage extends StatelessWidget {
 
     final groups = <(String, List<_Tool>)>[
       ('텍스트', [
-        _Tool(Icons.description, '텍본 정리기', '${txts.length}개', Colors.blue, txts.isEmpty ? null : () => go(TxtCleanPage(items: txts)),
-            sub: 'UTF-8 변환 · 공백/빈 줄 정리'),
-        _Tool(Icons.translate, '텍스트 인코딩 변환', '${txts.length}개', Colors.indigo, txts.isEmpty ? null : () => go(TxtCleanPage(items: txts)),
-            sub: 'CP949 → UTF-8'),
+        // (예전에는 "텍스트 인코딩 변환" 칸이 따로 있었지만 같은 화면을 열었다 → 하나로)
+        _Tool(Icons.description, '텍본 정리 · 인코딩 변환', '${txts.length}개', Colors.blue, txts.isEmpty ? null : () => go(TxtCleanPage(items: txts)),
+            sub: 'CP949 → UTF-8 변환 · 공백/빈 줄 정리'),
       ]),
       ('문서 변환', [
         _Tool(Icons.article, 'TXT → EPUB', '${txts.length}개', Colors.blueGrey, txts.isEmpty ? null : () => go(TxtToEpubPage(items: txts)),

@@ -236,10 +236,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> markFinished(MediaItem e, bool finished) async {
-    await saveProgress(e, finished ? (e.position ?? '0') : '0', finished ? 1 : 0);
-    notifyListeners();
-  }
+  /// 하나를 읽음 / 안 읽음으로 (메뉴 · 상세 화면). 여러 개를 바꿀 때와 똑같이 마지막으로 본 날짜와 열람 기록은 건드리지 않는다
+  /// (예전에는 "읽음으로 표시" 만 해도 방금 본 것처럼 "최근 본" 맨 앞에 오고 열람 기록에 한 줄이 생겼다)
+  Future<void> markFinished(MediaItem e, bool finished) => markFinishedMany([e], finished);
 
   /// 여러 개를 한꺼번에 읽음 / 안 읽음으로 (묶음 전체 · 여러 개 선택). 마지막으로 본 날짜와 열람 기록은 건드리지 않는다
   Future<int> markFinishedMany(Iterable<MediaItem> items, bool finished) async {
@@ -285,7 +284,10 @@ class AppState extends ChangeNotifier {
 
   Future<void> load() async {
     try {
-      final dir = await getApplicationSupportDirectory();
+      var dir = await getApplicationSupportDirectory();
+      // 안드로이드: 앱 안쪽 폴더는 사용자가 볼 수 없다 → PC 에 USB 로 연결하면 보이는 폴더(Android/data/…/files)에서 찾는다
+      // (예전에는 안내대로 하려 해도 그 폴더에 파일을 만들 길이 없었다)
+      if (Platform.isAndroid) dir = await getExternalStorageDirectory() ?? dir;
       resetFilePath = p.join(dir.path, 'RESET_PASSWORD.txt');
       resetRequested = await File(resetFilePath).exists();
     } catch (_) {}
@@ -1109,7 +1111,10 @@ class AppState extends ChangeNotifier {
   bool get selecting => selected.isNotEmpty;
 
   void toggleSelect(Entry e) {
-    if (!selected.remove(e.key)) selected.add(e.key);
+    if (!selected.remove(e.key)) {
+      selected.add(e.key);
+      focusedKey = e.key; // 넓은 화면의 아래 상세 패널이 방금 고른 것을 보여 주게
+    }
     _viewChanged();
   }
 

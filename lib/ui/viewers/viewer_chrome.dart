@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:media_kit_video/media_kit_video.dart' show defaultEnterNativeFullscreen, defaultExitNativeFullscreen;
 import 'package:provider/provider.dart';
 
 import '../../services/settings.dart';
@@ -38,9 +40,13 @@ class ToolBtn extends StatelessWidget {
   final bool enabled; // false 면 흐리게 (onTap 이 없어도 다른 위젯이 눌림을 처리하면 true)
   const ToolBtn({super.key, this.icon, this.label, required this.tooltip, this.active = false, this.onTap, this.enabled = true});
 
+  // 손가락으로 쓰는 기기에서는 풍선말의 단축키 표시 "(F)" "(Home)" 등을 뺀다 (키보드가 없다)
+  static final _keyHint = RegExp(r' \((Home|End|F|B|Esc|PgUp|PgDn|Space|Ctrl [+\-])\)');
+  static final _touch = Platform.isAndroid || Platform.isIOS;
+
   @override
   Widget build(BuildContext context) => Tooltip(
-        message: tooltip,
+        message: _touch ? tooltip.replaceAll(_keyHint, '') : tooltip,
         child: Material(
           color: active ? toolActive : Colors.transparent,
           child: InkWell(
@@ -237,14 +243,16 @@ const invertKeepHue = ColorFilter.matrix(<double>[
 
 /// 위 도구줄의 "눈 보호" 단추 (켜기 · 끄기. 세기는 ⚙ 또는 설정 › 뷰어)
 class EyeCareBtn extends StatelessWidget {
-  const EyeCareBtn({super.key});
+  /// 이 뷰어에 ⚙ 뷰어 설정 패널이 있는가 (PDF 는 없다 → 세기는 설정 › 뷰어에서)
+  final bool panel;
+  const EyeCareBtn({super.key, this.panel = true});
   @override
   Widget build(BuildContext context) {
     final s = context.watch<Settings>();
     return ToolBtn(
       icon: Icons.remove_red_eye_outlined,
       label: '눈 보호',
-      tooltip: '눈 보호: 푸른빛을 줄여 따뜻한 색으로 (세기는 ⚙ 뷰어 설정)',
+      tooltip: '눈 보호: 푸른빛을 줄여 따뜻한 색으로 (세기는 ${panel ? '⚙ 뷰어 설정' : '설정 › 뷰어'})',
       active: s.eyeCare,
       onTap: () => s.eyeCare = !s.eyeCare,
     );
@@ -346,5 +354,47 @@ class HandRow extends StatelessWidget {
       onChanged: (v) => s.tapHand = v,
       options: const [(0, null, '읽는 방향대로'), (1, null, '오른손잡이\n오른쪽 = 다음'), (2, null, '왼손잡이\n왼쪽 = 다음')],
     );
+  }
+}
+
+/// 전체화면에서 빠져나오는 작은 단추. Stack 안에 둔다.
+/// (터치 기기에는 Esc · F 키가 없어서, 위 도구줄이 숨은 채로는 전체화면을 끝낼 길이 없었다)
+class FullscreenExitBtn extends StatelessWidget {
+  final VoidCallback onTap;
+  const FullscreenExitBtn({super.key, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Positioned(
+        right: 8,
+        top: 8,
+        child: Material(
+          color: Colors.black45,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: IconButton(
+            tooltip: '전체화면 끝내기',
+            icon: const Icon(Icons.fullscreen_exit, color: Colors.white70),
+            onPressed: onTap,
+          ),
+        ),
+      );
+}
+
+/// 뷰어 전체화면 켜기 · 끄기 (위아래 메뉴를 숨기는 것은 각 뷰어가 따로 한다).
+/// - PC: 창을 화면 전체로 넓힌다 (작업 표시줄 · 창 테두리까지 가림). 영상 뷰어와 같은 방법을 쓴다.
+///   (예전에는 PC 에서 메뉴만 숨겨질 뿐 창은 그대로여서 "전체화면" 이라 하기 어려웠다)
+/// - 휴대폰 · 태블릿: 상태 막대와 아래 단추를 숨긴다.
+Future<void> setViewerFullscreen(bool on) async {
+  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    try {
+      if (on) {
+        await defaultEnterNativeFullscreen();
+      } else {
+        await defaultExitNativeFullscreen();
+      }
+    } catch (_) {
+      // 창을 넓히지 못해도 메뉴 숨기기는 그대로 된다
+    }
+  } else {
+    await SystemChrome.setEnabledSystemUIMode(on ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
   }
 }

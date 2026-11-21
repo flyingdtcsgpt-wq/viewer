@@ -65,6 +65,7 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
 
   @override
   void dispose() {
+    if (_slideshow != null) ScreenAwake.release();
     _slideshow?.cancel();
     _s.removeListener(_onSettings);
     for (final z in _zoom.values) {
@@ -212,9 +213,11 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
       if (_slideshow != null) {
         _slideshow!.cancel();
         _slideshow = null;
+        ScreenAwake.release();
       } else {
-        _slideshow = Timer.periodic(Duration(seconds: _s.slideshowSeconds), (_) => _go(1));
+        _slideshow = Timer.periodic(Duration(seconds: _s.slideshowSeconds.clamp(1, 600)), (_) => _go(1));
         _showUi = false;
+        ScreenAwake.hold(); // 슬라이드쇼 동안에는 화면이 저절로 꺼지지 않게
       }
     });
   }

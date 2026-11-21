@@ -355,8 +355,8 @@ class SelectionBar extends StatelessWidget {
             }
             await state.hideSelected(true);
             if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('숨겼습니다. 파일도 OS 에서 숨김 속성으로 바꿨습니다.'),
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(Platform.isWindows || Platform.isMacOS ? '숨겼습니다. 파일도 OS 에서 숨김 속성으로 바꿨습니다.' : '숨겼습니다. (이 앱 안에서만 숨겨집니다)'),
               ));
             }
           },
@@ -600,7 +600,7 @@ class _SeriesEditorState extends State<_SeriesEditor> {
               secondary: const Icon(Icons.visibility_off),
               title: const Text('숨김'),
               subtitle: Text(state.hasHiddenPassword
-                  ? '켜면 안의 모든 권이 숨김 목록으로 가고, 파일도 OS 숨김 속성이 됩니다'
+                  ? (Platform.isWindows || Platform.isMacOS ? '켜면 안의 모든 권이 숨김 목록으로 가고, 파일도 OS 숨김 속성이 됩니다' : '켜면 안의 모든 권이 숨김 목록으로 갑니다 (이 앱 안에서만 숨겨집니다)')
                   : '먼저 관리자 메뉴에서 숨김 비밀번호를 정하세요'),
               value: _hidden,
               onChanged: state.hasHiddenPassword || _hidden ? (v) => setState(() => _hidden = v) : null,

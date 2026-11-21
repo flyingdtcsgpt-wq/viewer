@@ -33,14 +33,20 @@ void openEntry(BuildContext context, Entry e, List<MediaItem> siblings) {
   }
 }
 
+/// 손가락으로 쓰는 기기인가 (휴대폰 · 태블릿). 가로로 든 태블릿은 PC 와 같은 넓은 화면을 쓰지만 조작은 휴대폰처럼 한다
+final touchDevice = Platform.isAndroid || Platform.isIOS;
+
 void tapEntry(BuildContext context, Entry e, List<MediaItem> siblings, {required bool desktop}) {
   final state = context.read<AppState>();
   final multi = HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
-  if (state.isAdmin && (multi || (!desktop && state.selecting))) {
+  // 마우스로 쓰는 PC 만 "한 번 = 고르기, 두 번 = 열기". 태블릿은 넓은 화면이어도 한 번 눌러 연다
+  // (예전에는 가로로 든 태블릿에서 두 번 눌러야 열렸고, 길게 눌러 여러 개 고르기도 격자에서만 됐다)
+  final pc = desktop && !touchDevice;
+  if (state.isAdmin && (multi || (!pc && state.selecting))) {
     state.toggleSelect(e);
     return;
   }
-  if (desktop) {
+  if (pc) {
     state.focus(e);
   } else {
     openEntry(context, e, siblings);
@@ -67,7 +73,7 @@ class PosterCard extends StatelessWidget {
   final bool selected;
   final bool hidden;
   final VoidCallback onTap;
-  final VoidCallback onDoubleTap;
+  final VoidCallback? onDoubleTap; // (없으면 한 번 누름이 기다림 없이 바로 먹는다)
   final VoidCallback onLongPress;
   final void Function(Offset globalPosition) onContext;
   const PosterCard({
@@ -315,14 +321,14 @@ class EntryBrowser extends StatelessWidget {
                 ItemEntry x => state.isHiddenItem(x.item),
               },
               onTap: () => tap(e),
-              onDoubleTap: () => open(e),
+              onDoubleTap: touchDevice ? null : () => open(e),
               onLongPress: () => long(e),
               onContext: (at) => menu(e, at),
             );
           },
         );
       case ViewMode.table:
-        return _Table(entries: entries, onTap: tap, onOpen: open, onMenu: menu);
+        return _Table(entries: entries, onTap: tap, onOpen: open, onLong: long, onMenu: menu);
       case ViewMode.cards:
         return GridView.builder(
           padding: const EdgeInsets.all(14),
@@ -338,6 +344,7 @@ class EntryBrowser extends StatelessWidget {
             selected: state.selected.contains(entries[i].key),
             onTap: () => tap(entries[i]),
             onOpen: () => open(entries[i]),
+            onLong: () => long(entries[i]),
             onMenu: (at) => menu(entries[i], at),
           ),
         );
@@ -348,9 +355,9 @@ class EntryBrowser extends StatelessWidget {
 class _InfoCard extends StatelessWidget {
   final Entry entry;
   final bool selected;
-  final VoidCallback onTap, onOpen;
+  final VoidCallback onTap, onOpen, onLong;
   final void Function(Offset) onMenu;
-  const _InfoCard({required this.entry, required this.selected, required this.onTap, required this.onOpen, required this.onMenu});
+  const _InfoCard({required this.entry, required this.selected, required this.onTap, required this.onOpen, required this.onLong, required this.onMenu});
 
   @override
   Widget build(BuildContext context) {
@@ -377,7 +384,8 @@ class _InfoCard extends StatelessWidget {
     }
     return GestureDetector(
       onTap: onTap,
-      onDoubleTap: onOpen,
+      onDoubleTap: touchDevice ? null : onOpen,
+      onLongPress: touchDevice ? onLong : null, // 태블릿: 길게 눌러 고르기 (PC 는 Ctrl+클릭 · 오른쪽 클릭)
       onSecondaryTapUp: (d) => onMenu(d.globalPosition),
       child: Container(
         padding: const EdgeInsets.all(10),
@@ -421,9 +429,9 @@ class _InfoCard extends StatelessWidget {
 /// 표 보기: 진행률 · 표지 · 제목 · 종류 · 쪽 · 평점 · 용량 · 추가일 · 시리즈
 class _Table extends StatelessWidget {
   final List<Entry> entries;
-  final void Function(Entry) onTap, onOpen;
+  final void Function(Entry) onTap, onOpen, onLong;
   final void Function(Entry, Offset) onMenu;
-  const _Table({required this.entries, required this.onTap, required this.onOpen, required this.onMenu});
+  const _Table({required this.entries, required this.onTap, required this.onOpen, required this.onLong, required this.onMenu});
 
   @override
   Widget build(BuildContext context) {
@@ -504,7 +512,8 @@ class _Table extends StatelessWidget {
             };
             return GestureDetector(
               onTap: () => onTap(e),
-              onDoubleTap: () => onOpen(e),
+              onDoubleTap: touchDevice ? null : () => onOpen(e),
+              onLongPress: touchDevice ? () => onLong(e) : null,
               onSecondaryTapUp: (d) => onMenu(e, d.globalPosition),
               child: Container(
                 decoration: BoxDecoration(
@@ -727,7 +736,9 @@ class _ItemDetail extends StatelessWidget {
                         Text('줄거리', style: text.labelLarge?.copyWith(color: const Color(0xFFFFB300))),
                       ]),
                       const SizedBox(height: 8),
-                      Text(item.description?.isNotEmpty == true ? item.description! : '줄거리가 없습니다. ✎ 버튼으로 인터넷에서 가져오거나 직접 입력하세요.',
+                      Text(item.description?.isNotEmpty == true
+                              ? item.description!
+                              : (kStore ? '줄거리가 없습니다. ✎ 버튼으로 직접 적어 둘 수 있습니다.' : '줄거리가 없습니다. ✎ 버튼으로 인터넷에서 가져오거나 직접 입력하세요.'),
                           style: text.bodyMedium?.copyWith(height: 1.6)),
                     ]),
                   ),

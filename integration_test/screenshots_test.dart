@@ -46,6 +46,7 @@ import 'package:media_shelf/ui/settings_page.dart';
 import 'package:media_shelf/ui/tools/tools_page.dart';
 import 'package:media_shelf/ui/viewers/comic_reader_page.dart';
 import 'package:media_shelf/ui/viewers/image_viewer_page.dart';
+import 'package:media_shelf/ui/viewers/pdf_reader_page.dart';
 import 'package:media_shelf/ui/viewers/text_reader_page.dart';
 import 'package:media_shelf/ui/viewers/viewer_chrome.dart';
 import 'package:path/path.dart' as p;
@@ -1382,6 +1383,86 @@ void main() {
           dir.deleteSync(recursive: true);
         } catch (_) {}
       });
+    });
+
+    // PDF 뷰어: 배율 표시 · (터치) 눌러서 메뉴 숨기기/쪽 넘기기 · 전체화면 끝내기 단추.
+    // 하나만 읽음으로 표시해도 열람 기록 · 마지막으로 본 날짜가 바뀌지 않는지도 여기서 본다 (맨 끝이라 다른 점검에 영향이 없다)
+    await step('pdf viewer', () async {
+      final dir = Directory(p.join(tmp.path, 'pdf_view'))..createSync(recursive: true);
+      final path = p.join(dir.path, '여행 안내서.pdf');
+      await tester.runAsync(() async {
+        await ImagePdf.write(path, 4, (i) async => Uint8List.fromList(_page('PDF ${i + 1}')), title: '여행 안내서');
+        await state.importFiles([path]);
+      });
+      await wait(800);
+      final pdf = state.allItems.where((e) => e.path == path).firstOrNull;
+      if (pdf == null) {
+        debugPrint('CHECK pdf imported=false');
+        return;
+      }
+      final h0 = (await tester.runAsync(state.historyList))!.length;
+      final seen0 = pdf.lastOpened;
+      await tester.runAsync(() => state.markFinished(pdf, true));
+      final h1 = (await tester.runAsync(state.historyList))!.length;
+      debugPrint('CHECK mark one finished=${pdf.progress >= 0.98} history=$h0->$h1 lastOpenedSame=${pdf.lastOpened == seen0}');
+      await tester.runAsync(() => state.markFinished(pdf, false));
+
+      await push(PdfReaderPage(item: pdf));
+      await shot('10b_PDF뷰어', 3000);
+      String head() => tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data ?? '')
+          .firstWhere((d) => RegExp(r'^\d+ / \d+').hasMatch(d), orElse: () => '?');
+      final opened = head();
+      final zoom = tester.widgetList<ToolBtn>(find.byType(ToolBtn)).where((w) => w.tooltip == '지금 배율').firstOrNull?.label;
+
+      // 터치 기기: 가운데 = 메뉴 숨기기/보이기, 가장자리 = 쪽 넘김 (오른손잡이 · 왼손잡이). PC 에는 이 동작이 없다
+      var tap = 'none(pc)';
+      PdfViewer viewer() => tester.widget<PdfViewer>(find.byType(PdfViewer));
+      if (viewer().params.onGeneralTap != null) {
+        final ctx = tester.element(find.byType(PdfViewer));
+        final w = MediaQuery.sizeOf(tester.element(find.byType(PdfReaderPage))).width;
+        Future<void> tapAt(double x) async {
+          viewer().params.onGeneralTap!(
+            ctx,
+            viewer().controller!,
+            PdfViewerGeneralTapHandlerDetails(
+              type: PdfViewerGeneralTapType.tap,
+              localPosition: Offset(x, 300),
+              documentPosition: Offset.zero,
+              tapOn: PdfViewerPart.background,
+            ),
+          );
+          await wait(900);
+        }
+
+        await tapAt(w / 2);
+        final hidden = find.byType(ToolBtn).evaluate().isEmpty;
+        await tapAt(w / 2);
+        final back = find.byType(ToolBtn).evaluate().isNotEmpty;
+        settings.tapHand = 1;
+        await tapAt(w * 0.9);
+        final right = head();
+        settings.tapHand = 2;
+        await tapAt(w * 0.05);
+        tap = 'menuHidden=$hidden menuBack=$back rightHandRightTap=[$right] leftHandLeftTap=[${head()}]';
+        settings.tapHand = 0;
+      }
+
+      // 전체화면 → 끝내기 단추 (PC 는 창이 실제로 전체화면이 되므로 터치 기기에서만 눌러 본다)
+      var fs = 'skipped(pc)';
+      if (Platform.isAndroid || Platform.isIOS) {
+        press('전체화면 (F)');
+        await wait(600);
+        final exit = find.byType(FullscreenExitBtn);
+        final shown = exit.evaluate().isNotEmpty;
+        final menuGone = find.byType(ToolBtn).evaluate().isEmpty;
+        if (shown) tester.widget<FullscreenExitBtn>(exit.first).onTap();
+        await wait(600);
+        fs = 'menuGone=$menuGone exitBtn=$shown menuBack=${find.byType(ToolBtn).evaluate().isNotEmpty}';
+      }
+      debugPrint('CHECK pdf open=[$opened] zoom=$zoom tap=$tap fullscreen=$fs');
+      await popAll();
     });
 
     binding.reportData = {'files': files};

@@ -75,8 +75,13 @@ class _ImportDialogState extends State<_ImportDialog> {
     targetRoot: _app.settings.libraryRoot,
     group: widget.folder != null ? GroupMode.auto : GroupMode.auto,
     watch: widget.folder != null,
-    // iOS: 고른 파일은 임시 사본이라 앱 폴더로 복사해야 남는다
-    mode: Platform.isIOS ? ImportMode.copy : ImportMode.reference,
+    // iOS: 고른 파일은 임시 사본이라 앱 폴더로 복사해야 남는다.
+    // 그 밖에는 설정 › 파일 처리에서 정한 기본 동작으로 시작한다 (예전에는 늘 "원본 위치에 연결" 로 시작해 설정이 듣지 않았다)
+    mode: Platform.isIOS
+        ? ImportMode.copy
+        : (_app.settings.defaultStorage == StorageMode.managed && _app.settings.libraryRoot != null
+            ? (_app.settings.moveFiles ? ImportMode.move : ImportMode.copy)
+            : ImportMode.reference),
   );
   late final _bundleName = TextEditingController(text: widget.folder != null ? p.basename(widget.folder!) : '새 묶음');
   bool _running = false;
@@ -290,7 +295,7 @@ class _ImportDialogState extends State<_ImportDialog> {
             value: _opt.hidden,
             onChanged: _app.hasHiddenPassword ? (v) => setState(() => _opt.hidden = v ?? false) : null,
             title: const Text('숨김으로 추가'),
-            subtitle: Text(_app.hasHiddenPassword ? '숨김 목록에만 보이고 파일도 OS 숨김 속성이 됩니다' : '먼저 관리자 메뉴에서 숨김 비밀번호를 정하세요',
+            subtitle: Text(_app.hasHiddenPassword ? (Platform.isWindows || Platform.isMacOS ? '숨김 목록에만 보이고 파일도 OS 숨김 속성이 됩니다' : '숨김 목록에만 보입니다 (이 앱 안에서만 숨겨집니다)') : '먼저 관리자 메뉴에서 숨김 비밀번호를 정하세요',
                 style: const TextStyle(fontSize: 11)),
           ),
         if (widget.folder != null && _opt.mode == ImportMode.reference)

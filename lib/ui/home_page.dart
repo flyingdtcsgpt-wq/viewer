@@ -310,7 +310,8 @@ class _Sidebar extends StatelessWidget {
 
       section('종류'),
       for (var i = 0; i < _kinds.length; i++)
-        if (i == 0 || state.kindAllowed(_kinds[i]!))
+        // (플레이스토어판은 그림을 다루지 않는다 → 늘 0 인 "그림" 줄이 보이지 않게)
+        if (i == 0 || (state.kindAllowed(_kinds[i]!) && !(kStore && _kinds[i] == MediaKind.image)))
         item(
           _kindIcons[i],
           _kindName(_kinds[i]),
@@ -361,7 +362,10 @@ class _Sidebar extends StatelessWidget {
           final name = await askText(context, '새 묶음 이름', hint: '예) 명탐정 코난');
           if (name != null && name.isNotEmpty) await state.createSeries(name, parentId: state.currentSeriesId);
         })),
-        item(Icons.copy_all, '중복 / 누락 확인', act(() => _showDuplicates(context))),
+        item(Icons.copy_all, '중복 / 누락 확인', act(() => showDuplicates(rootContext))),
+        item(Icons.construction, '파일 도구', act(() => push(const ToolsPage()))),
+        item(state.share.running ? Icons.wifi_tethering : Icons.wifi_tethering_off, state.share.running ? '공유 서버 (켜짐)' : '공유 서버',
+            act(() => push(const SharePage()))),
       ],
 
       section('도구'),
@@ -388,8 +392,10 @@ class _Sidebar extends StatelessWidget {
 
     ]);
   }
+}
 
-  Future<void> _showDuplicates(BuildContext context) async {
+/// 원본 파일이 사라진 항목 · 같은 파일로 보이는 항목을 찾아 보여 준다
+Future<void> showDuplicates(BuildContext context) async {
     final state = context.read<AppState>();
     await state.checkMissing();
     final dups = state.findDuplicates();
@@ -416,7 +422,6 @@ class _Sidebar extends StatelessWidget {
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기'))],
       ),
     );
-  }
 }
 
 /// PC 위쪽 작업 줄: 폴더 추가 · 파일 추가 · 선택 삭제 · 전체 선택 … / 버전 · 기록 · AI · 설정
@@ -485,6 +490,20 @@ class _TopActionBar extends StatelessWidget {
         btn(Icons.lock_person, '사용자 접근', () => showAccessForSelection(context)),
         ],
       ],
+      // 읽음 / 안 읽음 (PC 는 오른쪽 클릭 메뉴에도 있지만, 가로로 든 태블릿에는 그 메뉴가 없다)
+      PopupMenuButton<bool>(
+        tooltip: '고른 것을 읽음 / 안 읽음으로',
+        position: PopupMenuPosition.under,
+        onSelected: (read) async {
+          final n = await state.markFinishedMany(state.selectedItemsDeep, read);
+          toast(read ? '$n개를 읽음으로 표시했습니다' : '$n개를 안 읽음으로 표시했습니다');
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: true, child: ListTile(leading: Icon(Icons.done_all), title: Text('읽음으로 표시'), dense: true)),
+          PopupMenuItem(value: false, child: ListTile(leading: Icon(Icons.remove_done), title: Text('안 읽음으로 표시'), dense: true)),
+        ],
+        child: IgnorePointer(child: btn(Icons.done_all, '읽음 표시', () {})),
+      ),
     ];
 
     return Container(
@@ -554,12 +573,24 @@ class _TopActionBar extends StatelessWidget {
                   push(const ToolsPage());
                 case 3:
                   push(const SharePage());
+                case 4:
+                  final name = await askText(context, '새 묶음 이름', hint: '예) 명탐정 코난');
+                  if (name != null && name.isNotEmpty) await state.createSeries(name, parentId: state.currentSeriesId);
+                case 5:
+                  if (context.mounted) await showDuplicates(context);
+                case 6:
+                  if (!state.scanning && await ensureStorageAccess(context)) await state.rescanAll();
               }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.select_all), title: Text('전체 선택 / 해제'), trailing: Text('Ctrl+A'))),
+              // (단축키 표시는 키보드를 쓰는 PC 에서만)
+              PopupMenuItem(value: 0, child: ListTile(leading: const Icon(Icons.select_all), title: const Text('전체 선택 / 해제'), trailing: touchDevice ? null : const Text('Ctrl+A'))),
               const PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.auto_fix_high), title: Text('시리즈 자동 묶기'))),
+              const PopupMenuItem(value: 4, child: ListTile(leading: Icon(Icons.create_new_folder_outlined), title: Text('새 묶음 만들기'))),
               if (!kStore) ...[
+              const PopupMenuItem(value: 5, child: ListTile(leading: Icon(Icons.copy_all), title: Text('중복 / 누락 확인'))),
+              // (가로로 든 태블릿에는 F5 도 오른쪽 클릭 메뉴도 없다)
+              PopupMenuItem(value: 6, enabled: !state.scanning, child: ListTile(leading: const Icon(Icons.refresh), title: const Text('다시 스캔'), trailing: touchDevice ? null : const Text('F5'))),
               const PopupMenuDivider(),
               const PopupMenuItem(value: 2, child: ListTile(leading: Icon(Icons.construction), title: Text('파일 도구'))),
               PopupMenuItem(
@@ -635,6 +666,9 @@ class _ToolbarState extends State<_Toolbar> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     context.watch<Settings>(); // 설정이 바뀌면 다시 그리기
+    final plain = state.collection == Collection.none && state.libraryPath == null;
+    final canRecurse = plain && !state.flatMode; // 하위 묶음 포함: 묶음을 따라 들어가며 볼 때만
+    final canSort = plain && (state.flatMode || (!state.recursive && state.currentSeriesId == null));
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       child: Wrap(
@@ -668,9 +702,11 @@ class _ToolbarState extends State<_Toolbar> {
               },
             ),
           ),
+          // 정렬이 듣는 곳: 맨 위 목록과 검색 · 즐겨찾기 · 태그 결과. 그 밖(묶음 안 = 권 번호순, 모아보기 · 폴더 = 정해진 순서)에서는
+          // 골라도 달라지지 않으므로 흐리게 해 둔다 (예전에는 눌러도 아무 일이 없어 고장처럼 보였다)
           DropdownButton<SortBy>(
             value: state.sortBy,
-            onChanged: (v) => state.setSort(v!),
+            onChanged: canSort ? (v) => state.setSort(v!) : null,
             items: const [
               DropdownMenuItem(value: SortBy.added, child: Text('최근 추가순')),
               DropdownMenuItem(value: SortBy.recent, child: Text('최근 읽은순')),
@@ -687,8 +723,8 @@ class _ToolbarState extends State<_Toolbar> {
           FilterChip(
             avatar: const Icon(Icons.account_tree, size: 16),
             label: const Text('하위 묶음 포함'),
-            selected: state.recursive,
-            onSelected: state.setRecursive,
+            selected: state.recursive && canRecurse,
+            onSelected: canRecurse ? state.setRecursive : null,
           ),
           if (state.tagFilter != null)
             InputChip(label: Text('#${state.tagFilter}'), onDeleted: () => state.setFilter(clearTag: true)),

@@ -339,3 +339,23 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   → `CustomScrollView(center:)` 로 시작 쪽(`_vAnchor`)을 기준으로 위 · 아래에 이어 붙임(`_vRestart`), 쪽 비율을 기억(`_aspect`, `_Measure`)해 자리 고정,
   지금 쪽은 화면이 그려진 뒤에 계산(`_trackVertical`)해 저장. 아래 탐색 줄(썸네일)을 스크롤 보기에서도 보여 주고 누르면 그 쪽에서 다시 시작. 위로 넘기기는 `minScrollExtent` 까지
 
+## 16. 한 손 보기 · 화면 점검에서 고친 것 (11-21 밤)
+- **누를 때 다음 쪽**: `Settings.tapHand`(0 읽는 방향대로 · 1 오른손잡이 · 2 왼손잡이) → `tapLeftIsNext`. 만화 `_tapSide`, 책 `onTapUp`, PDF `onGeneralTap` 이 모두 이 값을 본다. 밀어 넘기기는 손잡이와 무관(읽는 방향)
+- **전체화면** `viewer_chrome.dart setViewerFullscreen`: PC 는 `media_kit_video` 의 `defaultEnterNativeFullscreen`(창을 화면 전체로), 터치 기기는 `immersiveSticky`.
+  PDF 는 화면을 눌러 메뉴를 되살릴 길이 없었다 → `FullscreenExitBtn`(오른쪽 위) + `PopScope`(뒤로 = 전체화면 끝내기) + 터치 기기는 `onGeneralTap` 으로 가운데 = 메뉴, 가장자리 = 쪽 넘김.
+  책은 글자 선택 모드일 때만 끝내기 단추를 보인다(그때는 탭을 `SelectionArea` 가 가져간다)
+- **PDF 배율 표시**: `PdfViewerController` 는 `ValueListenable<Matrix4>` → `ListenableBuilder` 로 감싸 두 손가락 · 휠 확대도 따라간다 (`value` 는 붙기 전에 읽으면 죽으므로 `isReady` 를 본다)
+- **만화 스크롤 보기**: 읽는 방향(오른쪽→왼쪽)을 따지지 않는다(`_rtl`). 듣지 않는 것(맞춤 · 배율 · 커버 · 넘김효과 · 눌러 넘기기 · 방향키 설정)은 도구줄 · ⚙ 에서 숨기고, 조작법도 스크롤용을 따로 보여 준다.
+  "화면 폭에 꽉 채우기" 는 `viewerFit` 을 덮어쓰지 않게 `scrollWide` 로 따로 두고, 화면이 900 보다 넓을 때만 보인다
+- **높이 맞춤에서 밀어 넘기기** `_swipeTurns`: 쪽이 화면보다 넓지 않거나, 손가락을 댈 때 이미 그쪽 끝(`_downTx`)이면 쪽 넘김. 원본 크기 · 확대 중은 끌기 = 움직이기 그대로
+- **가로 태블릿** `browser.dart tapEntry`: `desktop && !touchDevice` 일 때만 "한 번 = 고르기, 두 번 = 열기". 터치는 넓은 화면이어도 한 번 = 열기, 길게 = 고르기(표 · 카드 목록에도 `onLong`), 두 번 탭 인식기를 달지 않아 눌림이 기다리지 않는다.
+  `toggleSelect` 가 `focusedKey` 도 옮겨 아래 상세 칸이 방금 고른 것을 보여 준다. 위 작업 줄에 읽음 표시, …(더보기)에 다시 스캔 · 새 묶음 · 중복/누락
+- **EPUB 원본 스타일 ↔ 읽기 최적화**: 원본 스타일은 자리를 `e장:비율` 로 저장(`item.position`), 읽기 최적화는 문단 번호. 예전에는 둘 다 숫자만 써서 바꾸면 엉뚱한 곳이 열렸다.
+  `TextDocument.spineStarts`(장 파일마다 시작 문단) + `blockOfSpine` · `spineOfBlock` 으로 서로 바꾼다 (`test/epub_position_test.dart`)
+- **읽음 표시(하나)**: `markFinished` 가 `saveProgress` 를 불러 마지막으로 본 날짜와 열람 기록이 생기던 것 → `markFinishedMany` 와 같은 길로
+- **뷰어 설정 초기화** `resetViewer({all})`: 만화 ⚙ 는 그 패널의 것만, 설정 › 뷰어는 그 화면의 것 전부(눌러 넘기기 · 손잡이 · 눈 보호 · 그림 보기 · 영상 · 화면 켜 두기 등)
+- **비밀번호 초기화 파일(안드로이드)**: 앱 안쪽 폴더는 사용자가 못 보므로 `getExternalStorageDirectory()`(Android/data/…/files)에서 찾는다
+- 그 밖: RAR · 7Z 를 휴대폰에서 누르면 안내 창(`openItem`), 가져오기 창 처음 값이 설정 › 파일 처리를 따름, 슬라이드쇼 간격 설정 + 그동안 화면 켜 두기, 정렬 · 하위 묶음 포함은 듣지 않는 화면에서 흐리게,
+  안내서 `_storeTopics(wide)` · `_fullTopics(touch, wide)`(가로 태블릿용 문구), 손가락 기기에서는 풍선말의 단축키 표시를 뺀다(`ToolBtn._keyHint`), 플레이스토어판 왼쪽 목록에서 "그림" 숨김, 파일 도구의 같은 화면 두 칸을 하나로
+- **확인 못 한 것**: PC 전체화면(창 넓히기)과 실제 손가락 조작(밀기 · 두 손가락)은 CI 에서 눌러 볼 수 없다. PDF 의 눌러 넘기기는 화면 캡처 테스트가 처리기를 직접 불러 확인한다(`CHECK pdf`)
+

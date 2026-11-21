@@ -97,8 +97,11 @@ class _EpubOriginalPageState extends State<EpubOriginalPage> {
   }
 
   void _save() {
-    _s.setEpubPosition(item.id!, '$_chapter:${_ratio.toStringAsFixed(3)}');
-    _app.saveProgress(item, '$_chapter', _progress);
+    final at = '$_chapter:${_ratio.toStringAsFixed(3)}';
+    _s.setEpubPosition(item.id!, at);
+    // 앞에 e 를 붙여 "장:비율" 임을 알린다. 읽기 최적화 보기는 문단 번호를 쓰므로,
+    // 숫자만 넘기면 보기 방식을 바꿨을 때 엉뚱한 곳(장 번호를 문단 번호로 읽은 책 맨 앞)이 열렸다
+    _app.saveProgress(item, 'e$at', _progress);
   }
 
   void _next(int d) {

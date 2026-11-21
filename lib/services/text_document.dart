@@ -32,7 +32,33 @@ class TextDocument {
   final List<TextBlock> blocks;
   final List<TocEntry> toc;
   final String encoding;
-  const TextDocument(this.blocks, this.toc, this.encoding);
+
+  /// EPUB: 장 파일(spine)마다 본문이 시작하는 블록 번호. "원본 스타일" 보기와 읽던 자리를 맞출 때 쓴다 (TXT 는 비어 있음)
+  final List<int> spineStarts;
+  const TextDocument(this.blocks, this.toc, this.encoding, {this.spineStarts = const []});
+
+  /// "원본 스타일" 의 자리(장 번호 + 그 장 안에서의 비율) → 블록 번호
+  int blockOfSpine(int chapter, double ratio) {
+    if (spineStarts.isEmpty || blocks.isEmpty) return 0;
+    final c = chapter.clamp(0, spineStarts.length - 1);
+    final start = spineStarts[c];
+    final end = c + 1 < spineStarts.length ? spineStarts[c + 1] : blocks.length;
+    // (아주 작은 값을 더해 0.7 × 10 = 6.999… 같은 셈 오차로 한 문단 앞이 되지 않게. 장 끝이어도 그 장을 넘지 않는다)
+    final n = ((end - start) * ratio.clamp(0.0, 1.0) + 1e-6).floor();
+    return (start + n).clamp(start, end > start ? end - 1 : start).clamp(0, blocks.length - 1);
+  }
+
+  /// 블록 번호 → "원본 스타일" 의 자리 (장 번호, 그 장 안에서의 비율)
+  (int, double) spineOfBlock(int block) {
+    if (spineStarts.isEmpty) return (0, 0.0);
+    var c = 0;
+    for (var i = 0; i < spineStarts.length; i++) {
+      if (spineStarts[i] <= block) c = i;
+    }
+    final start = spineStarts[c];
+    final end = c + 1 < spineStarts.length ? spineStarts[c + 1] : blocks.length;
+    return (c, end > start ? ((block - start) / (end - start)).clamp(0.0, 1.0) : 0.0);
+  }
 
   /// 무거운 작업이라 별도 isolate 에서 읽는다 (UI 멈춤 방지)
   static Future<TextDocument> load(String path) {
@@ -176,8 +202,10 @@ TextDocument _loadEpub(String path) {
 
     final blocks = <TextBlock>[];
     final toc = <TocEntry>[];
+    final spineStarts = <int>[];
     for (final chapter in spine) {
       final start = blocks.length;
+      spineStarts.add(start);
       final html = read(chapter);
       if (html.isEmpty) continue;
       XmlDocument doc;
@@ -202,7 +230,7 @@ TextDocument _loadEpub(String path) {
         toc.add(TocEntry(title.length > 40 ? '${title.substring(0, 40)}…' : title, start));
       }
     }
-    return TextDocument(blocks, toc, 'EPUB');
+    return TextDocument(blocks, toc, 'EPUB', spineStarts: spineStarts);
   } finally {
     input.closeSync();
   }
