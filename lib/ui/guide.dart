@@ -197,6 +197,8 @@ class _GuidePage extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final settings = context.read<Settings>();
     final topics = kStore ? _storeTopics : _fullTopics(Platform.isAndroid || Platform.isIOS);
+    // 머리말 색: 어두운 화면에서는 빨강을 조금 밝게 (작은 글씨가 잘 읽히게)
+    final headColor = Theme.of(context).brightness == Brightness.dark ? Color.lerp(scheme.primary, Colors.white, 0.35)! : scheme.primary;
 
     final list = ListView(padding: const EdgeInsets.fromLTRB(12, 4, 12, 12), children: [
       Padding(
@@ -219,7 +221,7 @@ class _GuidePage extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text.rich(TextSpan(children: [
-                    if (head.isNotEmpty) TextSpan(text: '$head  ', style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary)),
+                    if (head.isNotEmpty) TextSpan(text: '$head  ', style: TextStyle(fontWeight: FontWeight.w700, color: headColor)),
                     TextSpan(text: body),
                   ]), style: text.bodyMedium?.copyWith(height: 1.45)),
                 ),

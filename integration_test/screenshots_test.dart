@@ -46,6 +46,7 @@ import 'package:media_shelf/ui/settings_page.dart';
 import 'package:media_shelf/ui/tools/tools_page.dart';
 import 'package:media_shelf/ui/viewers/comic_reader_page.dart';
 import 'package:media_shelf/ui/viewers/text_reader_page.dart';
+import 'package:media_shelf/ui/viewers/viewer_chrome.dart';
 import 'package:path/path.dart' as p;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:path_provider/path_provider.dart';
@@ -216,6 +217,12 @@ void main() {
     }
 
     NavigatorState nav() => Navigator.of(tester.element(find.byType(HomePage, skipOffstage: false)));
+    // 뷰어 위쪽 단추를 이름(글자 또는 풍선말)으로 찾아 누른다
+    void press(String name) {
+      final b = tester.widgetList<ToolBtn>(find.byType(ToolBtn)).where((w) => w.label == name || w.tooltip == name).firstOrNull;
+      if (b?.onTap == null) throw '단추를 찾지 못했습니다: $name';
+      b!.onTap!();
+    }
     Future<void> push(Widget page) async {
       nav().push(MaterialPageRoute(builder: (_) => page));
       await wait(600);
@@ -305,8 +312,9 @@ void main() {
       settings.guideHidden = false;
       showAppGuide(tester.element(find.byType(HomePage, skipOffstage: false)), atStart: true);
       await wait(500);
-      final again = find.text('다시 보지 않기');
-      if (again.evaluate().isNotEmpty) await tester.tap(again.first);
+      final again = find.widgetWithText(TextButton, '다시 보지 않기');
+      // (화면을 실제 창보다 크게 그려서 tester.tap 은 창 밖 자리를 못 누른다 → 단추의 동작을 직접 부른다)
+      if (again.evaluate().isNotEmpty) tester.widget<TextButton>(again.first).onPressed!();
       await wait(400);
       debugPrint('CHECK guide shown=$shown hideButton=${again.evaluate().isEmpty ? 'closed' : 'still'} hidden=${settings.guideHidden}');
       settings.guideHidden = true;
@@ -329,8 +337,7 @@ void main() {
       debugPrint('CHECK comic wheel start=$p0 down=$p1 up=${comic!.position} zoom100=${find.text('100%').evaluate().isNotEmpty} fit=${settings.viewerFit}');
       // 눈 보호 단추: 켜지고, 뷰어가 다시 만들어지지 않는다 (쪽이 그대로)
       final pageBefore = comic!.position;
-      await tester.ensureVisible(find.text('눈 보호').first);
-      await tester.tap(find.text('눈 보호').first);
+      press('눈 보호');
       await shot('08c_만화뷰어_눈보호', 600);
       debugPrint('CHECK comic eyeCare=${settings.eyeCare} samePage=${comic!.position == pageBefore}');
       settings.eyeCare = false;
@@ -356,14 +363,11 @@ void main() {
       // 위쪽 단추: 줄 간격 · 다크 · 눈 보호
       final lh = settings.readerLineHeight;
       final wasDark = settings.readerIsDark;
-      await tester.ensureVisible(find.byTooltip('줄 간격 넓게'));
-      await tester.tap(find.byTooltip('줄 간격 넓게'));
+      press('줄 간격 넓게');
       await wait(200);
-      await tester.ensureVisible(find.text('다크').first);
-      await tester.tap(find.text('다크').first);
+      press('다크');
       await wait(200);
-      await tester.ensureVisible(find.text('눈 보호').first);
-      await tester.tap(find.text('눈 보호').first);
+      press('눈 보호');
       await shot('09b_텍스트뷰어_다크_눈보호', 600);
       debugPrint('CHECK reader line=$lh->${settings.readerLineHeight.toStringAsFixed(1)} dark=$wasDark->${settings.readerIsDark} eyeCare=${settings.eyeCare}');
       settings.eyeCare = false;
