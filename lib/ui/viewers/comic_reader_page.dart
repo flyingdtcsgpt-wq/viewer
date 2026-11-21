@@ -428,6 +428,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                 ),
               ]),
             ),
+            const ToolGroup([EyeCareBtn()]),
             ToolGroup([ToolBtn(icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen, tooltip: '전체화면 (F)', onTap: _toggleFullscreen)]),
             ToolGroup([
               ToolBtn(
@@ -452,6 +453,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                   ('확대 중 한 손가락', '끌어서 움직이기 (한 번 누르기는 무시)'),
                   ('마지막 쪽에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
                   ('책갈피 길게 누르기', '책갈피 목록'),
+                  ('눈 보호 단추', '푸른빛 줄이기 (세기는 ⚙ 뷰어 설정)'),
                   ('볼륨 버튼', '쪽 넘기기 (설정 › 뷰어에서 켜기)'),
                 ]),
               ),
@@ -473,7 +475,9 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       } else {
         content = _paged(c, s, rtl);
       }
-      return Stack(children: [
+      // 눈 보호: 쪽과 배경을 함께 따뜻한 색으로
+      return EyeCare(
+          child: Stack(children: [
         // 배경: 단색 / 몰입형(현재 쪽을 크게 흐리게)
         Positioned.fill(
           child: s.viewerImmersive
@@ -507,7 +511,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
               ),
             ),
           ),
-      ]);
+      ]));
     });
   }
 
@@ -958,6 +962,8 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             onChanged: (v) => s.viewerEffect = v,
             options: const [(0, null, '효과없음'), (1, null, '슬라이드'), (2, null, '페이드'), (3, null, '책 넘김')],
           ),
+          const Divider(color: Colors.white12, height: 28),
+          const EyeCarePanel(),
           const SizedBox(height: 8),
           OutlinedButton(
             style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)),

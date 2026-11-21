@@ -195,6 +195,17 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                             onTap: () => setState(() => _readAloud = !_readAloud),
                           ),
                         ]),
+                        // 어두운 화면(색 뒤집기) · 눈 보호
+                        ToolGroup([
+                          ToolBtn(
+                            icon: Icons.invert_colors,
+                            label: '다크',
+                            tooltip: '어두운 화면: 흰 종이를 검은 바탕으로 (색 뒤집기)',
+                            active: s.pdfInvert,
+                            onTap: () => s.pdfInvert = !s.pdfInvert,
+                          ),
+                          const EyeCareBtn(),
+                        ]),
                         ToolGroup([ToolBtn(icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen, tooltip: '전체화면 (F)', onTap: _toggleFullscreen)]),
                         ToolGroup([
                           ToolBtn(
@@ -211,6 +222,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                               ('위아래로 밀기', '쪽 넘기기'),
                               ('두 손가락 벌리기 · 두 번 누르기', '확대 · 축소'),
                               ('아래 썸네일 줄', '원하는 쪽으로 바로 가기'),
+                              ('다크 · 눈 보호 단추', '어두운 화면(색 뒤집기) / 푸른빛 줄이기'),
                               ('마지막 쪽의 "다음 권 보기"', '다음 권으로'),
                               ('볼륨 버튼', '쪽 넘기기 (설정 › 뷰어에서 켜기)'),
                             ]),
@@ -223,12 +235,18 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
               Expanded(
                 child: Stack(children: [
                   Positioned.fill(
-                    child: PdfViewer.file(
+                    // 눈 보호 → (어두운 화면이면) 색 뒤집기 순서로 겹친다
+                    child: EyeCare(
+                        child: StableFilter(
+                      // 어두운 화면: 색상은 두고 밝기만 뒤집는다 (흰 종이 → 검은 바탕, 검은 글 → 밝은 글)
+                      filter: s.pdfInvert ? invertKeepHue : null,
+                      child: PdfViewer.file(
                   item.path,
                   controller: _ctrl,
                   initialPageNumber: _page,
                   params: PdfViewerParams(
-                    backgroundColor: viewerBg,
+                    // 색을 뒤집을 때는 바탕도 함께 뒤집히므로 미리 밝은 회색을 준다 (뒤집히면 원래의 어두운 바탕)
+                    backgroundColor: s.pdfInvert ? const Color(0xFFE4E4E4) : viewerBg,
                     onViewerReady: (doc, ctrl) => setState(() {
                       _doc = doc;
                       _pages = doc.pages.length;
@@ -241,6 +259,7 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
                     },
                   ),
                 ),
+                    )),
                   ),
                   // 마지막 쪽에 오면 아래에 작게 안내 (넘기지 않고도 다음 권으로)
                   if (_pages > 1 && _page >= _pages)

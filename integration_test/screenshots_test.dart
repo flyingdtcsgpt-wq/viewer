@@ -327,6 +327,14 @@ void main() {
       await tester.sendEventToBinding(mouse.scroll(const Offset(0, -120)));
       await wait(500);
       debugPrint('CHECK comic wheel start=$p0 down=$p1 up=${comic!.position} zoom100=${find.text('100%').evaluate().isNotEmpty} fit=${settings.viewerFit}');
+      // 눈 보호 단추: 켜지고, 뷰어가 다시 만들어지지 않는다 (쪽이 그대로)
+      final pageBefore = comic!.position;
+      await tester.ensureVisible(find.text('눈 보호').first);
+      await tester.tap(find.text('눈 보호').first);
+      await shot('08c_만화뷰어_눈보호', 600);
+      debugPrint('CHECK comic eyeCare=${settings.eyeCare} samePage=${comic!.position == pageBefore}');
+      settings.eyeCare = false;
+      await wait(300);
       // 마지막 쪽에서 한 번 더 넘기면: 다음 권이 있으면 묻는 창, 없으면 "마지막 권" 안내
       await tester.sendKeyEvent(LogicalKeyboardKey.end);
       await wait(500);
@@ -345,6 +353,22 @@ void main() {
       if (book == null) return;
       await push(TextReaderPage(item: book!));
       await shot('09_텍스트뷰어', 2500);
+      // 위쪽 단추: 줄 간격 · 다크 · 눈 보호
+      final lh = settings.readerLineHeight;
+      final wasDark = settings.readerIsDark;
+      await tester.ensureVisible(find.byTooltip('줄 간격 넓게'));
+      await tester.tap(find.byTooltip('줄 간격 넓게'));
+      await wait(200);
+      await tester.ensureVisible(find.text('다크').first);
+      await tester.tap(find.text('다크').first);
+      await wait(200);
+      await tester.ensureVisible(find.text('눈 보호').first);
+      await tester.tap(find.text('눈 보호').first);
+      await shot('09b_텍스트뷰어_다크_눈보호', 600);
+      debugPrint('CHECK reader line=$lh->${settings.readerLineHeight.toStringAsFixed(1)} dark=$wasDark->${settings.readerIsDark} eyeCare=${settings.eyeCare}');
+      settings.eyeCare = false;
+      if (settings.readerIsDark != wasDark) settings.toggleReaderDark();
+      settings.readerLineHeight = lh;
       await popAll();
     });
 

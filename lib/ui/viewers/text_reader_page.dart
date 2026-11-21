@@ -998,17 +998,20 @@ class _TextReaderPageState extends State<TextReaderPage> {
       body = _buildText(s, theme);
     }
 
-    final page = Container(
-      color: theme.bg,
-      child: Column(children: [
-        Expanded(
-          child: Stack(children: [
-            Positioned.fill(child: body),
-            if (_ttsPanel) Positioned(top: 8, left: 8, right: 8, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 720), child: _ttsBar(s)))),
-          ]),
-        ),
-        if (_chrome && s.viewerSlider && (_doc?.toc.isNotEmpty ?? false)) _chapterStrip(),
-      ]),
+    // 눈 보호: 바탕과 글을 함께 따뜻한 색으로
+    final page = EyeCare(
+      child: Container(
+        color: theme.bg,
+        child: Column(children: [
+          Expanded(
+            child: Stack(children: [
+              Positioned.fill(child: body),
+              if (_ttsPanel) Positioned(top: 8, left: 8, right: 8, child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 720), child: _ttsBar(s)))),
+            ]),
+          ),
+          if (_chrome && s.viewerSlider && (_doc?.toc.isNotEmpty ?? false)) _chapterStrip(),
+        ]),
+      ),
     );
 
     return CallbackShortcuts(
@@ -1131,6 +1134,23 @@ class _TextReaderPageState extends State<TextReaderPage> {
               ToolBtn(label: '${(s.readerFontSize / 18 * 100).round()}%', tooltip: '글자 크기'),
               ToolBtn(icon: Icons.text_increase, tooltip: '글자 크게 (Ctrl +)', onTap: () => s.readerFontSize = (s.readerFontSize + 1).clamp(12, 40)),
             ]),
+            // 줄 간격 (자세한 조절 · 문단 간격 · 본문 폭은 ⚙ 뷰어 설정)
+            ToolGroup([
+              ToolBtn(icon: Icons.format_line_spacing, label: '−', tooltip: '줄 간격 좁게', onTap: () => s.readerLineHeight = (s.readerLineHeight - 0.1).clamp(1.2, 2.6)),
+              ToolBtn(label: s.readerLineHeight.toStringAsFixed(1), tooltip: '줄 간격'),
+              ToolBtn(label: '+', tooltip: '줄 간격 넓게', onTap: () => s.readerLineHeight = (s.readerLineHeight + 0.1).clamp(1.2, 2.6)),
+            ]),
+            // 어두운 화면 ↔ 밝은 화면, 눈 보호 (다른 테마 · 세기는 ⚙ 뷰어 설정)
+            ToolGroup([
+              ToolBtn(
+                icon: s.readerIsDark ? Icons.dark_mode : Icons.light_mode,
+                label: '다크',
+                tooltip: '어두운 화면 ↔ 밝은 화면 (세피아 · 그린 등 다른 테마는 ⚙)',
+                active: s.readerIsDark,
+                onTap: s.toggleReaderDark,
+              ),
+              const EyeCareBtn(),
+            ]),
             ToolGroup([
               ToolBtn(
                 icon: Icons.border_color,
@@ -1178,7 +1198,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
                   ('위아래로 밀기', '스크롤해서 읽기'),
                   ('가운데 누르기', '위 메뉴 보이기 · 숨기기'),
                   ('글자 선택 단추', '글자를 끌어 고른 뒤 형광펜 · 복사 · 검색'),
-                  ('⚙ 뷰어 설정', '글자 크기 · 줄 간격 · 글꼴 · 배경'),
+                  ('다크 · 눈 보호 단추', '어두운 화면 / 푸른빛 줄이기'),
+                  ('⚙ 뷰어 설정', '테마 · 글꼴 · 글자 크기 · 줄 간격 · 문단 간격 · 눈 보호 세기'),
                   ('끝에서 한 번 더', '다음 권으로 (없으면 "마지막 권" 안내)'),
                   ('볼륨 버튼', '화면 넘기기 (설정 › 뷰어에서 켜기)'),
                 ]),
@@ -1643,6 +1664,8 @@ class _TextReaderPageState extends State<TextReaderPage> {
           _slider('줄 간격', s.readerLineHeight, 1.2, 2.6, (v) => s.readerLineHeight = v),
           _slider('문단 간격', s.readerParagraphGap, 0, 1.5, (v) => s.readerParagraphGap = v),
           _slider('본문 폭', s.readerMaxWidth, 420, 1600, (v) => s.readerMaxWidth = v, digits: 0),
+          const Divider(color: Colors.white12, height: 28),
+          const EyeCarePanel(),
           const Divider(color: Colors.white12, height: 28),
           const PanelSection('넘기기'),
           SegmentRow<bool>(

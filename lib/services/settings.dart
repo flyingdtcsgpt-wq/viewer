@@ -97,9 +97,35 @@ class Settings extends ChangeNotifier {
   set readerParagraphGap(double v) => _set(() => _p.setDouble('readerParagraphGap', v));
   double get readerMaxWidth => _p.getDouble('readerMaxWidth') ?? 760;
   set readerMaxWidth(double v) => _set(() => _p.setDouble('readerMaxWidth', v));
-  /// 0 흰색, 1 세피아, 2 회색, 3 검정
+  /// 테마 번호 (text_reader_page.dart 의 readerThemes 순서: 0 원본, 1 다크, 2 블랙, 3 종이, 4 세피아, 5 화이트, 6 그린)
   int get readerTheme => _p.getInt('readerTheme') ?? 0;
   set readerTheme(int v) => _set(() => _p.setInt('readerTheme', v));
+  bool get readerIsDark => readerTheme == 1 || readerTheme == 2;
+
+  /// 어두운 화면 ↔ 밝은 화면 (밝은 쪽은 마지막으로 쓰던 테마로 돌아간다)
+  void toggleReaderDark() {
+    if (readerIsDark) {
+      readerTheme = _p.getInt('readerThemeLight') ?? 0;
+    } else {
+      _p.setInt('readerThemeLight', readerTheme);
+      readerTheme = 1;
+    }
+  }
+
+  // ---------- 눈 보호 (책 · 만화 · PDF 뷰어 공통) ----------
+  /// 푸른빛을 줄여 화면을 따뜻한 색으로, 필요하면 어둡게
+  bool get eyeCare => _p.getBool('eyeCare') ?? false;
+  set eyeCare(bool v) => _set(() => _p.setBool('eyeCare', v));
+  /// 따뜻한 정도 0 ~ 1
+  double get eyeCareWarm => _p.getDouble('eyeCareWarm') ?? 0.5;
+  set eyeCareWarm(double v) => _set(() => _p.setDouble('eyeCareWarm', v));
+  /// 어둡게 0 ~ 0.7
+  double get eyeCareDim => _p.getDouble('eyeCareDim') ?? 0;
+  set eyeCareDim(double v) => _set(() => _p.setDouble('eyeCareDim', v));
+
+  /// PDF: 색을 뒤집어 어두운 화면으로 (흰 종이 → 검은 바탕)
+  bool get pdfInvert => _p.getBool('pdfInvert') ?? false;
+  set pdfInvert(bool v) => _set(() => _p.setBool('pdfInvert', v));
 
   // ---------- 만화 뷰어 ----------
   /// 0 한 쪽, 1 두 쪽(펼침), 2 세로 스크롤(웹툰)

@@ -1,6 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../services/settings.dart';
 
 /// 뷰어 공통 부품 (BookManager 스타일)
 /// - 위 도구줄: 버튼 묶음(ToolGroup) 안에 아이콘 버튼(ToolBtn)
@@ -178,4 +181,98 @@ void showViewerHelp(BuildContext context, List<(String, String)> keys, {List<(St
       actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기'))],
     ),
   );
+}
+
+/// 눈 보호: 푸른빛을 줄여 따뜻한 색으로 바꾸고, 필요하면 어둡게 한다. 뷰어의 본문(쪽 · 글)을 감싼다.
+/// 검은색은 검은 채로 두고 밝은 부분만 누그러뜨린다 (위에 색 막을 덮는 방식과 달리 어두운 화면이 뿌옇게 뜨지 않는다).
+class EyeCare extends StatelessWidget {
+  final Widget child;
+  const EyeCare({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final on = context.select<Settings, bool>((s) => s.eyeCare);
+    final w = context.select<Settings, double>((s) => s.eyeCareWarm).clamp(0.0, 1.0);
+    final d = 1 - context.select<Settings, double>((s) => s.eyeCareDim).clamp(0.0, 0.7);
+    return StableFilter(
+      filter: !on
+          ? null
+          : ColorFilter.matrix(<double>[
+              d, 0, 0, 0, 0, //
+              0, d * (1 - 0.20 * w), 0, 0, 0, // 초록을 조금
+              0, 0, d * (1 - 0.60 * w), 0, 0, // 파랑을 많이 줄인다
+              0, 0, 0, 1, 0,
+            ]),
+      child: child,
+    );
+  }
+}
+
+/// 색 거르개를 켰다 껐다 해도 안쪽 화면이 새로 만들어지지 않게 감싼다 (스크롤 위치 · 불러온 쪽 · 확대가 그대로 남는다)
+class StableFilter extends StatefulWidget {
+  final ColorFilter? filter;
+  final Widget child;
+  const StableFilter({super.key, required this.filter, required this.child});
+  @override
+  State<StableFilter> createState() => _StableFilterState();
+}
+
+class _StableFilterState extends State<StableFilter> {
+  final _key = GlobalKey();
+  @override
+  Widget build(BuildContext context) {
+    final kid = KeyedSubtree(key: _key, child: widget.child);
+    final f = widget.filter;
+    return f == null ? kid : ColorFiltered(colorFilter: f, child: kid);
+  }
+}
+
+/// 색 뒤집기 (흰 종이 → 검은 바탕). 색상은 그대로 두고 밝기만 뒤집어 그림 · 형광펜 색이 덜 어색하다.
+const invertKeepHue = ColorFilter.matrix(<double>[
+  0.574, -1.430, -0.144, 0, 255, //
+  -0.426, -0.430, -0.144, 0, 255, //
+  -0.426, -1.430, 0.856, 0, 255, //
+  0, 0, 0, 1, 0,
+]);
+
+/// 위 도구줄의 "눈 보호" 단추 (켜기 · 끄기. 세기는 ⚙ 또는 설정 › 뷰어)
+class EyeCareBtn extends StatelessWidget {
+  const EyeCareBtn({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<Settings>();
+    return ToolBtn(
+      icon: Icons.remove_red_eye_outlined,
+      label: '눈 보호',
+      tooltip: '눈 보호: 푸른빛을 줄여 따뜻한 색으로 (세기는 ⚙ 뷰어 설정)',
+      active: s.eyeCare,
+      onTap: () => s.eyeCare = !s.eyeCare,
+    );
+  }
+}
+
+/// ⚙ 뷰어 설정 패널에 넣는 "눈 보호" 묶음: 켜기 · 따뜻한 정도 · 어둡게
+class EyeCarePanel extends StatelessWidget {
+  const EyeCarePanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<Settings>();
+    Widget slider(String label, double value, double max, ValueChanged<double> onChanged) => Row(children: [
+          SizedBox(width: 72, child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13))),
+          Expanded(child: Slider(value: value.clamp(0.0, max), max: max, onChanged: s.eyeCare ? onChanged : null)),
+          SizedBox(width: 40, child: Text('${(value / max * 100).round()}%', style: const TextStyle(color: Colors.white70))),
+        ]);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const PanelSection('눈 보호'),
+      SegmentRow<bool>(
+        title: '푸른빛 줄이기 (책 · 만화 · PDF 에 함께 적용)',
+        value: s.eyeCare,
+        onChanged: (v) => s.eyeCare = v,
+        options: const [(true, null, '켜기'), (false, null, '끄기')],
+      ),
+      slider('따뜻하게', s.eyeCareWarm, 1, (v) => s.eyeCareWarm = v),
+      slider('어둡게', s.eyeCareDim, 0.7, (v) => s.eyeCareDim = v),
+    ]);
+  }
 }

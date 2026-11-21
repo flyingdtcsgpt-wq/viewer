@@ -316,3 +316,6 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - **사용법 안내** `ui/guide.dart`: `GuideAtStart` 로 홈을 감싸 처음 뜰 때 표시, `Settings.guideHidden`. 화면 캡처 테스트는 `guideHidden = true` 로 끄고 따로 띄워 찍는다.
   뷰어 도움말 `showViewerHelp(keys, touch:)` — 터치 기기는 손가락 조작을 먼저
 - 영상: `MaterialVideoControlsTheme` 으로 좌우 두 번 탭 10초 이동(기본값은 꺼짐), 위쪽 단추가 넘치지 않게 정보 · 조작법은 ⋮ 안으로
+- **눈 보호 · 어두운 화면** (`viewer_chrome.dart`): `EyeCare` 가 뷰어 본문을 `ColorFilter.matrix` 로 감싼다(초록 · 파랑을 줄이고 전체를 어둡게 — 검은색은 그대로라 색 막을 덮는 방식처럼 뿌옇지 않다).
+  설정 `eyeCare · eyeCareWarm · eyeCareDim` 은 책 · 만화 · PDF 공통. PDF 어두운 화면은 `invertKeepHue`(밝기만 뒤집고 색상 유지) + 바탕색을 미리 밝게.
+  켜고 끌 때 안쪽 뷰어가 다시 만들어지지 않게 `StableFilter`(GlobalKey 로 감싼 자식)를 쓴다. 책은 `Settings.toggleReaderDark`(밝은 쪽은 마지막 테마 기억), 위쪽 줄에 줄 간격 − / +
