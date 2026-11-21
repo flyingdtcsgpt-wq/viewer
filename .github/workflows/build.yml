@@ -496,6 +496,69 @@ jobs:
           git commit -qm "Android screenshots for ${{ github.sha }}"
           git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots-android
 
+  # 플레이스토어판을 에뮬레이터에서 실제로 켜 보고, 꺼지면 원인 로그(logcat)를 남긴다
+  store-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.x
+          cache: true
+
+      - name: Generate platform folders
+        run: flutter create --platforms=android --org com.mediashelf --project-name media_shelf .
+
+      - name: Store manifest
+        run: python3 tool/patch_android.py --store
+
+      - run: flutter pub get
+
+      - name: Build store APK (x86_64, release)
+        run: flutter build apk --release --target-platform android-x64 --dart-define=ARARI_STORE=true
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          ram-size: 4096M
+          disk-size: 8000M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb install -r build/app/outputs/flutter-apk/app-release.apk
+            adb logcat -c
+            adb shell monkey -p com.arariflex.app -c android.intent.category.LAUNCHER 1
+            sleep 30
+            echo "STORE pid=$(adb shell pidof com.arariflex.app)"
+            adb exec-out screencap -p > store-smoke.png || true
+            adb logcat -d > store-logcat.txt || true
+            grep -nE "FATAL|AndroidRuntime|F DEBUG|Abort message|backtrace|signal [0-9]|Exception|flutter|Process com.arariflex.app.*died|Force finishing" store-logcat.txt | head -120 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ARARIFlex-store-smoke
+          path: |
+            store-smoke.png
+            store-logcat.txt
+
   # ---------------- macOS (맥북 · 아이맥) ----------------
   macos:
     # 지금은 PC · 안드로이드에 집중: 맥 · 아이폰은 릴리스(태그)나 수동 실행 때만 빌드
