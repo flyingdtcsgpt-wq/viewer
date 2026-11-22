@@ -1562,6 +1562,7 @@ void main() {
           }
           final txtE = files.where((e) => e.name.endsWith('.txt')).firstOrNull;
           if (txtE != null) {
+            Remote.debugLog = (m) => debugPrint('NASLOG $m');
             await timed('tempDir', () => getTemporaryDirectory(), sec: 20);
             await timed('cacheTxt', () => Remote.cache('$origin${txtE.path}', size: txtE.size), sec: 30);
           }

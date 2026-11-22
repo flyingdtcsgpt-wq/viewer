@@ -254,28 +254,40 @@ class Remote {
     return _caching[path] = f;
   }
 
+  /// 점검용: 통째 받기의 단계를 알려 준다 (테스트에서만 켠다)
+  static void Function(String)? debugLog;
+
   static Future<String> _cache(String path, int? size) async {
+    void log(String m) => debugLog?.call('cache ${p.basename(path)}: $m');
+    log('start');
     final dir = Directory(p.join((await getTemporaryDirectory()).path, 'nas_cache'));
     await dir.create(recursive: true);
+    log('dir');
     final key = sha1.convert(utf8.encode(path)).toString().substring(0, 24);
     final out = File(p.join(dir.path, '$key${p.extension(path).toLowerCase()}'));
     if (await out.exists() && (size == null || size <= 0 || await out.length() == size)) {
       try {
         await out.setLastModified(DateTime.now()); // 최근에 쓴 것은 남긴다
       } catch (_) {}
+      log('hit');
       return out.path;
     }
     final part = File('${out.path}.part');
-    final sink = part.openWrite();
+    RandomAccessFile? raf;
     try {
       // 4MB 씩 나눠 받는다 (쪽 · PDF 를 읽을 때와 같은 길). 나눠 받기를 못 하는 서버면 통째로
       final total = (size != null && size > 0) ? size : await Remote.size(path);
+      log('size $total');
+      raf = await part.open(mode: FileMode.write);
+      log('open');
       var done = false;
       if (total != null && total > 0) {
         try {
           const chunk = 4 * 1024 * 1024;
           for (var at = 0; at < total; at += chunk) {
-            sink.add(await range(path, at, math.min(chunk, total - at)));
+            final b = await range(path, at, math.min(chunk, total - at));
+            log('got ${b.length} at $at');
+            await raf.writeFrom(b);
           }
           done = true;
         } on RangeUnsupported {
@@ -290,15 +302,19 @@ class Remote {
         }
         // 1분 동안 아무것도 오지 않으면 포기 (서버가 멈췄을 때 끝없이 기다리지 않게)
         await for (final c in res.timeout(const Duration(minutes: 1))) {
-          sink.add(c);
+          await raf.writeFrom(c);
         }
       }
-      await sink.close();
+      await raf.close();
+      raf = null;
+      log('written');
       if (await out.exists()) await out.delete();
       await part.rename(out.path);
-    } catch (_) {
+      log('done');
+    } catch (e) {
+      log('error $e');
       try {
-        await sink.close();
+        await raf?.close();
       } catch (_) {}
       if (await part.exists()) await part.delete();
       rethrow;

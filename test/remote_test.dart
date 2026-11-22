@@ -134,6 +134,7 @@ void main() {
     test('통째로 받아 임시 보관 (TXT · EPUB 처럼 작은 것), 두 번째는 받지 않는다', () async {
       final tmp = Directory.systemTemp.createTempSync('arari_nas_cache');
       PathProviderPlatform.instance = _TempPaths(tmp.path);
+      Remote.debugLog = (m) => print('NAS $m'); // 멈추면 어느 단계인지 보이게
       try {
         final f = await Remote.cache('$base/큰 파일.bin').timeout(const Duration(seconds: 20));
         expect(File(f).readAsBytesSync(), big);
