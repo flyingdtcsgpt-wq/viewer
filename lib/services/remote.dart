@@ -250,7 +250,10 @@ class Remote {
   static Future<String> cache(String path, {int? size}) {
     final busy = _caching[path];
     if (busy != null) return busy;
-    final f = _cache(path, size).whenComplete(() => _caching.remove(path));
+    // (지우기만 하고 아무것도 돌려주지 않는다 — 지운 값(이 Future 자신)을 돌려주면 whenComplete 가 자기 자신을 기다려 끝나지 않는다)
+    final f = _cache(path, size).whenComplete(() {
+      _caching.remove(path);
+    });
     return _caching[path] = f;
   }
 

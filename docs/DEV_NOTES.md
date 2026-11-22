@@ -416,4 +416,7 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   공유 서버는 NAS 항목을 내보내지 않는다(이 기기에 파일이 없고, 서로 물고 도는 것을 막음). 파일 도구도 NAS 항목은 뺀다. 폴더별 보기는 NAS 주소면 `/` 로 자른다(Windows)
 - **점검**: `test/remote_test.dart`(작은 Range 서버로 ZIP 목차 · 쪽만 받기 · 덩어리 읽기 · 로그인), 통합 `CHECK nas`(우리 공유 서버를 NAS 로 연결 → 훑기 · 표지 · 만화 쪽 · PDF · TXT · 뷰어 · 끊기)
 - **권한**: 인터넷만. 안드로이드 17(API 37) 을 목표로 올릴 때 집 안 주소 접속에 `ACCESS_LOCAL_NETWORK`(근처 기기 묶음, 실행 중 허용) 를 처음 연결할 때 물어야 한다
+- **겪은 함정**: `future.whenComplete(() => map.remove(key))` 에서 지운 값이 그 Future 자신이면, whenComplete 가 콜백이 돌려준 Future(= 자기 자신)를 기다려 영영 끝나지 않는다.
+  통째 받기(`Remote.cache`)가 다 받고도 돌아오지 않던 원인 — 콜백은 `{ map.remove(key); }` 처럼 아무것도 돌려주지 않게. (`Remote.debugLog` 로 단계를 찍어 찾았다)
+- NAS 파일은 훑을 때 목록에만 먼저 올리고(네트워크 없이 DB 만), 표지 · 쪽수 · EPUB 정보는 `_fillRemoteCovers` 가 뒤에서 하나씩(항목마다 2분 제한). 큰 NAS 도 목록이 바로 뜬다
 
