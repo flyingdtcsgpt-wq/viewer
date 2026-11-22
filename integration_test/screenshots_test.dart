@@ -503,6 +503,24 @@ void main() {
       final pagedTo4 = title() != before; // 아래 키로 다음 그림으로 넘어갔는가
       await shot('09d_그림뷰어_위아래_한장씩', 300);
       debugPrint('CHECK image strip start=$startAt2 next=$movedTo3 keepOnSwitch=$keptAfterSwitch vertPaged=$pagedTo4');
+      await popAll();
+      // 이어 보기에서 빨리 끝까지 내려도 처음으로 튀지 않는가 (그림이 들어오며 자리 높이가 바뀌면 목록이 위치를 고치며 튀었다)
+      settings.imageViewMode = 2;
+      await push(ImageViewerPage(images: imgs, initialIndex: 0));
+      await wait(600);
+      final sc = tester.stateList<ScrollableState>(find.byType(Scrollable)).first.position;
+      final fastTrace = <String>[];
+      for (var k = 0; k < 6; k++) {
+        sc.jumpTo(min(sc.maxScrollExtent, sc.pixels + sc.viewportDimension * 1.5));
+        await tester.pump(const Duration(milliseconds: 16));
+        fastTrace.add('${sc.pixels.round()}');
+      }
+      await wait(1500);
+      final endTitle = title();
+      final endPx = sc.pixels.round();
+      final atEnd = find.textContaining('(${imgs.length}/${imgs.length})').evaluate().isNotEmpty ||
+          find.textContaining('(${imgs.length - 1}/${imgs.length})').evaluate().isNotEmpty;
+      debugPrint('CHECK image fast atEnd=$atEnd endPx=$endPx max=${sc.maxScrollExtent.round()} title=[$endTitle] trace=${fastTrace.join(',')}');
       settings.imageViewMode = 0;
       await popAll();
     });

@@ -4,12 +4,14 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/background_reading.dart';
+import '../../services/image_size.dart';
 import '../../services/remote.dart';
 import '../../services/settings.dart';
 import '../detail_page.dart';
@@ -50,6 +52,34 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
   final _itemKeys = <int, GlobalKey>{};
   bool _trackPending = false;
 
+  // 이어 보기: 그림마다 세로/가로 비율. 그리기 전에 파일 머리만 읽어 알아 두고(ImageSize), 한 번 그린 것은 잰 값을 기억한다.
+  // 자리 높이가 바뀌지 않아야 빨리 내릴 때 목록이 위치를 고치며 엉뚱한 곳(처음)으로 튀지 않는다
+  final _aspect = <int, double>{};
+  int _measureGen = 0;
+
+  /// 아직 모르는 그림의 자리 높이: 알아낸 그림들의 평균 (하나도 모르면 흔한 사진 비율 3:4)
+  double get _guessAspect {
+    if (_aspect.isEmpty) return 0.75;
+    var t = 0.0;
+    for (final a in _aspect.values) {
+      t += a;
+    }
+    return t / _aspect.length;
+  }
+
+  /// [center] 근처부터 그림 크기를 미리 알아 둔다 (가까운 것부터 앞뒤로 40장)
+  Future<void> _measureAround(int center) async {
+    final gen = ++_measureGen;
+    for (var d = 0; d <= 40; d++) {
+      for (final i in d == 0 ? [center] : [center + d, center - d]) {
+        if (i < 0 || i >= _n || _aspect.containsKey(i)) continue;
+        final a = await ImageSize.aspect(widget.images[i].path);
+        if (!mounted || gen != _measureGen || _mode != 2) return; // 다른 곳으로 옮겨 갔으면 거기서 다시
+        if (a != null && a > 0.02 && a < 50) _aspect[i] = a;
+      }
+    }
+  }
+
   bool _showUi = true;
   Timer? _slideshow;
 
@@ -62,6 +92,7 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
     _mode = _s.imageViewMode.clamp(0, 2);
     _s.addListener(_onSettings);
     _touch();
+    if (_mode == 2) _measureAround(_index);
   }
 
   @override
@@ -98,6 +129,7 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
     for (final z in _zoom.values) {
       z.value = Matrix4.identity();
     }
+    if (m == 2) _measureAround(_index);
     // 앞 방식의 화면이 사라진 뒤에 치운다
     WidgetsBinding.instance.addPostFrameCallback((_) {
       oldPages.dispose();
@@ -184,6 +216,7 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
       if (found != null && found != _index) {
         setState(() => _index = found);
         _touch();
+        _measureAround(found); // 내려가는 쪽의 그림 크기도 미리
       }
     });
   }
@@ -345,25 +378,35 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
     final view = MediaQuery.sizeOf(context);
     final w = math.min(view.width, 1100.0);
     final dpr = MediaQuery.devicePixelRatioOf(context);
+    // 화면에 보이는 크기로만 풀어 메모리를 아낀다. 너무 크게 풀면 지나간 그림이 메모리에서 금방 밀려나 다시 풀어야 한다
+    final decodeW = math.min((w * dpr).round(), 1800);
+    final guess = _guessAspect;
     Widget item(int i) => KeyedSubtree(
           key: _itemKeys.putIfAbsent(i, () => GlobalKey()),
           child: Center(
             child: Image(
-              // 화면에 보이는 크기로만 풀어 메모리를 아낀다 (큰 사진 여러 장이 한꺼번에 올라오므로)
-              image: _provider(widget.images[i], cacheWidth: (w * dpr).round()),
+              image: _provider(widget.images[i], cacheWidth: decodeW),
               width: w,
               fit: BoxFit.fitWidth,
               filterQuality: FilterQuality.medium,
               gaplessPlayback: true,
-              // 아직 못 읽은 그림은 자리를 잡아 둔다 (높이 0 이면 뒤 그림들이 한꺼번에 불려 온다)
+              // 아직 못 읽은 그림은 미리 알아 둔 비율대로 자리를 잡아 둔다 (그림이 들어와도 높이가 바뀌지 않게)
               frameBuilder: (_, child, frame, sync) => sync || frame != null
-                  ? child
-                  : SizedBox(width: w, height: w * 1.3, child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
-              errorBuilder: (_, e, _) => SizedBox(
-                width: w,
-                height: 160,
-                child: Center(child: Text('열 수 없는 이미지: ${widget.images[i].fileName}', style: const TextStyle(color: Colors.white70))),
-              ),
+                  ? _MeasureSize(
+                      onSize: (z) {
+                        if (z.width > 0 && z.height > 0) _aspect[i] = z.height / z.width;
+                      },
+                      child: child,
+                    )
+                  : SizedBox(width: w, height: w * (_aspect[i] ?? guess), child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
+              errorBuilder: (_, e, _) {
+                _aspect[i] = 160 / w;
+                return SizedBox(
+                  width: w,
+                  height: 160,
+                  child: Center(child: Text('열 수 없는 이미지: ${widget.images[i].fileName}', style: const TextStyle(color: Colors.white70))),
+                );
+              },
             ),
           ),
         );
@@ -378,6 +421,8 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
           key: ValueKey('strip-$_anchor'),
           controller: _strip,
           center: _centerKey,
+          // 아래로 1.5 화면만큼 미리 읽어 둔다 (내려가면 이미 그려져 있게)
+          cacheExtent: view.height * 1.5,
           slivers: [
             // 시작 그림보다 앞의 그림들 (위로 올리면 나온다)
             SliverList(delegate: SliverChildBuilderDelegate((_, i) => item(_anchor - 1 - i), childCount: _anchor)),
@@ -490,4 +535,24 @@ class _NavButton extends StatelessWidget {
         icon: Icon(icon),
         onPressed: onTap,
       );
+}
+
+/// 자식의 크기를 알려 준다 (그릴 때마다. 화면을 다시 그리지는 않는다)
+class _MeasureSize extends SingleChildRenderObjectWidget {
+  final ValueChanged<Size> onSize;
+  const _MeasureSize({required this.onSize, super.child});
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderMeasureSize(onSize);
+  @override
+  void updateRenderObject(BuildContext context, covariant _RenderMeasureSize renderObject) => renderObject.onSize = onSize;
+}
+
+class _RenderMeasureSize extends RenderProxyBox {
+  ValueChanged<Size> onSize;
+  _RenderMeasureSize(this.onSize);
+  @override
+  void performLayout() {
+    super.performLayout();
+    onSize(size);
+  }
 }

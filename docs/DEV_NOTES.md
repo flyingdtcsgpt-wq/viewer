@@ -420,3 +420,12 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
   통째 받기(`Remote.cache`)가 다 받고도 돌아오지 않던 원인 — 콜백은 `{ map.remove(key); }` 처럼 아무것도 돌려주지 않게. (`Remote.debugLog` 로 단계를 찍어 찾았다)
 - NAS 파일은 훑을 때 목록에만 먼저 올리고(네트워크 없이 DB 만), 표지 · 쪽수 · EPUB 정보는 `_fillRemoteCovers` 가 뒤에서 하나씩(항목마다 2분 제한). 큰 NAS 도 목록이 바로 뜬다
 
+## 21. 그림 이어 보기에서 빨리 내리면 처음으로 튀던 것 (11-22)
+- 원인: 아직 못 읽은 그림의 자리를 세로 1.3배로 잡았다가 실제 사진(대개 가로로 긴 0.67배)이 들어오면 높이가 절반쯤으로 바뀌었다.
+  빨리 내리면 이런 변화가 한꺼번에 생기고, 큰 그림이 메모리(이미지 캐시 100MB)에서 밀려났다 다시 빈 자리로 그려지기도 해서
+  SliverList 가 앞쪽 그림들의 위치를 맞추지 못하고 고치는(scrollOffsetCorrection) 과정에서 엉뚱한 곳(처음)으로 튈 수 있었다
+- 고친 것 (`image_viewer_page.dart`): `ImageSize.aspect`(파일 머리만 읽어 PNG · JPEG(EXIF 회전 포함) · GIF · BMP · WebP 크기)로 지금 그림 앞뒤 40장의
+  비율을 미리 알아 두고 그 높이로 자리를 잡는다. 한 번 그린 그림은 잰 비율을 기억(`_aspect`, `_MeasureSize`)해 다시 그려도 높이가 같다.
+  모르는 그림은 아는 그림들의 평균 비율. 풀 크기를 1800px 로 제한(메모리에서 덜 밀려나게), 아래로 1.5 화면 미리 읽기(`cacheExtent`)
+- 점검: `test/image_size_test.dart`, 통합 `CHECK image fast`(처음 그림에서 빠르게 끝까지 → 끝 그림에 있는가)
+
