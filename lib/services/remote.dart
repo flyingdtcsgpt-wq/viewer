@@ -170,22 +170,28 @@ class Remote {
     extra?.forEach(req.headers.set);
     final res = await req.close().timeout(wait);
     if (res.statusCode == 401) {
-      _drop(res);
+      await _drop(res);
       throw const WebDavError('NAS 아이디 · 비밀번호가 맞지 않습니다. NAS 연결 화면에서 다시 넣어 주세요');
     }
     return res;
   }
 
-  /// 받던 것을 그만둔다 (남은 내용을 다 받지 않고 연결을 끊는다)
-  static void _drop(HttpClientResponse res) {
+  /// 응답을 치운다. 내용이 없거나 작으면(HEAD · 오류) 끝까지 읽어 연결을 돌려 쓰게 하고,
+  /// 큰 내용(나눠 받기를 무시하고 통째로 보내는 서버)이면 연결을 끊는다 — 어느 쪽이든 연결 자리가 묶여 남지 않게
+  static Future<void> _drop(HttpClientResponse res, {bool big = false}) async {
     try {
-      res.listen(null).cancel();
+      if (big) {
+        (await res.detachSocket()).destroy();
+      } else {
+        await res.drain<void>().timeout(const Duration(seconds: 10));
+      }
     } catch (_) {}
   }
 
+  /// 내용 받기 (쪽 하나 · PDF 덩어리처럼 작은 것. 서버가 중간에 멈추면 2분 뒤 포기)
   static Future<Uint8List> _body(Stream<List<int>> s) async {
     final b = BytesBuilder(copy: false);
-    await for (final c in s) {
+    await for (final c in s.timeout(const Duration(minutes: 2))) {
       b.add(c);
     }
     return b.takeBytes();
@@ -196,7 +202,7 @@ class Remote {
     if (length <= 0) return Uint8List(0);
     final res = await _send('GET', path, extra: {HttpHeaders.rangeHeader: 'bytes=$start-${start + length - 1}'});
     if (res.statusCode == 206) return _body(res);
-    _drop(res);
+    await _drop(res, big: res.statusCode == 200);
     if (res.statusCode == 200) throw const RangeUnsupported();
     if (res.statusCode == 404) throw const WebDavError('NAS 에 그 파일이 없습니다 (옮겼거나 지웠을 수 있습니다)');
     throw WebDavError('NAS 가 읽기를 거절했습니다 (${res.statusCode})');
@@ -206,7 +212,7 @@ class Remote {
   static Future<int?> size(String path) async {
     try {
       final res = await _send('HEAD', path, wait: const Duration(seconds: 10));
-      _drop(res);
+      await _drop(res);
       return res.statusCode == 200 && res.contentLength > 0 ? res.contentLength : null;
     } on WebDavError {
       rethrow;
@@ -219,7 +225,7 @@ class Remote {
   static Future<bool> exists(String path) async {
     try {
       final res = await _send('HEAD', path, wait: const Duration(seconds: 6));
-      _drop(res);
+      await _drop(res);
       return res.statusCode >= 200 && res.statusCode < 300;
     } catch (_) {
       return false;
@@ -230,7 +236,7 @@ class Remote {
   static Future<bool> delete(String path) async {
     try {
       final res = await _send('DELETE', path);
-      _drop(res);
+      await _drop(res);
       return res.statusCode == 200 || res.statusCode == 204;
     } catch (_) {
       return false;
@@ -262,7 +268,7 @@ class Remote {
     final part = File('${out.path}.part');
     final res = await _send('GET', path);
     if (res.statusCode != 200) {
-      _drop(res);
+      await _drop(res);
       throw WebDavError(res.statusCode == 404 ? 'NAS 에 그 파일이 없습니다' : 'NAS 에서 받지 못했습니다 (${res.statusCode})');
     }
     try {

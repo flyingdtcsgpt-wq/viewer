@@ -497,8 +497,51 @@ class AppState extends ChangeNotifier {
       if (e.path == path) return e;
     }
     final item = await _addFile(path, ImportMode.reference, size: size);
-    if (item != null) notifyListeners();
+    if (item != null) {
+      notifyListeners();
+      unawaited(_fillRemoteCovers());
+    }
     return item;
+  }
+
+  // NAS 파일의 표지 · 쪽수 · EPUB 정보: 목록에 먼저 올린 뒤 뒤에서 하나씩 (하나가 오래 걸려도 다음으로 넘어간다)
+  final List<MediaItem> _coverQueue = [];
+  bool _coverRunning = false;
+
+  /// 표지를 기다리는 NAS 파일 수
+  int get nasCoversPending => _coverQueue.length + (_coverRunning ? 1 : 0);
+
+  Future<void> _fillRemoteCovers() async {
+    if (_coverRunning) return;
+    _coverRunning = true;
+    try {
+      while (_coverQueue.isNotEmpty) {
+        final e = _coverQueue.removeAt(0);
+        if (e.id == null || !_items.contains(e)) continue;
+        try {
+          if (e.extension == '.epub') {
+            final info = await covers.readEpubInfo(e.path).timeout(const Duration(minutes: 2));
+            if (info != null) {
+              e
+                ..title = info.title ?? e.title
+                ..author = info.author
+                ..publisher = info.publisher
+                ..isbn = info.isbn
+                ..description = info.description;
+            }
+          }
+          e.coverPath = await covers.generate(e).timeout(const Duration(minutes: 2));
+          e.pages ??= await covers.pageCount(e).timeout(const Duration(minutes: 1));
+          await db.update(e);
+        } catch (_) {
+          // NAS 가 느리거나 끊겼다: 표지 없이 두고 다음으로
+        }
+        _progress();
+      }
+    } finally {
+      _coverRunning = false;
+      notifyListeners();
+    }
   }
 
   /// NAS 폴더 하나 훑기: 새 파일은 넣고 사라진 파일은 뺀다. 연결할 수 없으면 아무것도 빼지 않는다 (읽던 위치를 잃지 않게)
@@ -531,6 +574,7 @@ class AppState extends ChangeNotifier {
     }
     final lost = _items.where((e) => e.path.startsWith('${f.url}/') && !seen.contains(e.path)).toList();
     if (lost.isNotEmpty) await removeMany(items: lost);
+    if (_coverQueue.isNotEmpty) unawaited(_fillRemoteCovers());
     return (added: added, gone: lost.length, failed: failed);
   }
 
@@ -1786,6 +1830,14 @@ class AppState extends ChangeNotifier {
       title: _titleFromFileName(path),
       size: size ?? (await File(path).stat()).size,
     )..hidden = hidden; // 숨김으로 추가: 목록에 들어가는 순간부터 숨김
+    // NAS: 네트워크로 표지를 만들며 기다리지 않고 먼저 목록에 올린다 (표지 · 쪽수 · EPUB 정보는 뒤에서 하나씩 — _fillRemoteCovers)
+    if (Remote.isRemote(path)) {
+      item.id = await db.insert(item);
+      _items.insert(0, item);
+      _knownPaths.add(_pathKey(item.path));
+      _coverQueue.add(item);
+      return item;
+    }
     if (item.extension == '.epub') {
       final info = await covers.readEpubInfo(path);
       if (info != null) {

@@ -1517,6 +1517,7 @@ void main() {
     });
 
     // NAS 받지 않고 보기: 우리 공유 서버(WebDAV · Range)를 NAS 로 삼아 연결 → 훑기 · 표지 · 만화 쪽 · PDF · TXT → 만화 뷰어 → 끊기
+    // (단계마다 시간 제한을 두고 걸린 시간을 남긴다 — 어디서 느린지 CI 기록으로 바로 알 수 있게)
     await step('nas direct', () async {
       state.share
         ..user = 'guest'
@@ -1525,47 +1526,82 @@ void main() {
       await tester.runAsync(() => state.share.start(18083));
       try {
         final c = WebDavClient('http://127.0.0.1:18083/dav/', user: 'guest', password: 'pw');
+        final origin = 'http://127.0.0.1:18083';
+        final stages = <String>[];
+        Future<T?> timed<T>(String name, Future<T> Function() f, {int sec = 60}) async {
+          final w = Stopwatch()..start();
+          try {
+            final v = await f().timeout(Duration(seconds: sec));
+            stages.add('$name=${w.elapsedMilliseconds}ms');
+            return v;
+          } catch (e) {
+            stages.add('$name=FAIL(${w.elapsedMilliseconds}ms ${'$e'.split('\n').first})');
+            return null;
+          }
+        }
+
         final before = state.rawItems.length;
-        final sw = Stopwatch()..start();
-        final err = await tester.runAsync(() async {
-          final e = await state.linkNasFolder(c, '/dav/', name: '시험 NAS');
-          await state.rescanNas();
-          return e;
+        final probe = await tester.runAsync(() async {
+          // 1) 앱 안의 길을 거치지 않고 하나씩: 목록 → ZIP 목차 · 첫 쪽 → PDF
+          state.saveNasAccount(c);
+          final files = await timed('walk', () => c.walk('/dav/', (e) => kindForPath(e.name) != null)) ?? const <DavEntry>[];
+          final cbz = files.where((e) => e.name.endsWith('.cbz')).firstOrNull;
+          final pdf = files.where((e) => e.name.endsWith('.pdf')).firstOrNull;
+          if (cbz != null) {
+            final z = await timed('zipOpen', () => RemoteZip.openPath('$origin${cbz.path}', size: cbz.size));
+            if (z != null) await timed('zipPage', () => z.read(z.images.first));
+          }
+          if (pdf != null) {
+            await timed('pdf', () async {
+              final rr = RemoteReader('$origin${pdf.path}', pdf.size);
+              final d = await PdfDocument.openCustom(read: rr.read, fileSize: pdf.size, sourceName: 'nasprobe:${pdf.path}');
+              final n = d.pages.length;
+              await d.dispose();
+              return n;
+            });
+          }
+          // 2) 서재에 연결 → 훑기 (목록만, 표지는 뒤에서)
+          final err = await timed('link', () => state.linkNasFolder(c, '/dav/', name: '시험 NAS'));
+          await timed('scan', () => state.rescanNas(), sec: 120);
+          // 3) 표지가 다 만들어질 때까지
+          await timed('covers', () async {
+            while (state.nasCoversPending > 0) {
+              await Future<void>.delayed(const Duration(milliseconds: 300));
+            }
+          }, sec: 180);
+          return 'files=${files.length} linkErr=$err';
         });
-        final took = sw.elapsedMilliseconds;
         final remote = state.rawItems.where((e) => Remote.isRemote(e.path)).toList();
         final comics = remote.where((e) => e.kind == MediaKind.comic).toList();
-        final info = await tester.runAsync(() async {
-          final z = await ZipPages.open(comics.first.path);
-          final n = z.names.length;
-          final b = await z.read(0);
-          z.close();
-          final pdf = remote.where((e) => e.extension == '.pdf').firstOrNull;
-          int? pdfPages;
-          if (pdf != null) {
-            final rr = RemoteReader(pdf.path, pdf.size);
-            final d = await PdfDocument.openCustom(read: rr.read, fileSize: pdf.size, sourceName: 'nas:${pdf.path}');
-            pdfPages = d.pages.length;
-            await d.dispose();
-          }
-          final txt = remote.where((e) => e.extension == '.txt').firstOrNull;
-          final doc = txt == null ? null : await TextDocument.load(txt.path);
-          return 'pages=$n page0=${b?.length} pdfPages=$pdfPages txtBlocks=${doc?.blocks.length} exists=${await Remote.exists(comics.first.path)}';
-        });
-        debugPrint('CHECK nas err=$err scan=${took}ms remote=${remote.length}/$before comics=${comics.length} '
+        var info = 'noComics';
+        if (comics.isNotEmpty) {
+          info = await tester.runAsync(() async {
+                final z = await timed('pagesOpen', () => ZipPages.open(comics.first.path));
+                final b = z == null ? null : await timed('pagesRead', () => z.read(0));
+                z?.close();
+                final txt = remote.where((e) => e.extension == '.txt').firstOrNull;
+                final doc = txt == null ? null : await timed('txt', () => TextDocument.load(txt.path));
+                return 'pages=${z?.names.length} page0=${b?.length} txtBlocks=${doc?.blocks.length} exists=${await Remote.exists(comics.first.path)}';
+              }) ??
+              '?';
+        }
+        debugPrint('CHECK nas $probe remote=${remote.length}/$before comics=${comics.length} '
             'covers=${comics.where((e) => e.coverPath != null).length} pagesKnown=${comics.where((e) => (e.pages ?? 0) > 0).length} $info');
-        // 만화 뷰어로 바로 열기
-        await push(ComicReaderPage(item: comics.first));
-        await shot('20_NAS_만화_바로보기', 3500);
-        final label = tester
-            .widgetList<Text>(find.byType(Text))
-            .map((t) => t.data ?? '')
-            .firstWhere((d) => RegExp(r'^\d+ / \d+').hasMatch(d), orElse: () => '?');
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-        await wait(1500);
-        debugPrint('CHECK nas viewer open=[$label] next=${comics.first.position}');
-        await popAll();
-        await tester.runAsync(() => state.unlinkNasFolder(state.nasFolders.first));
+        debugPrint('CHECK nas stages ${stages.join(' ')}');
+        if (comics.isNotEmpty) {
+          // 만화 뷰어로 바로 열기
+          await push(ComicReaderPage(item: comics.first));
+          await shot('20_NAS_만화_바로보기', 3500);
+          final label = tester
+              .widgetList<Text>(find.byType(Text))
+              .map((t) => t.data ?? '')
+              .firstWhere((d) => RegExp(r'^\d+ / \d+').hasMatch(d), orElse: () => '?');
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+          await wait(1500);
+          debugPrint('CHECK nas viewer open=[$label] next=${comics.first.position}');
+          await popAll();
+        }
+        if (state.nasFolders.isNotEmpty) await tester.runAsync(() => state.unlinkNasFolder(state.nasFolders.first));
         debugPrint('CHECK nas unlink left=${state.rawItems.where((e) => Remote.isRemote(e.path)).length} folders=${state.nasFolders.length}');
       } finally {
         await tester.runAsync(() => state.share.stop());
