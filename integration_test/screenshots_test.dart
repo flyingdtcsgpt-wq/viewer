@@ -35,6 +35,9 @@ import 'package:arariflex/services/natural_tts.dart';
 import 'package:arariflex/services/ocr_service.dart';
 import 'package:arariflex/services/paddle_ocr.dart';
 import 'package:arariflex/services/pdf_text.dart';
+import 'package:arariflex/services/remote.dart';
+import 'package:arariflex/services/text_document.dart';
+import 'package:arariflex/services/zip_pages.dart';
 import 'package:arariflex/services/saf.dart';
 import 'package:arariflex/services/settings.dart';
 import 'package:arariflex/services/tts_service.dart';
@@ -1510,6 +1513,62 @@ void main() {
           info = 'error: $e';
         }
         debugPrint('CHECK fd $info');
+      }
+    });
+
+    // NAS 받지 않고 보기: 우리 공유 서버(WebDAV · Range)를 NAS 로 삼아 연결 → 훑기 · 표지 · 만화 쪽 · PDF · TXT → 만화 뷰어 → 끊기
+    await step('nas direct', () async {
+      state.share
+        ..user = 'guest'
+        ..password = 'pw'
+        ..asUserId = null;
+      await tester.runAsync(() => state.share.start(18083));
+      try {
+        final c = WebDavClient('http://127.0.0.1:18083/dav/', user: 'guest', password: 'pw');
+        final before = state.rawItems.length;
+        final sw = Stopwatch()..start();
+        final err = await tester.runAsync(() async {
+          final e = await state.linkNasFolder(c, '/dav/', name: '시험 NAS');
+          await state.rescanNas();
+          return e;
+        });
+        final took = sw.elapsedMilliseconds;
+        final remote = state.rawItems.where((e) => Remote.isRemote(e.path)).toList();
+        final comics = remote.where((e) => e.kind == MediaKind.comic).toList();
+        final info = await tester.runAsync(() async {
+          final z = await ZipPages.open(comics.first.path);
+          final n = z.names.length;
+          final b = await z.read(0);
+          z.close();
+          final pdf = remote.where((e) => e.extension == '.pdf').firstOrNull;
+          int? pdfPages;
+          if (pdf != null) {
+            final rr = RemoteReader(pdf.path, pdf.size);
+            final d = await PdfDocument.openCustom(read: rr.read, fileSize: pdf.size, sourceName: 'nas:${pdf.path}');
+            pdfPages = d.pages.length;
+            await d.dispose();
+          }
+          final txt = remote.where((e) => e.extension == '.txt').firstOrNull;
+          final doc = txt == null ? null : await TextDocument.load(txt.path);
+          return 'pages=$n page0=${b?.length} pdfPages=$pdfPages txtBlocks=${doc?.blocks.length} exists=${await Remote.exists(comics.first.path)}';
+        });
+        debugPrint('CHECK nas err=$err scan=${took}ms remote=${remote.length}/$before comics=${comics.length} '
+            'covers=${comics.where((e) => e.coverPath != null).length} pagesKnown=${comics.where((e) => (e.pages ?? 0) > 0).length} $info');
+        // 만화 뷰어로 바로 열기
+        await push(ComicReaderPage(item: comics.first));
+        await shot('20_NAS_만화_바로보기', 3500);
+        final label = tester
+            .widgetList<Text>(find.byType(Text))
+            .map((t) => t.data ?? '')
+            .firstWhere((d) => RegExp(r'^\d+ / \d+').hasMatch(d), orElse: () => '?');
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await wait(1500);
+        debugPrint('CHECK nas viewer open=[$label] next=${comics.first.position}');
+        await popAll();
+        await tester.runAsync(() => state.unlinkNasFolder(state.nasFolders.first));
+        debugPrint('CHECK nas unlink left=${state.rawItems.where((e) => Remote.isRemote(e.path)).length} folders=${state.nasFolders.length}');
+      } finally {
+        await tester.runAsync(() => state.share.stop());
       }
     });
 

@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../app_state.dart';
 import '../models/media_item.dart';
 import '../models/series.dart';
+import 'remote.dart';
 import 'share_cert.dart';
 
 /// 같은 Wi-Fi 의 다른 기기에서 라이브러리를 보는 서버
@@ -73,7 +74,7 @@ class ShareServer {
   }
 
   // ---------------- 보이는 것 (숨김 제외 + 접속한 사용자의 접근 규칙) ----------------
-  bool _ok(MediaItem e, AccessView v) => !app.isHiddenItem(e) && !e.missing && v.item(e);
+  bool _ok(MediaItem e, AccessView v) => !app.isHiddenItem(e) && !e.missing && !Remote.isRemote(e.path) && v.item(e);
   bool _sOk(Series s, AccessView v) => !app.isHiddenSeries(s) && v.series(s) && _count(s, v) > 0;
   List<MediaItem> _items(AccessView v) => app.rawItems.where((e) => _ok(e, v)).toList();
   List<Series> _children(int? id, AccessView v) =>

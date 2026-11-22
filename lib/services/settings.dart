@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../edition.dart';
 import '../models/media_item.dart';
 import 'linked.dart';
+import 'remote.dart';
 import 'portable.dart';
 
 class Settings extends ChangeNotifier {
@@ -21,7 +22,9 @@ class Settings extends ChangeNotifier {
   Map<String, Object?> exportAll() => _p.all();
 
   /// 백업 파일에 넣을 설정 (백업 암호 자체는 넣지 않는다)
-  Map<String, Object?> exportForBackup() => {...exportAll()}..removeWhere((k, _) => k.endsWith('backupPassword'));
+  /// (백업 암호 · NAS 비밀번호는 넣지 않는다 — 복원한 뒤 NAS 는 비밀번호만 다시 넣으면 된다)
+  Map<String, Object?> exportForBackup() =>
+      {...exportAll()}..removeWhere((k, _) => k.endsWith('backupPassword') || k.contains('nasPw_'));
 
   /// EPUB 표시 방식: true = 원본 스타일(출판사 CSS 그대로, Windows), false = 읽기 최적화
   bool get epubOriginal => _p.getBool('epubOriginal') ?? false;
@@ -40,6 +43,16 @@ class Settings extends ChangeNotifier {
   }
 
   set libraryFolders(List<LibraryFolder> v) => _set(() => _p.setString('libraryFolders', jsonEncode(v.map((e) => e.toJson()).toList())));
+
+  /// 서재에 연결한 NAS 폴더 · 그 계정 (받지 않고 바로 본다 — services/remote.dart)
+  List<NasFolder> get nasFolders => NasFolder.decode(_p.getString('nasFolders'));
+  set nasFolders(List<NasFolder> v) => _set(() => _p.setString('nasFolders', NasFolder.encode(v)));
+  List<NasAccount> get nasAccounts => NasAccount.decode(_p.getString('nasAccounts'));
+  set nasAccounts(List<NasAccount> v) => _set(() => _p.setString('nasAccounts', NasAccount.encode(v)));
+
+  /// NAS 비밀번호 (이 기기에만. 백업 파일에는 넣지 않는다)
+  String nasPassword(String origin) => _p.getString('nasPw_$origin') ?? '';
+  void setNasPassword(String origin, String v) => _set(() => v.isEmpty ? _p.remove('nasPw_$origin') : _p.setString('nasPw_$origin', v));
 
   /// 플레이스토어판: 연결한 폴더들 (복사하지 않고 그 자리에서 읽는다 — services/linked.dart)
   List<LinkedFolder> get linkedFolders => LinkedFolder.decode(_p.getString('linkedFolders'));

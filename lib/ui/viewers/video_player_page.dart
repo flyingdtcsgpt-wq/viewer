@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/linked.dart';
+import '../../services/remote.dart';
 import '../../services/settings.dart';
 import '../detail_page.dart';
 import 'viewer_chrome.dart';
@@ -76,7 +77,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       _resumed = false;
     });
     // 연결한 폴더의 영상은 경로로 열 수 없어 content:// 주소로 넘긴다 (플레이어가 그 주소를 직접 연다)
-    await _player.open(Media(await Linked.uri(_item.path) ?? _item.path));
+    // NAS 의 영상: 로그인 머리말을 같이 넘기고, 자체 서명 인증서를 쓰는 NAS 면 인증서 확인을 끈다
+    if (Remote.isRemote(_item.path) && (Remote.account(_item.path)?.insecure ?? false) && _player.platform is NativePlayer) {
+      await (_player.platform as NativePlayer).setProperty('tls-verify', 'no');
+    }
+    final h = Linked.headers(_item.path);
+    await _player.open(Media(await Linked.uri(_item.path) ?? _item.path, httpHeaders: h.isEmpty ? null : h));
     await _player.setRate(_settings.videoRate);
   }
 

@@ -303,6 +303,35 @@ class _Sidebar extends StatelessWidget {
             onTap: act(() => state.setLibrary(f.path)),
           ),
         item(Icons.add_link, '폴더 연결 (내 폴더 · SD 카드)', act(() => linkFolderFlow(rootContext))),
+        item(Icons.dns_outlined, 'NAS 연결 (바로 보기 · 받기)', act(() => openWebDavImport(rootContext))),
+      ],
+
+      // 서재에 연결한 NAS 폴더 (세 판 모두): 누르면 그 폴더의 것만, ⋮ 에서 다시 훑기 · 연결 끊기
+      if (state.nasFolders.isNotEmpty) ...[
+        section('NAS'),
+        for (final f in state.nasFolders)
+          ListTile(
+            dense: true,
+            visualDensity: VisualDensity.compact,
+            contentPadding: const EdgeInsets.only(left: 16, right: 0),
+            selected: state.libraryPath == f.url,
+            selectedTileColor: scheme.secondaryContainer,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            leading: Icon(state.offlineNas.contains(f.url) ? Icons.cloud_off : Icons.dns_outlined, size: 20,
+                color: state.offlineNas.contains(f.url) ? scheme.error : null),
+            title: Text(f.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: state.offlineNas.contains(f.url) ? Text('연결할 수 없음', style: TextStyle(color: scheme.error, fontSize: 11)) : null,
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('${state.nasCount(f)}', style: text.bodySmall),
+              IconButton(
+                tooltip: '다시 훑기 · 연결 끊기',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.more_vert, size: 18),
+                onPressed: act(() => showNasFolder(rootContext, f)),
+              ),
+            ]),
+            onTap: act(() => state.setLibrary(f.url)),
+          ),
       ],
 
       // 라이브러리 폴더 (설정에서 정한 순서 · 그룹 · 별칭)
@@ -374,7 +403,7 @@ class _Sidebar extends StatelessWidget {
         section('라이브러리 관리'),
         item(Icons.create_new_folder, '폴더 추가', act(() => addFolderFlow(rootContext))),
         item(Icons.note_add, '파일 추가', act(() => addFilesFlow(rootContext))),
-        item(Icons.dns, 'NAS · WebDAV 에서 가져오기', act(() => openWebDavImport(rootContext))),
+        item(Icons.dns, 'NAS · WebDAV (바로 보기 · 받기)', act(() => openWebDavImport(rootContext))),
         item(Icons.refresh, '다시 스캔', state.scanning ? null : act(() async {
           if (await ensureStorageAccess(rootContext)) await state.rescanAll();
         })),
@@ -564,7 +593,7 @@ class _TopActionBar extends StatelessWidget {
             itemBuilder: (_) => const [
               PopupMenuItem(value: 0, child: ListTile(leading: Icon(Icons.create_new_folder), title: Text('폴더 추가'), subtitle: Text('폴더 안의 책 · 만화 · 그림 · 영상을 찾아 추가'))),
               PopupMenuItem(value: 1, child: ListTile(leading: Icon(Icons.note_add), title: Text('파일 추가'), subtitle: Text('파일을 골라서 추가'))),
-              PopupMenuItem(value: 2, child: ListTile(leading: Icon(Icons.dns), title: Text('NAS · WebDAV 에서 가져오기'), subtitle: Text('NAS · 클라우드 · 다른 PC 의 ARARIFlex 에서 받아 오기'))),
+              PopupMenuItem(value: 2, child: ListTile(leading: Icon(Icons.dns), title: Text('NAS · WebDAV'), subtitle: Text('NAS 폴더를 연결해 받지 않고 바로 보거나, 받아 오기'))),
             ],
             child: IgnorePointer(
               child: FilledButton.icon(

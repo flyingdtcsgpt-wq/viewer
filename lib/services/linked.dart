@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'fd_file.dart';
+import 'remote.dart';
 import 'saf.dart';
 
 /// 연결한 폴더 하나 (플레이스토어판): 사용자가 시스템 폴더 선택 창에서 고른 폴더.
@@ -58,12 +59,16 @@ class Linked {
 
   static bool has(String path) => folders.isNotEmpty && of(path) != null;
 
+  /// 경로로 바로 열 수 없는 파일인가 (연결한 폴더 · NAS). 이런 파일은 File(경로) 로 확인 · 지우기를 하면 안 된다
+  static bool external(String path) => Remote.isRemote(path) || has(path);
+
   /// 연결한 폴더 기준 상대 경로 ('' = 폴더 자신)
   static String rel(LinkedFolder f, String path) => path.length <= f.path.length ? '' : path.substring(f.path.length + 1);
 
   /// 읽을 수 있게 연다. 연결한 폴더의 파일이 아니면 경로 그대로.
   /// 연결한 폴더의 파일인데 열지 못하면(SD 카드를 뺐거나 폴더 권한이 풀림) [FileSystemException]
   static Future<FileRef> ref(String path) async {
+    if (Remote.isRemote(path)) return FileRef(await Remote.cache(path)); // NAS: 통째로 받아 둔 것으로 (TXT · EPUB 처럼 작은 것에 쓴다)
     final f = of(path);
     if (f == null) return FileRef(path);
     final r = await Saf.openFd(tree: f.tree, rel: rel(f, path));
@@ -85,6 +90,7 @@ class Linked {
   }
 
   static Future<bool> exists(String path) async {
+    if (Remote.isRemote(path)) return Remote.exists(path);
     final f = of(path);
     if (f == null) return File(path).exists();
     final r = await Saf.openFd(tree: f.tree, rel: rel(f, path));
@@ -95,11 +101,19 @@ class Linked {
 
   /// 영상 플레이어 · 썸네일처럼 주소를 받는 곳에 넘길 content:// 주소 (연결한 폴더의 파일이 아니면 null)
   static Future<String?> uri(String path) async {
+    if (Remote.isRemote(path)) return Remote.uri(path).toString();
     final f = of(path);
     return f == null ? null : Saf.docUri(f.tree, rel(f, path));
   }
 
+  /// 영상 재생기에 같이 넘길 머리말 (NAS 의 로그인)
+  static Map<String, String> headers(String path) => Remote.isRemote(path) ? Remote.headers(path) : const {};
+
+  /// 경로로 열어야 하는 곳(RAR · EPUB 원본 보기 · 다른 앱)에 넘길 파일: NAS 면 받아 둔 것, 아니면 그대로
+  static Future<String> localCopy(String path) async => Remote.isRemote(path) ? Remote.cache(path) : path;
+
   static Future<bool> delete(String path) async {
+    if (Remote.isRemote(path)) return Remote.delete(path);
     final f = of(path);
     if (f == null) return false;
     return Saf.deleteIn(f.tree, rel(f, path));

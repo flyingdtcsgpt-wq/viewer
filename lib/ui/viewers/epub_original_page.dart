@@ -7,6 +7,7 @@ import 'package:webview_windows/webview_windows.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/epub_book.dart';
+import '../../services/linked.dart';
 import '../../services/settings.dart';
 import 'open_item.dart';
 import 'text_reader_page.dart';
@@ -51,7 +52,7 @@ class _EpubOriginalPageState extends State<EpubOriginalPage> {
     try {
       final version = await WebviewController.getWebViewVersion();
       if (version == null) throw Exception('WebView2 런타임이 없습니다');
-      _book = EpubBook.open(item.path);
+      _book = EpubBook.open(await Linked.localCopy(item.path)); // (NAS 의 EPUB 은 먼저 받아 둔다)
       _server = EpubLocalServer(_book!);
       _port = await _server!.start();
       // 저장된 위치: "장:비율"

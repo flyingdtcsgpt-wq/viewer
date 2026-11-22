@@ -21,10 +21,12 @@ import 'services/cover_service.dart';
 import 'services/linked.dart';
 import 'services/metadata_service.dart';
 import 'services/organizer.dart';
+import 'services/remote.dart';
 import 'services/saf.dart';
 import 'services/series_parser.dart';
 import 'services/settings.dart';
 import 'services/share_server.dart';
+import 'services/webdav_client.dart';
 
 enum SortBy { added, recent, title, author, rating }
 
@@ -293,6 +295,10 @@ class AppState extends ChangeNotifier {
       resetFilePath = p.join(dir.path, 'RESET_PASSWORD.txt');
       resetRequested = await File(resetFilePath).exists();
     } catch (_) {}
+    // 서재에 연결한 NAS (받지 않고 바로 보기)
+    Remote.accounts = settings.nasAccounts;
+    Remote.folders = settings.nasFolders;
+    Remote.password = settings.nasPassword;
     users = await db.users();
     _items = await db.all();
     _series
@@ -421,6 +427,111 @@ class AppState extends ChangeNotifier {
       }
     }
     return (added: added, gone: gone, failed: failed);
+  }
+
+  // ---- NAS 연결: NAS(WebDAV) 폴더를 받지 않고 그대로 서재로 (세 판 모두) ----
+  List<NasFolder> get nasFolders => Remote.folders;
+
+  /// 지금 연결할 수 없는 NAS 폴더 (NAS 가 꺼졌거나 다른 네트워크)
+  final Set<String> offlineNas = {};
+  DateTime _lastNasScan = DateTime(0);
+
+  int nasCount(NasFolder f) => _items.where((e) => e.path == f.url || e.path.startsWith('${f.url}/')).length;
+
+  /// 접속에 성공한 NAS 계정을 기억한다 (비밀번호는 이 기기에만 — 받지 않고 바로 보려면 필요)
+  void saveNasAccount(WebDavClient c) {
+    final origin = Remote.originOf(c.base.toString());
+    final next = [
+      NasAccount(origin: origin, user: c.user, insecure: c.insecure),
+      ...settings.nasAccounts.where((a) => a.origin != origin),
+    ];
+    settings.nasAccounts = next;
+    settings.setNasPassword(origin, c.password);
+    Remote.accounts = next;
+    Remote.reset();
+  }
+
+  /// [c] 서버의 [path](서버 안 경로) 폴더를 서재에 연결한다. 못 하면 까닭 (null = 연결됨)
+  Future<String?> linkNasFolder(WebDavClient c, String path, {String name = ''}) async {
+    saveNasAccount(c);
+    final clean = path.replaceAll(RegExp(r'/+$'), '');
+    final url = '${Remote.originOf(c.base.toString())}${clean.startsWith('/') ? clean : '/$clean'}';
+    final cur = Remote.folders;
+    for (final f in cur) {
+      if (f.url == url) return '이미 연결한 폴더입니다';
+      if (url.startsWith('${f.url}/')) return '이미 연결한 "${f.label}" 폴더 안에 있습니다';
+    }
+    // 새 폴더가 예전에 연결한 폴더를 품고 있으면 하나로 (안의 파일 경로가 같아 읽던 위치가 남는다)
+    final next = [...cur.where((f) => !f.url.startsWith('$url/')), NasFolder(url: url, name: name)];
+    settings.nasFolders = next;
+    Remote.folders = next;
+    notifyListeners();
+    unawaited(rescanNas());
+    return null;
+  }
+
+  /// 연결 끊기: 목록에서만 빠지고 NAS 의 파일은 그대로 (읽던 위치 · 책갈피는 사라진다)
+  Future<void> unlinkNasFolder(NasFolder f) async {
+    final gone = _items.where((e) => e.path == f.url || e.path.startsWith('${f.url}/')).toList();
+    final next = Remote.folders.where((x) => x.url != f.url).toList();
+    if (gone.isNotEmpty) await removeMany(items: gone);
+    settings.nasFolders = next;
+    Remote.folders = next;
+    offlineNas.remove(f.url);
+    if (libraryPath == f.url) libraryPath = null;
+    notifyListeners();
+  }
+
+  /// NAS 폴더를 지금 훑는다 (보통은 켤 때 · 10분에 한 번만)
+  Future<void> rescanNas() async {
+    for (var i = 0; i < 600 && scanning; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    _lastNasScan = DateTime(0);
+    await scanFolders(const [], nas: true);
+  }
+
+  /// NAS 의 파일 하나를 서재에 넣는다 ("바로 보기"). 이미 있으면 그것
+  Future<MediaItem?> addRemoteFile(String path, int size) async {
+    for (final e in _items) {
+      if (e.path == path) return e;
+    }
+    final item = await _addFile(path, ImportMode.reference, size: size);
+    if (item != null) notifyListeners();
+    return item;
+  }
+
+  /// NAS 폴더 하나 훑기: 새 파일은 넣고 사라진 파일은 뺀다. 연결할 수 없으면 아무것도 빼지 않는다 (읽던 위치를 잃지 않게)
+  Future<({int added, int gone, int failed})> _scanNas(NasFolder f) async {
+    final List<DavEntry> files;
+    try {
+      final sp = Remote.serverPath(f.url);
+      files = await Remote.client(f.url).walk(sp.endsWith('/') ? sp : '$sp/', (e) => kindForPath(e.name) != null);
+    } catch (_) {
+      offlineNas.add(f.url);
+      return (added: 0, gone: 0, failed: 0);
+    }
+    offlineNas.remove(f.url);
+    final origin = Remote.originOf(f.url);
+    var added = 0, failed = 0;
+    final seen = <String>{};
+    for (final e in files) {
+      final path = '$origin${e.path}';
+      if (path != f.url && !path.startsWith('${f.url}/')) continue;
+      seen.add(path);
+      try {
+        if (await _addFile(path, ImportMode.reference, size: e.size) != null) {
+          added++;
+          scanStatus = 'NAS 의 새 파일을 서재에 넣는 중 ($added): ${e.name}';
+          _progress();
+        }
+      } catch (_) {
+        failed++;
+      }
+    }
+    final lost = _items.where((e) => e.path.startsWith('${f.url}/') && !seen.contains(e.path)).toList();
+    if (lost.isNotEmpty) await removeMany(items: lost);
+    return (added: added, gone: lost.length, failed: failed);
   }
 
   Future<void> _cleanParts(String dir) async {
@@ -805,6 +916,7 @@ class AppState extends ChangeNotifier {
   Future<void> _syncOsHidden(Iterable<MediaItem> items) async {
     _hiddenChain.clear(); // 묶음 숨김이 방금 바뀌었을 수 있다
     for (final e in items) {
+      if (Linked.external(e.path)) continue; // (NAS 의 파일에는 이 기기의 숨김 속성을 걸 수 없다)
       final h = isHiddenItem(e);
       try {
         if (Platform.isWindows) {
@@ -887,7 +999,7 @@ class AppState extends ChangeNotifier {
     if (collection != Collection.none) return _collectionEntries(collection);
     final lib = libraryPath;
     if (lib != null) {
-      final sep = Platform.pathSeparator;
+      final sep = Remote.isRemote(lib) ? '/' : Platform.pathSeparator;
       final prefix = lib.endsWith(sep) ? lib : '$lib$sep';
       final q = query.toLowerCase();
       return (allItems
@@ -1506,7 +1618,7 @@ class AppState extends ChangeNotifier {
     await scanFolders([dir]);
   }
 
-  Future<void> rescanAll() => scanFolders(settings.watchFolders);
+  Future<void> rescanAll() => scanFolders(settings.watchFolders, nas: true);
 
   /// 돌고 있는 훑기가 있으면 끝나기를 기다렸다가 다시 훑는다 (방금 넣은 파일을 놓치지 않게)
   Future<void> rescanWhenFree() async {
@@ -1518,10 +1630,13 @@ class AppState extends ChangeNotifier {
 
   /// 폴더를 하위까지 훑어 지원하는 파일을 등록한다.
   /// 결과를 숫자로 알려준다 (권한 문제로 아무것도 못 읽은 경우를 알아보기 위해).
-  Future<void> scanFolders(List<String> dirs) async {
+  /// [nas]: 연결한 NAS 폴더도 (켤 때 · 다시 스캔. 돌아올 때마다 하지 않게 10분에 한 번)
+  Future<void> scanFolders(List<String> dirs, {bool nas = false}) async {
     if (scanning) return;
     scanning = true;
     var found = 0, added = 0, failed = 0, dirErrors = 0, missingDirs = 0, entries = 0;
+    var nasGone = 0;
+    final wasOfflineNas = {...offlineNas};
     try {
       for (final dir in dirs) {
         final d = Directory(dir);
@@ -1552,9 +1667,24 @@ class AppState extends ChangeNotifier {
           }
         }
       }
+      // NAS 폴더
+      if (nas && Remote.folders.isNotEmpty && DateTime.now().difference(_lastNasScan) > const Duration(minutes: 10)) {
+        _lastNasScan = DateTime.now();
+        for (final f in [...Remote.folders]) {
+          final r = await _scanNas(f);
+          added += r.added;
+          found += r.added;
+          failed += r.failed;
+          nasGone += r.gone;
+        }
+      }
+      final nasNotes = [
+        for (final f in Remote.folders)
+          if (offlineNas.contains(f.url) && !wasOfflineNas.contains(f.url)) 'NAS "${f.label}" 에 연결할 수 없습니다',
+      ];
       await checkMissing(within: dirs);
       // 플레이스토어판: 서재는 ARARIFlex 폴더 그 자체다 → 폴더에서 사라진 파일(PC 에서 지웠거나 옮긴 것)은 목록에서도 뺀다
-      var gone = 0;
+      var gone = nasGone;
       // 연결한 폴더 (기기 저장공간 · SD 카드): 시스템을 거쳐 훑는다
       final wasOffline = {...offlineLinked};
       if (kStore) {
@@ -1569,7 +1699,7 @@ class AppState extends ChangeNotifier {
         final lost = _items.where((e) => e.missing).toList();
         if (lost.isNotEmpty) {
           await removeMany(items: lost);
-          gone = lost.length;
+          gone += lost.length; // (NAS 에서 뺀 것과 합친다)
         }
       }
       final grouped = added > 0 && settings.autoGroup ? await autoGroup() : 0;
@@ -1582,6 +1712,7 @@ class AppState extends ChangeNotifier {
           for (final f in Linked.folders)
             if (offlineLinked.contains(f.path) && !wasOffline.contains(f.path))
               '"${f.label}" 폴더를 읽을 수 없습니다${f.removable ? ' (SD 카드를 확인하세요)' : ''}',
+          ...nasNotes,
         ].join(' · ');
         if (scanStatus.isNotEmpty) _clearStatusLater();
         return;
@@ -1592,10 +1723,12 @@ class AppState extends ChangeNotifier {
         if (grouped > 0) '$grouped개 시리즈로 묶음',
         if (failed > 0) '실패 $failed개',
         if (missingDirs > 0) '없는 폴더 $missingDirs개',
+        if (gone > 0) 'NAS 에서 사라진 $gone개 뺌',
+        ...nasNotes,
       ];
       scanStatus = '완료: ${parts.join(' · ')}';
       _clearStatusLater();
-      if (found == 0 && (entries == 0 || dirErrors > 0) && Platform.isAndroid) {
+      if (dirs.isNotEmpty && found == 0 && (entries == 0 || dirErrors > 0) && Platform.isAndroid) {
         scanStatus += '  — 폴더 안을 읽지 못했습니다. 저장소 권한("모든 파일 관리 허용")을 확인하세요.';
       }
     } catch (e) {
@@ -2035,8 +2168,8 @@ class AppState extends ChangeNotifier {
     for (final e in targets) {
       if (deleteFile) {
         try {
-          if (Linked.has(e.path)) {
-            // 연결한 폴더의 파일: 시스템을 거쳐 지운다 (못 지우면 목록에도 남긴다)
+          if (Linked.external(e.path)) {
+            // 연결한 폴더 · NAS 의 파일: 시스템 · NAS 를 거쳐 지운다 (못 지우면 목록에도 남긴다)
             if (!await Linked.delete(e.path) && await Linked.exists(e.path)) throw const FileSystemException('지우지 못했습니다');
           } else {
             final f = File(e.path);
@@ -2145,7 +2278,7 @@ class AppState extends ChangeNotifier {
     }
     bool inside(String path, String root) => p.equals(path, root) || p.isWithin(root, path);
     final targets = _items.where((e) {
-      if (Linked.has(e.path)) return false; // 연결한 폴더의 파일은 경로로 확인할 수 없다 (훑을 때 따로 본다)
+      if (Linked.external(e.path)) return false; // 연결한 폴더 · NAS 의 파일은 경로로 확인할 수 없다 (훑을 때 따로 본다)
       if (within != null && !within.any((r) => inside(e.path, r))) return false;
       return !offline.any((r) => inside(e.path, r));
     }).toList();

@@ -14,6 +14,7 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/background_reading.dart';
 import '../../services/ext_archive.dart';
+import '../../services/linked.dart';
 import '../../services/zip_pages.dart';
 import '../../services/settings.dart';
 import '../series_widgets.dart' show askText;
@@ -151,9 +152,10 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
         throw 'RAR · 7Z 만화는 아직 PC 버전에서만 열 수 있습니다. (ZIP · CBZ 는 휴대폰에서도 열립니다)';
       }
       if (ExtArchive.handles(item.path)) {
-        // RAR / 7Z: Windows 내장 tar 로 임시 폴더에 풀어서 읽는다
-        _ext = await ExtArchive.listImages(item.path);
-        _loader = PageLoader(item.path, _ext!, (i, b) {
+        // RAR / 7Z: Windows 내장 tar 로 임시 폴더에 풀어서 읽는다 (NAS 의 것은 먼저 통째로 받는다)
+        final src = await Linked.localCopy(item.path);
+        _ext = await ExtArchive.listImages(src);
+        _loader = PageLoader(src, _ext!, (i, b) {
           if (!mounted) return;
           setState(() => _cache[i] = b);
           _trim();

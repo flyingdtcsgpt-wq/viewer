@@ -10,6 +10,7 @@ import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../models/series.dart';
 import '../services/linked.dart';
+import '../services/remote.dart';
 import 'brand.dart';
 import 'browser.dart' show fileSize;
 import 'detail_page.dart';
@@ -711,7 +712,8 @@ Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = 
 
   // 플레이스토어판: 서재가 곧 폴더(ARARIFlex 폴더 · 연결한 폴더)라서 "목록에서만 빼기" 가 없다 (폴더에 남으면 다시 나타남)
   if (kStore) {
-    final linked = list.where((e) => Linked.has(e.path)).length; // 연결한 폴더(내 폴더 · SD 카드)의 실제 파일
+    final linked = list.where((e) => Linked.external(e.path)).length; // 연결한 폴더(내 폴더 · SD 카드) · NAS 의 실제 파일
+    final nas = list.where((e) => Remote.isRemote(e.path)).length;
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -721,9 +723,11 @@ Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = 
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(linked == 0
                 ? 'ARARIFlex 폴더 안에 있는 파일을 지웁니다. 되돌릴 수 없습니다.'
-                : linked == list.length
-                    ? '연결한 폴더(내 폴더 · SD 카드)에 있는 실제 파일을 지웁니다. 되돌릴 수 없습니다.'
-                    : '파일을 지웁니다(연결한 폴더의 실제 파일 $linked개 포함). 되돌릴 수 없습니다.'),
+                : nas == list.length
+                    ? 'NAS 에 있는 실제 파일을 지웁니다. 되돌릴 수 없습니다. (NAS 가 지우기를 막아 두었으면 지워지지 않고 목록에 남습니다)'
+                    : linked == list.length
+                        ? '연결한 폴더(내 폴더 · SD 카드 · NAS)에 있는 실제 파일을 지웁니다. 되돌릴 수 없습니다.'
+                        : '파일을 지웁니다(연결한 폴더 · NAS 의 실제 파일 $linked개 포함). 되돌릴 수 없습니다.'),
             if (isSeries) const Padding(padding: EdgeInsets.only(top: 6), child: Text('묶음 안의 모든 권이 함께 지워집니다.')),
             const SizedBox(height: 10),
             if (linked > 0)
@@ -779,7 +783,9 @@ Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = 
               context: ctx,
               builder: (c2) => AlertDialog(
                 title: Text('정말 파일 ${list.length}개를 지울까요?'),
-                content: const Text('저장 장치에서 파일이 삭제됩니다. 되돌릴 수 없습니다.'),
+                content: Text(list.any((e) => Remote.isRemote(e.path))
+                    ? '저장 장치 · NAS 에서 파일이 삭제됩니다. 되돌릴 수 없습니다.'
+                    : '저장 장치에서 파일이 삭제됩니다. 되돌릴 수 없습니다.'),
                 actions: [
                   TextButton(onPressed: () => Navigator.pop(c2), child: const Text('아니오')),
                   FilledButton(
@@ -801,6 +807,13 @@ Future<bool?> confirmDelete(BuildContext context, String what, {bool isSeries = 
 
 /// 긴 저장소 경로를 읽기 쉽게: /storage/emulated/0/Android/data/…/ARARIFlex/만화/a.cbz → ARARIFlex 폴더 › 만화 › a.cbz
 String friendlyPath(String path) {
+  // NAS: http://192.168.0.10:5005/home/만화/a.cbz → NAS 192.168.0.10 › home › 만화 › a.cbz
+  if (Remote.isRemote(path)) {
+    final f = Remote.folderOf(path);
+    final host = Uri.tryParse(Remote.originOf(path))?.host ?? '';
+    final rest = (f == null ? Remote.serverPath(path) : path.substring(f.url.length)).split('/').where((s) => s.isNotEmpty);
+    return ['NAS ${f?.label ?? host}', ...rest].join(' › ');
+  }
   const mark = '/files/ARARIFlex/';
   final i = path.indexOf(mark);
   if (kStore && i >= 0) return 'ARARIFlex 폴더 › ${path.substring(i + mark.length).split('/').join(' › ')}';

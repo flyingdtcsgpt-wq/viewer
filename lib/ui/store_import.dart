@@ -10,6 +10,7 @@ import '../services/linked.dart';
 import '../services/saf.dart';
 import 'browser.dart' show fileSize;
 import 'guide.dart';
+import 'webdav_import.dart';
 
 /// 플레이스토어판: 파일 · 폴더를 앱의 "ARARIFlex 폴더" 로 가져오기
 ///
@@ -41,6 +42,12 @@ Future<void> openStoreImport(BuildContext context) async {
           onTap: () => Navigator.pop(ctx, 1),
         ),
         ListTile(
+          leading: const Icon(Icons.dns_outlined),
+          title: const Text('NAS 연결'),
+          subtitle: const Text('NAS(WebDAV) 의 폴더를 받지 않고 바로 보기 · 필요한 것만 받기'),
+          onTap: () => Navigator.pop(ctx, 4),
+        ),
+        ListTile(
           leading: const Icon(Icons.help_outline),
           title: const Text('다른 방법으로 넣기'),
           subtitle: const Text('다른 앱에서 공유 · PC 에서 USB 로'),
@@ -53,6 +60,7 @@ Future<void> openStoreImport(BuildContext context) async {
   if (v == null || !context.mounted) return;
   if (v == 2) return showStoreFolderHelp(context);
   if (v == 3) return linkFolderFlow(context);
+  if (v == 4) return openWebDavImport(context);
   List<SafEntry> files;
   String? tree;
   if (v == 0) {

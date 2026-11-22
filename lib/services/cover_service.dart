@@ -18,6 +18,7 @@ import '../models/media_item.dart';
 import 'ext_archive.dart';
 import 'fd_file.dart';
 import 'linked.dart';
+import 'remote.dart';
 
 /// EPUB 내부 메타데이터 (파일 자체에서 뽑아낸 정보)
 class EmbeddedInfo {
@@ -52,6 +53,7 @@ class CoverService {
   /// 반환: 커버 이미지 경로 (없으면 null)
   Future<String?> generate(MediaItem item) async {
     try {
+      if (Remote.isRemote(item.path)) return await _remoteCover(item);
       switch (item.kind) {
         case MediaKind.image:
           // 큰 사진을 목록마다 다시 풀지 않게 작은 표지를 따로 만든다 (못 읽는 형식이면 원본)
@@ -82,13 +84,21 @@ class CoverService {
   /// 쪽수: 만화 zip/cbz 는 이미지 수, PDF 는 페이지 수. 모르면 null
   Future<int?> pageCount(MediaItem item) async {
     try {
+      // NAS: 통째로 받지 않고 셀 수 있는 것만 (만화 = 목차, PDF = 필요한 부분만)
+      if (Remote.isRemote(item.path)) {
+        return switch (item.extension) {
+          '.cbz' || '.zip' => (await RemoteZip.openPath(item.path, size: item.size)).images.length,
+          '.pdf' => await _withPdf(item.path, (doc) async => doc.pages.length, size: item.size),
+          _ => null,
+        };
+      }
       switch (item.extension) {
         case '.cbz' || '.zip':
           return (await Linked.use(item.path, (r) => Isolate.run(() => _zipProbe(r, cover: false)))).pages;
         case '.cbr' || '.rar' || '.cb7' || '.7z' when ExtArchive.supported:
           return (await ExtArchive.listImages(item.path)).length;
         case '.pdf':
-          return await _withPdf(item.path, (doc) async => doc.pages.length);
+          return await _withPdf(item.path, (doc) async => doc.pages.length, size: item.size);
       }
     } catch (_) {}
     return null;
@@ -124,8 +134,18 @@ class CoverService {
   Future<EmbeddedInfo?> readEpubInfo(String path) => Linked.use(path, (r) => Isolate.run(() => _readEpubInfoSync(r)));
 }
 
-/// PDF 를 열어 [body] 를 하고 닫는다. 연결한 폴더의 파일이면 시스템이 열어 준 파일 번호로 읽는다
-Future<T> _withPdf<T>(String path, Future<T> Function(PdfDocument doc) body) async {
+/// PDF 를 열어 [body] 를 하고 닫는다. 연결한 폴더의 파일이면 시스템이 열어 준 파일 번호로, NAS 면 필요한 부분만 받아 읽는다
+Future<T> _withPdf<T>(String path, Future<T> Function(PdfDocument doc) body, {int size = 0}) async {
+  if (Remote.isRemote(path)) {
+    final len = size > 0 ? size : (await Remote.size(path) ?? 0);
+    final rr = RemoteReader(path, len);
+    final doc = await PdfDocument.openCustom(read: rr.read, fileSize: len, sourceName: path);
+    try {
+      return await body(doc);
+    } finally {
+      await doc.dispose();
+    }
+  }
   if (!Linked.has(path)) {
     final doc = await PdfDocument.openFile(path);
     try {
@@ -266,8 +286,41 @@ extension _CoverMore on CoverService {
     return _thumbFile(path, () => ExtArchive.readOne(path, names.first));
   }
 
+  // ---------- NAS: 통째로 받지 않고 표지 만들기 ----------
+  Future<String?> _remoteCover(MediaItem item) async {
+    switch (item.kind) {
+      case MediaKind.video:
+        return null; // (영상 표지는 아직 — 목록에서는 영상 그림이 대신 나온다)
+      case MediaKind.image:
+        final local = await Remote.cache(item.path, size: item.size);
+        return _thumbFile(item.path, () => File(local).readAsBytes()); // 못 만들면 표지 없이 (NAS 주소를 그림 파일로 쓰지 않는다)
+      case MediaKind.book:
+      case MediaKind.comic:
+        switch (item.extension) {
+          case '.cbz' || '.zip':
+            try {
+              final z = await RemoteZip.openPath(item.path, size: item.size);
+              final imgs = z.images;
+              item.pages ??= imgs.length;
+              if (imgs.isEmpty) return null;
+              final first = await z.read(imgs.first);
+              return _thumbFile(item.path, () async => first);
+            } on RangeUnsupported {
+              return null; // 나눠 받기를 못 하는 서버: 표지 때문에 만화를 통째로 받지는 않는다
+            }
+          case '.epub':
+            final local = await Remote.cache(item.path, size: item.size); // EPUB 은 작다
+            return _thumbFile(item.path, () => Isolate.run(() => _epubCoverBytes(FileRef(local))));
+          case '.pdf':
+            return _pdfFirstPage(item.path, size: item.size);
+          default:
+            return null;
+        }
+    }
+  }
+
   // ---------- PDF ----------
-  Future<String?> _pdfFirstPage(String path) => _withPdf(path, (doc) async {
+  Future<String?> _pdfFirstPage(String path, {int size = 0}) => _withPdf(path, size: size, (doc) async {
       if (doc.pages.isEmpty) return null;
       final page = doc.pages.first;
       const targetW = 480.0;

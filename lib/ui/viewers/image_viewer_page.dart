@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/background_reading.dart';
+import '../../services/remote.dart';
 import '../../services/settings.dart';
 import '../detail_page.dart';
 
@@ -319,8 +320,8 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
               // 위아래로 넘기기에서는 휠 확대를 끄고 위에서 직접 다룬다
               scaleFactor: vertical ? 1e9 : kDefaultMouseScrollToScaleFactor,
               child: SizedBox.expand(
-                child: Image.file(
-                  File(widget.images[i].path),
+                child: Image(
+                  image: _provider(widget.images[i]),
                   fit: BoxFit.contain,
                   filterQuality: FilterQuality.medium,
                   errorBuilder: (_, e, _) => Center(child: Text('열 수 없는 이미지\n$e', style: const TextStyle(color: Colors.white70))),
@@ -333,6 +334,12 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
     );
   }
 
+  /// 그림 읽기: 이 기기의 파일은 그대로, NAS 의 그림은 받아 두고
+  ImageProvider _provider(MediaItem m, {int? cacheWidth}) {
+    final ImageProvider base = Remote.isRemote(m.path) ? RemoteImage(m.path) : FileImage(File(m.path));
+    return ResizeImage.resizeIfNeeded(cacheWidth, null, base);
+  }
+
   /// 위아래로 이어 보기: 그림을 화면 폭에 맞춰 세로로 이어 붙인다
   Widget _continuous() {
     final view = MediaQuery.sizeOf(context);
@@ -341,12 +348,11 @@ class _ImageViewerPageState extends State<ImageViewerPage> {
     Widget item(int i) => KeyedSubtree(
           key: _itemKeys.putIfAbsent(i, () => GlobalKey()),
           child: Center(
-            child: Image.file(
-              File(widget.images[i].path),
+            child: Image(
+              // 화면에 보이는 크기로만 풀어 메모리를 아낀다 (큰 사진 여러 장이 한꺼번에 올라오므로)
+              image: _provider(widget.images[i], cacheWidth: (w * dpr).round()),
               width: w,
               fit: BoxFit.fitWidth,
-              // 화면에 보이는 크기로만 풀어 메모리를 아낀다 (큰 사진 여러 장이 한꺼번에 올라오므로)
-              cacheWidth: (w * dpr).round(),
               filterQuality: FilterQuality.medium,
               gaplessPlayback: true,
               // 아직 못 읽은 그림은 자리를 잡아 둔다 (높이 0 이면 뒤 그림들이 한꺼번에 불려 온다)

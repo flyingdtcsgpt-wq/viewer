@@ -399,3 +399,21 @@ docs/                       DEV_NOTES.md(이 파일), MANUAL.md(사용 설명서
 - **다시 깐 뒤 연결한 폴더**: 설정은 복원되지만 폴더 권한은 사라진다 → `offlineLinked`. 같은 폴더를 다시 고르면 `linkFolder` 가 권한만 되살리고 다시 훑는다(경로가 같아 읽던 위치가 그대로)
 - 다음에 할 것(실기기에서 폴더 연결 확인 뒤): 앱 폴더의 파일을 내 폴더로 옮기기(파일까지 백업), 플레이스토어판 그림(가족 사진), NAS
 
+## 20. NAS 바로 보기 (11-22): 받지 않고 그 자리에서 — 세 판 모두
+- **경로**: NAS 파일은 서재에 풀어 쓴 주소 그대로 넣는다 `http://192.168.0.10:5005/home/만화/코난 01.cbz` (`Remote.isRemote`). 요청할 때만 `Remote.uri` 로 주소 꼴로 바꾼다.
+  계정은 주소 앞부분(`originOf`)마다 `Settings.nasAccounts`, 비밀번호는 `nasPw_<origin>`(이 기기에만, `exportForBackup` 에서 뺌). 연결 폴더는 `Settings.nasFolders` → `Remote.folders`
+- **읽기** (`services/remote.dart`)
+  - 만화 ZIP: `RemoteZip` — 끝 64KB 에서 목차 끝(EOCD, ZIP64 포함)을 찾고 목차를 읽은 뒤, 쪽마다 그 파일의 머리+내용만 Range 로 받아 푼다(0 = 그대로, 8 = `ZLibDecoder(raw: true)`).
+    이름은 UTF-8 표시 → UTF-8, 없으면 UTF-8 시도 후 CP949. `ZipPages.open` 이 NAS 면 `_RemotePages`, 서버가 Range 를 무시하면(200) `RangeUnsupported` → 통째로 받아 보통 길로
+  - PDF: `RemoteReader`(256KB 덩어리, 48개 기억) → `PdfViewer.custom` · `PdfDocument.openCustom`. pdfrx 는 읽기 함수가 비동기여도 된다(PDFium 쪽 스레드가 기다린다)
+  - 영상: `Media(주소, httpHeaders: Basic)`, 자체 서명 인증서면 mpv `tls-verify=no`. 영상 표지는 아직 없음
+  - TXT · EPUB · RAR · 그림 · 다른 앱으로 열기: `Remote.cache`(임시 폴더 nas_cache, 2GB 넘으면 오래된 것부터 지움) → `Linked.ref` · `Linked.localCopy`
+  - 그림 보기: `RemoteImage`(ImageProvider)
+- 연결은 주소마다 `HttpClient` 하나를 돌려 쓴다(keep-alive, 4개까지 동시). 401 은 "NAS 아이디 · 비밀번호" 오류로
+- **훑기** `_scanNas`: `WebDavClient.walk`(폴더마다 PROPFIND Depth 1) → 새 파일 등록(표지: ZIP 첫 그림 · PDF 첫 쪽 · EPUB 은 받아서), 사라진 파일은 목록에서 뺀다.
+  연결할 수 없으면 `offlineNas` 에 넣고 아무것도 빼지 않는다. `rescanAll` 은 10분에 한 번만 NAS 를 훑는다(플레이스토어판은 돌아올 때마다 훑으므로), `rescanNas` 는 바로
+- **안전장치**: `Linked.external`(연결 폴더 · NAS)인 파일은 `checkMissing` · OS 숨김 속성 · 탐색기 열기에서 뺀다. 지우기는 WebDAV DELETE(읽기 전용 서버면 실패 → 목록에 남김).
+  공유 서버는 NAS 항목을 내보내지 않는다(이 기기에 파일이 없고, 서로 물고 도는 것을 막음). 파일 도구도 NAS 항목은 뺀다. 폴더별 보기는 NAS 주소면 `/` 로 자른다(Windows)
+- **점검**: `test/remote_test.dart`(작은 Range 서버로 ZIP 목차 · 쪽만 받기 · 덩어리 읽기 · 로그인), 통합 `CHECK nas`(우리 공유 서버를 NAS 로 연결 → 훑기 · 표지 · 만화 쪽 · PDF · TXT · 뷰어 · 끊기)
+- **권한**: 인터넷만. 안드로이드 17(API 37) 을 목표로 올릴 때 집 안 주소 접속에 `ACCESS_LOCAL_NETWORK`(근처 기기 묶음, 실행 중 허용) 를 처음 연결할 때 물어야 한다
+

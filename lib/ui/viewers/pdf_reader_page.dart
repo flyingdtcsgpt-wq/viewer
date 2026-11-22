@@ -12,6 +12,7 @@ import '../../services/settings.dart';
 import '../../services/background_reading.dart';
 import '../../services/fd_file.dart';
 import '../../services/linked.dart';
+import '../../services/remote.dart';
 import '../../services/pdf_text.dart';
 import 'open_item.dart';
 import 'read_aloud.dart';
@@ -59,12 +60,25 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
       ScreenAwake.hold();
     }
     if (_linked) _openLinked();
+    if (_remote) _openRemote();
   }
 
   bool _awake = false; // 화면 켜 두기를 걸었는가
 
   // 연결한 폴더의 파일: 열어 둔 파일 번호로 읽는다
   late final bool _linked = Linked.has(item.path);
+  late final bool _remote = Remote.isRemote(item.path); // NAS: 필요한 부분만 받아 읽는다
+  RemoteReader? _rr;
+
+  Future<void> _openRemote() async {
+    try {
+      final size = item.size > 0 ? item.size : await Remote.size(item.path);
+      if (size == null || size <= 0) throw 'NAS 에서 파일 크기를 알 수 없습니다';
+      if (mounted) setState(() => _rr = RemoteReader(item.path, size));
+    } catch (e) {
+      if (mounted) setState(() => _openError = e);
+    }
+  }
   FileRef? _ref;
   RandomReader? _reader;
   Object? _openError;
@@ -166,6 +180,14 @@ class _PdfReaderPageState extends State<PdfReaderPage> {
         _scrollStrip();
       },
     );
+    if (_remote) {
+      final rr = _rr;
+      if (_openError != null) {
+        return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('$_openError', style: const TextStyle(color: Colors.white70), textAlign: TextAlign.center)));
+      }
+      if (rr == null) return const Center(child: CircularProgressIndicator());
+      return PdfViewer.custom(fileSize: rr.length, read: rr.read, sourceName: item.path, controller: _ctrl, initialPageNumber: _page, params: params);
+    }
     if (!_linked) return PdfViewer.file(item.path, controller: _ctrl, initialPageNumber: _page, params: params);
     final rd = _reader;
     if (_openError != null) {

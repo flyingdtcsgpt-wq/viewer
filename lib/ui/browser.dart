@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../models/entry.dart';
 import '../models/media_item.dart';
 import '../models/series.dart';
+import '../services/linked.dart';
 import '../services/settings.dart';
 import 'batch_editor_page.dart';
 import 'brand.dart';
@@ -955,7 +956,7 @@ Future<void> showEntryMenu(BuildContext context, Entry e, Offset at, List<MediaI
     ],
     if (!kStore && e is ItemEntry && !multi && (e.item.extension == '.txt' || e.item.extension == '.epub'))
       item('listen', Icons.record_voice_over, '소리 내어 읽기로 열기'),
-    if (e is ItemEntry && !multi && Platform.isWindows) item('explorer', Icons.folder_open, '탐색기에서 열기'),
+    if (e is ItemEntry && !multi && Platform.isWindows && !Linked.external(e.item.path)) item('explorer', Icons.folder_open, '탐색기에서 열기'),
     if (admin) ...[
       const PopupMenuDivider(),
       item('delete', Icons.delete_outline, multi ? '선택한 ${state.selected.length}개 삭제' : '삭제', key: 'Del', color: Colors.redAccent),

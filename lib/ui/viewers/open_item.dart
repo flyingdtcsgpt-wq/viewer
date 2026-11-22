@@ -10,6 +10,7 @@ import '../../app_state.dart';
 import '../../models/media_item.dart';
 import '../../services/ext_archive.dart';
 import '../../services/linked.dart';
+import '../../services/remote.dart';
 import '../../services/background_reading.dart';
 import '../../services/settings.dart';
 import '../cover_tile.dart';
@@ -28,7 +29,9 @@ Future<void> openItem(BuildContext context, MediaItem item, {List<MediaItem>? si
     if (context.mounted) {
       final f = Linked.of(item.path);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(f == null
+          content: Text(Remote.isRemote(item.path)
+              ? 'NAS 에서 열 수 없습니다. NAS 가 켜져 있고 같은 네트워크(Wi-Fi)인지 확인하세요'
+              : f == null
               ? '원본 파일을 찾을 수 없습니다: ${item.path}'
               : f.removable
                   ? '파일을 열 수 없습니다. SD 카드(또는 USB)가 꽂혀 있는지 확인하세요'

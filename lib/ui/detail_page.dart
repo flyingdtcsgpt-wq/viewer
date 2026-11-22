@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../edition.dart';
 import '../app_state.dart';
 import '../models/media_item.dart';
+import '../services/linked.dart';
 import 'cover_tile.dart';
 import 'metadata_search_dialog.dart';
 import 'browser.dart' show fileSize, removeFromContinueWithUndo, showRatingDialog;
@@ -17,6 +18,7 @@ import 'viewers/open_item.dart';
 
 /// 기본 앱으로 열기 (open_filex 는 모바일 전용이라 데스크톱은 OS 명령 사용)
 Future<void> openWithSystem(String path) async {
+  path = await Linked.localCopy(path); // NAS 의 파일은 받아 둔 것으로 연다
   if (Platform.isAndroid || Platform.isIOS) {
     await OpenFilex.open(path);
   } else if (Platform.isWindows) {
@@ -210,7 +212,7 @@ class _DetailPageState extends State<DetailPage> {
           (Icons.open_in_new, '다른 앱으로', () => openWithSystem(item.path)),
           (Icons.image, '커버 변경', _pickCover),
           if (item.coverPath != null) (Icons.crop, '표지 편집', _editCover),
-          if (Platform.isWindows) (Icons.folder_open, '폴더 열기', () => Process.run('explorer.exe', ['/select,${item.path}'])),
+          if (Platform.isWindows && !Linked.external(item.path)) (Icons.folder_open, '폴더 열기', () => Process.run('explorer.exe', ['/select,${item.path}'])),
         ])
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 10)),

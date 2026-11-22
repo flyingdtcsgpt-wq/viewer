@@ -6,6 +6,7 @@ import '../../models/entry.dart';
 import '../../models/media_item.dart';
 import '../batch_editor_page.dart';
 import '../../services/ext_archive.dart';
+import '../../services/remote.dart';
 import 'archive_tool_pages.dart';
 import 'convert_tool_pages.dart';
 
@@ -23,7 +24,7 @@ class ToolsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final items = targets(state);
+    final items = targets(state).where((e) => !Remote.isRemote(e.path)).toList(); // (NAS 의 파일은 이 기기에서 고칠 수 없다)
     final zips = items.where((e) => e.extension == '.cbz' || e.extension == '.zip').toList();
     final txts = items.where((e) => e.extension == '.txt').toList();
     void go(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));
