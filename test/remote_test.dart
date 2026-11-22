@@ -6,6 +6,14 @@ import 'package:archive/archive_io.dart';
 import 'package:arariflex/services/remote.dart';
 import 'package:arariflex/services/webdav_client.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+
+class _TempPaths extends PathProviderPlatform {
+  _TempPaths(this.dir);
+  final String dir;
+  @override
+  Future<String?> getTemporaryPath() async => dir;
+}
 
 /// NAS 받지 않고 보기: 주소 다루기, 나눠 받기(Range)로 ZIP · 큰 파일 읽기, 로그인
 void main() {
@@ -121,6 +129,26 @@ void main() {
       expect(buf, Uint8List.sublistView(big, 300000, 400000));
       // 파일 끝을 넘으면 남은 만큼만
       expect(await r.read(buf, big.length - 10, 100), 10);
+    });
+
+    test('통째로 받아 임시 보관 (TXT · EPUB 처럼 작은 것), 두 번째는 받지 않는다', () async {
+      final tmp = Directory.systemTemp.createTempSync('arari_nas_cache');
+      PathProviderPlatform.instance = _TempPaths(tmp.path);
+      try {
+        final f = await Remote.cache('$base/큰 파일.bin').timeout(const Duration(seconds: 20));
+        expect(File(f).readAsBytesSync(), big);
+        final before = requests;
+        final again = await Remote.cache('$base/큰 파일.bin', size: big.length).timeout(const Duration(seconds: 20));
+        expect(again, f);
+        expect(requests, before); // 이미 받은 것
+        // 크기를 모를 때 (HEAD 로 묻는다)
+        final z = await Remote.cache('$base/만화/코난 01.cbz').timeout(const Duration(seconds: 20));
+        expect(File(z).lengthSync(), zipBytes.length);
+      } finally {
+        try {
+          tmp.deleteSync(recursive: true);
+        } catch (_) {}
+      }
     });
 
     test('있는지 · 없는지 · 비밀번호가 틀리면', () async {

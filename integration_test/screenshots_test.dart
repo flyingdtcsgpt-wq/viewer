@@ -1560,6 +1560,11 @@ void main() {
               return n;
             });
           }
+          final txtE = files.where((e) => e.name.endsWith('.txt')).firstOrNull;
+          if (txtE != null) {
+            await timed('tempDir', () => getTemporaryDirectory(), sec: 20);
+            await timed('cacheTxt', () => Remote.cache('$origin${txtE.path}', size: txtE.size), sec: 30);
+          }
           // 2) 서재에 연결 → 훑기 (목록만, 표지는 뒤에서)
           final err = await timed('link', () => state.linkNasFolder(c, '/dav/', name: '시험 NAS'));
           await timed('scan', () => state.rescanNas(), sec: 120);

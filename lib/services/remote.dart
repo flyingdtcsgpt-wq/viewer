@@ -266,16 +266,40 @@ class Remote {
       return out.path;
     }
     final part = File('${out.path}.part');
-    final res = await _send('GET', path);
-    if (res.statusCode != 200) {
-      await _drop(res);
-      throw WebDavError(res.statusCode == 404 ? 'NAS 에 그 파일이 없습니다' : 'NAS 에서 받지 못했습니다 (${res.statusCode})');
-    }
+    final sink = part.openWrite();
     try {
-      await res.pipe(part.openWrite());
+      // 4MB 씩 나눠 받는다 (쪽 · PDF 를 읽을 때와 같은 길). 나눠 받기를 못 하는 서버면 통째로
+      final total = (size != null && size > 0) ? size : await Remote.size(path);
+      var done = false;
+      if (total != null && total > 0) {
+        try {
+          const chunk = 4 * 1024 * 1024;
+          for (var at = 0; at < total; at += chunk) {
+            sink.add(await range(path, at, math.min(chunk, total - at)));
+          }
+          done = true;
+        } on RangeUnsupported {
+          // 아래에서 통째로
+        }
+      }
+      if (!done) {
+        final res = await _send('GET', path);
+        if (res.statusCode != 200) {
+          await _drop(res);
+          throw WebDavError(res.statusCode == 404 ? 'NAS 에 그 파일이 없습니다' : 'NAS 에서 받지 못했습니다 (${res.statusCode})');
+        }
+        // 1분 동안 아무것도 오지 않으면 포기 (서버가 멈췄을 때 끝없이 기다리지 않게)
+        await for (final c in res.timeout(const Duration(minutes: 1))) {
+          sink.add(c);
+        }
+      }
+      await sink.close();
       if (await out.exists()) await out.delete();
       await part.rename(out.path);
     } catch (_) {
+      try {
+        await sink.close();
+      } catch (_) {}
       if (await part.exists()) await part.delete();
       rethrow;
     }
